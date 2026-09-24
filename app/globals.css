@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+* {
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+  background: #f9f9ff;
+  color: #161c27;
+  font-family: "Plus Jakarta Sans", "Segoe UI", Arial, sans-serif;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button,
+a,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+::selection {
+  background: #ffdea5;
+  color: #0b192c;
+}
+
+@layer components {
+  .eyebrow {
+    @apply text-[11px] font-bold uppercase;
+    color: #c5a059;
+    letter-spacing: 0.1em;
+  }
+  .field-label {
+    @apply mb-2 block text-[11px] font-bold uppercase;
+    color: rgba(22, 28, 39, 0.75);
+    letter-spacing: 0.08em;
+  }
+  .field-control {
+    @apply h-12 w-full rounded-md border border-transparent px-11 text-[15px] outline-none transition placeholder:text-slate-500/70 focus:bg-white;
+    background: #f1f3ff;
+    color: #161c27;
+  }
+  .field-control:focus {
+    border-color: #c5a059;
+    box-shadow: 0 0 0 3px rgba(197, 160, 89, 0.2);
+  }
+  .gold-button {
+    @apply inline-flex h-12 items-center justify-center gap-2 rounded-md px-6 text-xs font-bold uppercase shadow-[0_6px_18px_rgba(197,160,89,0.2)] transition hover:bg-[#f3ca7d] focus:outline-none disabled:cursor-not-allowed disabled:opacity-60;
+    background: #ffdea5;
+    color: #0b192c;
+    letter-spacing: 0.06em;
+  }
+  .navy-button {
+    @apply inline-flex h-12 items-center justify-center gap-2 rounded-md border px-6 text-xs font-bold uppercase text-white transition focus:outline-none;
+    border-color: #0b192c;
+    background: #0b192c;
+    letter-spacing: 0.06em;
+  }
+  .navy-button:hover {
+    background: #1e3e62;
+  }
+}
