@@ -58,7 +58,7 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      await register({
+      const user = await register({
         fullName: form.fullName,
         email: form.email,
         phone: form.phone,
@@ -66,7 +66,9 @@ export default function RegisterPage() {
         roleName,
       });
       setMessage(
-        "Đăng ký thành công. Tài khoản đang chờ Club Manager phê duyệt.",
+        user.status === "APPROVED"
+          ? "Đăng ký thành công. Bạn có thể đăng nhập ngay."
+          : "Đăng ký thành công. Tài khoản đang chờ Club Manager phê duyệt.",
       );
       setForm({
         fullName: "",
@@ -220,9 +222,17 @@ export default function RegisterPage() {
               <div className="flex gap-3 rounded-md bg-[#fff7e9] p-4 text-xs leading-5 text-[#674b12]">
                 <AlertTriangle className="shrink-0" size={19} />
                 <p>
-                  <strong>Lưu ý quan trọng:</strong> Tài khoản sẽ ở trạng thái{" "}
-                  <strong>CHỜ DUYỆT (PENDING)</strong> và cần Club Manager phê
-                  duyệt.
+                  {roleName !== "HORSE_OWNER" ? (
+                    <>
+                      Tài khoản cần được <strong>Club Manager</strong> phê duyệt
+                      trước khi đăng nhập.
+                    </>
+                  ) : (
+                    <>
+                      Chủ ngựa được đăng nhập ngay sau khi đăng ký. Quyền xem dữ
+                      liệu ngựa cần được xác nhận quyền sở hữu riêng.
+                    </>
+                  )}
                 </p>
               </div>
               <label className="flex cursor-pointer items-start gap-3 text-xs leading-5 text-slate-600">

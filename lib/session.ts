@@ -6,14 +6,24 @@ const ACCESS_TOKEN_KEY = "racehorse.accessToken";
 const REFRESH_TOKEN_KEY = "racehorse.refreshToken";
 const USER_KEY = "racehorse.user";
 
-export function saveSession(auth: AuthResponse) {
-  localStorage.setItem(ACCESS_TOKEN_KEY, auth.accessToken);
-  localStorage.setItem(REFRESH_TOKEN_KEY, auth.refreshToken);
-  localStorage.setItem(USER_KEY, JSON.stringify(auth.user));
+export function saveSession(auth: AuthResponse, remember = true) {
+  clearSession();
+  const storage = remember ? localStorage : sessionStorage;
+  storage.setItem(ACCESS_TOKEN_KEY, auth.accessToken);
+  storage.setItem(REFRESH_TOKEN_KEY, auth.refreshToken);
+  storage.setItem(USER_KEY, JSON.stringify(auth.user));
+}
+
+function read(key: string) {
+  return sessionStorage.getItem(key) ?? localStorage.getItem(key);
+}
+
+export function isRemembered() {
+  return localStorage.getItem(REFRESH_TOKEN_KEY) !== null;
 }
 
 export function getUser(): AuthUser | null {
-  const raw = localStorage.getItem(USER_KEY);
+  const raw = read(USER_KEY);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as AuthUser;
@@ -24,15 +34,17 @@ export function getUser(): AuthUser | null {
 }
 
 export function getRefreshToken() {
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
+  return read(REFRESH_TOKEN_KEY);
 }
 
 export function getAccessToken() {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
+  return read(ACCESS_TOKEN_KEY);
 }
 
 export function clearSession() {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+  for (const storage of [localStorage, sessionStorage]) {
+    storage.removeItem(ACCESS_TOKEN_KEY);
+    storage.removeItem(REFRESH_TOKEN_KEY);
+    storage.removeItem(USER_KEY);
+  }
 }

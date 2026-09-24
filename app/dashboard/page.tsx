@@ -3,18 +3,23 @@
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { routeForRole } from "@/lib/roles";
-import { getUser } from "@/lib/session";
+import { validateSession } from "@/lib/api";
 
 export default function DashboardPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const currentUser = getUser();
-    if (!currentUser) {
-      router.replace("/login");
-      return;
-    }
-    router.replace(routeForRole(currentUser.roleName));
+    let active = true;
+    validateSession()
+      .then((user) => {
+        if (active) router.replace(routeForRole(user.roleName));
+      })
+      .catch(() => {
+        if (active) router.replace("/login");
+      });
+    return () => {
+      active = false;
+    };
   }, [router]);
 
   return (

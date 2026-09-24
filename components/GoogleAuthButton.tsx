@@ -46,20 +46,26 @@ export function GoogleAuthButton({
       return;
     }
 
+    let active = true;
+    const failed = () => {
+      if (active) setConfigured(false);
+    };
     const render = () => {
-      if (!window.google || !buttonRef.current) return;
+      if (!active || !window.google || !buttonRef.current) return;
       buttonRef.current.innerHTML = "";
       window.google.accounts.id.initialize({
         client_id: clientId,
         callback: async ({ credential }) => {
           try {
-            onSuccess(await loginWithGoogle(credential, roleName));
+            const response = await loginWithGoogle(credential, roleName);
+            if (active) onSuccess(response);
           } catch (error) {
-            onError(
-              error instanceof Error
-                ? error.message
-                : "Không thể đăng nhập bằng Google",
-            );
+            if (active)
+              onError(
+                error instanceof Error
+                  ? error.message
+                  : "Không thể đăng nhập bằng Google",
+              );
           }
         },
       });
@@ -69,7 +75,7 @@ export function GoogleAuthButton({
         size: "large",
         text: label,
         shape: "rectangular",
-        width: Math.min(buttonRef.current.clientWidth, 520),
+        width: Math.min(buttonRef.current.clientWidth, 400),
       });
     };
 
@@ -79,14 +85,25 @@ export function GoogleAuthButton({
     if (existing) {
       if (window.google) render();
       else existing.addEventListener("load", render, { once: true });
-      return;
+      existing.addEventListener("error", failed);
+      return () => {
+        active = false;
+        existing.removeEventListener("load", render);
+        existing.removeEventListener("error", failed);
+      };
     }
     const script = document.createElement("script");
     script.src = "https://accounts.google.com/gsi/client";
     script.async = true;
     script.defer = true;
-    script.onload = render;
+    script.addEventListener("load", render);
+    script.addEventListener("error", failed);
     document.head.appendChild(script);
+    return () => {
+      active = false;
+      script.removeEventListener("load", render);
+      script.removeEventListener("error", failed);
+    };
   }, [label, onError, onSuccess, roleName]);
 
   if (!configured)
@@ -95,7 +112,7 @@ export function GoogleAuthButton({
         className="h-12 w-full rounded-md bg-equine-mist text-sm font-semibold text-equine-ink"
         onClick={() =>
           onError(
-            "Chưa cấu hình NEXT_PUBLIC_GOOGLE_CLIENT_ID trong file .env.local",
+            "Đăng nhập Google hiện chưa khả dụng. Vui lòng dùng email hoặc thử lại sau.",
           )
         }
         type="button"

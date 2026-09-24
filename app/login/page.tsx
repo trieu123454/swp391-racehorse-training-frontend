@@ -31,10 +31,10 @@ export default function LoginPage() {
 
   const completeLogin = useCallback(
     (auth: AuthResponse) => {
-      saveSession(auth);
+      saveSession(auth, remember);
       router.replace(routeForRole(auth.user.roleName));
     },
-    [router],
+    [router, remember],
   );
   const showError = useCallback((message: string) => setError(message), []);
 
@@ -135,7 +135,9 @@ export default function LoginPage() {
                   Ghi nhớ đăng nhập
                 </label>
                 <button
-                  className="font-semibold text-equine-gold hover:underline"
+                  disabled
+                  title="Chức năng đang được phát triển"
+                  className="font-semibold text-slate-400 disabled:cursor-not-allowed"
                   type="button"
                 >
                   Quên mật khẩu?

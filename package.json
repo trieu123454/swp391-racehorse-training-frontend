@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.cjs",
+    "lint": "eslint app components lib"
   },
   "dependencies": {
     "@fontsource/be-vietnam-pro": "^5.3.0",
@@ -20,10 +22,18 @@
     "typescript": "^5.7.2"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.3.7",
     "autoprefixer": "^10.4.20",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^15.5.25",
     "playwright-core": "^1.63.0",
-    "postcss": "^8.4.49",
+    "postcss": "^8.5.23",
     "prettier": "^3.9.8",
     "tailwindcss": "^3.4.17"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "$postcss"
+    }
   }
 }

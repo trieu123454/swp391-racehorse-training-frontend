@@ -13,9 +13,9 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Brand } from "@/components/Brand";
-import { logout as logoutApi } from "@/lib/api";
+import { logout as logoutApi, validateSession } from "@/lib/api";
 import { roleForSlug, roleLabels, routeForRole } from "@/lib/roles";
-import { clearSession, getRefreshToken, getUser } from "@/lib/session";
+import { clearSession, getRefreshToken } from "@/lib/session";
 import type { AuthUser } from "@/lib/types";
 
 export default function RoleDashboardPage() {
@@ -24,22 +24,31 @@ export default function RoleDashboardPage() {
   const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
-    const current = getUser();
-    if (!current) {
-      router.replace("/login");
-      return;
-    }
-    if (roleForSlug(role) !== current.roleName) {
-      router.replace(routeForRole(current.roleName));
-      return;
-    }
-    setUser(current);
+    let active = true;
+    setUser(null);
+    validateSession()
+      .then((current) => {
+        if (!active) return;
+        if (roleForSlug(role) !== current.roleName) {
+          router.replace(routeForRole(current.roleName));
+          return;
+        }
+        setUser(current);
+      })
+      .catch(() => {
+        if (active) router.replace("/login");
+      });
+    return () => {
+      active = false;
+    };
   }, [role, router]);
 
   async function handleLogout() {
     const refreshToken = getRefreshToken();
     try {
       if (refreshToken) await logoutApi(refreshToken);
+    } catch {
+      // Still clear the local session when the server is unavailable.
     } finally {
       clearSession();
       router.replace("/");
