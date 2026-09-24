@@ -127,7 +127,7 @@ export default function RegisterPage() {
         <section className="flex min-w-0 max-w-full items-center overflow-hidden px-5 py-10 sm:px-12 lg:px-16">
           <div className="mx-auto w-full min-w-0 max-w-[720px]">
             <Brand />
-            <h1 className="mt-5 font-serif text-3xl font-semibold text-equine-navy sm:text-5xl">
+            <h1 className="mt-5 font-sans text-3xl font-semibold text-equine-navy sm:text-5xl">
               Đăng ký tài khoản mới
             </h1>
             <p className="mt-2 text-sm text-slate-600">

@@ -21,8 +21,7 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ["Plus Jakarta Sans", "Segoe UI", "Arial", "sans-serif"],
-        serif: ["Playfair Display", "Georgia", "serif"],
+        sans: ["Be Vietnam Pro", "Segoe UI", "Arial", "sans-serif"],
       },
     },
   },

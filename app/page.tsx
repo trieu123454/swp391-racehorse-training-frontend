@@ -64,14 +64,14 @@ export default function HomePage() {
         />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(11,25,44,0.98)_0%,rgba(11,25,44,0.76)_46%,rgba(11,25,44,0.12)_100%)]" />
         <div className="relative mx-auto w-full max-w-[1440px] px-5 pb-16 pt-28 sm:px-8 lg:px-12 lg:pb-20">
-          <div className="max-w-3xl">
+          <div className="hero-content max-w-3xl">
             <div className="mb-8 inline-flex items-center gap-2 border border-equine-gold/50 bg-equine-navy/60 px-3 py-2 text-[10px] font-bold uppercase text-equine-champagne backdrop-blur-sm">
               <Sparkles size={14} /> Hệ điều hành hoàng gia · Chuẩn quốc tế FEI
             </div>
             <p className="eyebrow mb-3 text-equine-champagne">
               Equine Sovereign Protocol
             </p>
-            <h1 className="font-serif text-4xl font-semibold leading-[1.06] sm:text-5xl lg:text-7xl">
+            <h1 className="font-sans text-4xl font-semibold leading-[1.2] sm:text-5xl lg:text-6xl">
               Nền Tảng Quản Lý &amp; Huấn Luyện Chiến Mã Đỉnh Cao
             </h1>
             <p className="mt-6 max-w-2xl text-sm leading-7 text-white/75 sm:text-base">
@@ -83,7 +83,7 @@ export default function HomePage() {
                 Bắt đầu ngay <ArrowRight size={17} />
               </Link>
               <a
-                className="inline-flex h-12 items-center rounded-md border border-white/25 bg-white/10 px-6 text-xs font-bold uppercase text-white backdrop-blur-sm transition hover:bg-white/20"
+                className="soft-button border-white/25 bg-white/10 text-white backdrop-blur-sm hover:bg-white/20"
                 href="#vai-tro"
               >
                 Khám phá các phân hệ
@@ -130,7 +130,7 @@ export default function HomePage() {
         <p className="eyebrow">Kiến trúc phân quyền vận hành</p>
         <div className="mt-3 flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
-            <h2 className="max-w-3xl font-serif text-3xl font-semibold text-equine-navy sm:text-4xl">
+            <h2 className="max-w-3xl font-sans text-3xl font-semibold text-equine-navy sm:text-4xl">
               Hệ Sinh Thái Phân Quyền 5 Vai Trò Chuyên Biệt
             </h2>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
@@ -145,7 +145,7 @@ export default function HomePage() {
         <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-6">
           {roles.map(({ icon: Icon, title, code, text }, index) => (
             <article
-              className={`border border-equine-line bg-white p-6 transition hover:border-equine-gold hover:shadow-[0_12px_32px_-8px_rgba(197,160,89,0.18)] ${index < 2 ? "lg:col-span-3" : "lg:col-span-2"}`}
+              className={`feature-card border border-equine-line bg-white p-6 transition hover:border-equine-gold hover:shadow-[0_12px_32px_-8px_rgba(197,160,89,0.18)] ${index < 2 ? "lg:col-span-3" : "lg:col-span-2"}`}
               key={code}
             >
               <div className="flex items-start justify-between gap-4">
@@ -156,7 +156,7 @@ export default function HomePage() {
                   {code}
                 </span>
               </div>
-              <h3 className="mt-5 font-serif text-xl text-equine-navy">
+              <h3 className="mt-5 font-sans text-xl text-equine-navy">
                 {title}
               </h3>
               <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p>
@@ -168,7 +168,7 @@ export default function HomePage() {
         <div className="mx-auto grid max-w-[1360px] gap-10 rounded-md bg-equine-navy p-8 text-white shadow-xl md:grid-cols-2 md:p-12">
           <div>
             <p className="eyebrow text-equine-champagne">Đột phá kỹ thuật số</p>
-            <h2 className="mt-3 font-serif text-3xl font-semibold">
+            <h2 className="mt-3 font-sans text-3xl font-semibold">
               Số Hóa Phả Hệ 5 Đời Cùng Telemetry Bước Chạy
             </h2>
             <p className="mt-4 text-sm leading-7 text-white/70">
@@ -194,7 +194,7 @@ export default function HomePage() {
       </section>
       <section className="px-5 py-24 text-center sm:px-8">
         <Users className="mx-auto text-equine-gold" size={28} />
-        <h2 className="mx-auto mt-5 max-w-2xl font-serif text-3xl font-semibold text-equine-navy">
+        <h2 className="mx-auto mt-5 max-w-2xl font-sans text-3xl font-semibold text-equine-navy">
           Sẵn Sàng Nâng Tầm Chuẩn Mực Quản Trị Đua Ngựa?
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-sm text-slate-600">
@@ -206,7 +206,7 @@ export default function HomePage() {
             Đăng ký tài khoản mới
           </Link>
           <Link
-            className="inline-flex h-12 items-center rounded-md bg-equine-mist px-7 text-xs font-bold uppercase text-equine-navy transition hover:bg-equine-line"
+            className="soft-button bg-equine-mist text-equine-navy hover:bg-equine-line"
             href="/login"
           >
             Đăng nhập cổng điều hành

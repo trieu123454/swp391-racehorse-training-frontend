@@ -24,7 +24,7 @@ export function AuthVisual({ mode }: { mode: "login" | "register" }) {
       </div>
       <div className="absolute inset-x-0 bottom-0 p-10">
         <p className="eyebrow text-equine-champagne">Đặc quyền hội viên</p>
-        <h2 className="mt-3 max-w-lg font-serif text-4xl font-semibold leading-tight">
+        <h2 className="mt-3 max-w-lg font-sans text-4xl font-semibold leading-tight">
           {mode === "login" ? (
             "Chiến mã huyền thoại được tôi luyện từ kỷ luật."
           ) : (
@@ -60,7 +60,7 @@ export function AuthVisual({ mode }: { mode: "login" | "register" }) {
           </div>
         ) : (
           <div className="mt-8 border-l-2 border-equine-gold bg-equine-navy/70 p-6 backdrop-blur">
-            <p className="font-serif text-xl italic leading-8">
+            <p className="font-sans text-xl italic leading-8">
               “Chiến mã huyền thoại được tôi luyện từ kỷ luật và khoa học huấn
               luyện chính xác.”
             </p>

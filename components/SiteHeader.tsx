@@ -21,10 +21,10 @@ export function SiteHeader() {
         <Link aria-label="Về trang chủ" href="/">
           <Brand compact light />
         </Link>
-        <nav className="hidden items-center gap-6 lg:flex">
+        <nav className="hidden items-center gap-5 xl:flex">
           {links.map(([label, href]) => (
             <Link
-              className="text-[10px] font-bold uppercase text-white/72 transition hover:text-equine-champagne"
+              className="nav-link text-[13px] font-medium text-white/80 transition hover:text-equine-champagne"
               href={href}
               key={label}
             >
@@ -34,21 +34,20 @@ export function SiteHeader() {
         </nav>
         <div className="hidden items-center gap-2 sm:flex">
           <Link
-            className="px-4 py-2 text-[10px] font-bold uppercase text-white/80 hover:text-equine-champagne"
+            className="nav-link px-4 py-2 text-[13px] font-semibold text-white/80 hover:text-equine-champagne"
             href="/login"
           >
             Đăng nhập
           </Link>
-          <Link
-            className="rounded-sm bg-equine-champagne px-5 py-2.5 text-[10px] font-bold uppercase text-equine-navy"
-            href="/register"
-          >
+          <Link className="gold-button !h-10 !px-5" href="/register">
             Đăng ký
           </Link>
         </div>
         <button
           aria-label={open ? "Đóng menu" : "Mở menu"}
-          className="grid h-10 w-10 place-items-center sm:hidden"
+          aria-expanded={open}
+          aria-controls="mobile-navigation"
+          className="grid h-10 w-10 place-items-center rounded-full hover:bg-white/10 xl:hidden"
           onClick={() => setOpen(!open)}
           type="button"
         >
@@ -56,7 +55,10 @@ export function SiteHeader() {
         </button>
       </div>
       {open ? (
-        <nav className="border-t border-white/10 px-5 py-4 sm:hidden">
+        <nav
+          id="mobile-navigation"
+          className="mobile-menu border-t border-white/10 px-5 py-4 xl:hidden"
+        >
           {links.map(([label, href]) => (
             <Link
               className="block py-3 text-sm text-white/80"
@@ -68,16 +70,10 @@ export function SiteHeader() {
             </Link>
           ))}
           <div className="mt-3 grid grid-cols-2 gap-3">
-            <Link
-              className="border border-white/20 py-3 text-center text-xs font-bold uppercase"
-              href="/login"
-            >
+            <Link className="soft-button border-white/20" href="/login">
               Đăng nhập
             </Link>
-            <Link
-              className="bg-equine-champagne py-3 text-center text-xs font-bold uppercase text-equine-navy"
-              href="/register"
-            >
+            <Link className="gold-button" href="/register">
               Đăng ký
             </Link>
           </div>

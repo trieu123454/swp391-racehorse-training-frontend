@@ -71,7 +71,7 @@ export default function LoginPage() {
         <section className="flex min-h-[720px] min-w-0 max-w-full items-center overflow-hidden px-5 py-10 sm:px-12 lg:px-16">
           <div className="mx-auto w-full min-w-0 max-w-[550px]">
             <Brand />
-            <h1 className="mt-8 font-serif text-3xl font-semibold text-equine-navy sm:text-5xl">
+            <h1 className="mt-8 font-sans text-3xl font-semibold text-equine-navy sm:text-5xl">
               Đăng nhập hệ thống
             </h1>
             <p className="mt-3 text-sm leading-6 text-slate-600">

@@ -18,7 +18,7 @@ export function Brand({
       />
       <div className="min-w-0">
         <p
-          className={`truncate font-serif font-semibold ${compact ? "text-sm sm:text-base" : "text-lg sm:text-xl"} ${light ? "text-equine-champagne" : "text-equine-navy"}`}
+          className={`truncate font-sans font-semibold ${compact ? "text-sm sm:text-base" : "text-lg sm:text-xl"} ${light ? "text-equine-champagne" : "text-equine-navy"}`}
         >
           EQUINE SOVEREIGN
         </p>

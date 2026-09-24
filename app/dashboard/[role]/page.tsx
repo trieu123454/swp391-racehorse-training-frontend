@@ -71,7 +71,7 @@ export default function RoleDashboardPage() {
       </header>
       <section className="mx-auto max-w-[1200px] px-5 py-12 sm:px-8">
         <p className="eyebrow">Bảng điều khiển chuyên biệt</p>
-        <h1 className="mt-2 font-serif text-4xl font-semibold text-equine-navy">
+        <h1 className="mt-2 font-sans text-4xl font-semibold text-equine-navy">
           Xin chào, {user.fullName}
         </h1>
         <p className="mt-2 text-sm text-slate-600">
@@ -149,7 +149,7 @@ function Feature({
   return (
     <div className="bg-equine-navy p-6 text-white">
       <Icon className="text-equine-champagne" size={22} />
-      <h2 className="mt-5 font-serif text-xl">{title}</h2>
+      <h2 className="mt-5 font-sans text-xl">{title}</h2>
       <p className="mt-2 text-sm leading-6 text-white/65">{text}</p>
     </div>
   );
