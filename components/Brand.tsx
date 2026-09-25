@@ -13,7 +13,7 @@ export function Brand({
         alt="Royal Equine"
         className="rounded-sm"
         height={compact ? 34 : 46}
-        src="/images/equine-logo.png"
+        src="/images/equine-logo.webp"
         width={compact ? 34 : 46}
       />
       <div className="min-w-0">

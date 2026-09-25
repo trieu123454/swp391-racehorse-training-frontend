@@ -6,11 +6,11 @@ import { useState } from "react";
 import { Brand } from "./Brand";
 
 const links = [
-  ["Trang chủ", "/"],
-  ["Chuồng trại", "/#vai-tro"],
-  ["Huấn luyện", "/#vai-tro"],
-  ["Phả hệ & Di truyền", "/#pha-he"],
-  ["Giải đấu", "/#vai-tro"],
+  ["Trang chủ", "/#top"],
+  ["Nền tảng", "/#tong-quan"],
+  ["Quy trình", "/#quy-trinh"],
+  ["Vai trò", "/#vai-tro"],
+  ["Vận hành", "/#van-hanh"],
 ];
 
 export function SiteHeader() {
@@ -70,10 +70,10 @@ export function SiteHeader() {
             </Link>
           ))}
           <div className="mt-3 grid grid-cols-2 gap-3">
-            <Link className="soft-button border-white/20" href="/login">
+            <Link className="soft-button border-white/20" href="/login" onClick={() => setOpen(false)}>
               Đăng nhập
             </Link>
-            <Link className="gold-button" href="/register">
+            <Link className="gold-button" href="/register" onClick={() => setOpen(false)}>
               Đăng ký
             </Link>
           </div>

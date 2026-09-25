@@ -8,9 +8,9 @@ export function AuthVisual({ mode }: { mode: "login" | "register" }) {
         alt="Chiến mã trong chuồng ngựa cao cấp"
         className="object-cover"
         fill
-        priority
+        quality={80}
         sizes="(max-width: 1200px) 42vw, 650px"
-        src="/images/stable-horse.png"
+        src="/images/stable-horse.webp"
       />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(11,25,44,0.2),rgba(11,25,44,0.92))]" />
       <div className="absolute inset-x-0 top-0 flex items-center justify-between p-10">

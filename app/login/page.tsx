@@ -66,7 +66,7 @@ export default function LoginPage() {
           <Brand compact />
         </div>
       </div>
-      <div className="mx-auto grid min-w-0 max-w-[1360px] grid-cols-[minmax(0,1fr)] overflow-hidden rounded-lg bg-white shadow-[0_24px_60px_-20px_rgba(11,25,44,0.25)] lg:grid-cols-[1fr_1.08fr]">
+      <div className="auth-card mx-auto grid min-w-0 max-w-[1360px] grid-cols-[minmax(0,1fr)] overflow-hidden rounded-[28px] border border-equine-line/70 bg-white shadow-[0_30px_80px_-40px_rgba(11,25,44,0.5)] lg:grid-cols-[1fr_1.08fr]">
         <AuthVisual mode="login" />
         <section className="flex min-h-[720px] min-w-0 max-w-full items-center overflow-hidden px-5 py-10 sm:px-12 lg:px-16">
           <div className="mx-auto w-full min-w-0 max-w-[550px]">

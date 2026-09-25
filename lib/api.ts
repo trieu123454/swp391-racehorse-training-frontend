@@ -84,13 +84,40 @@ export function logout(refreshToken: string) {
 }
 
 let sessionCheck: Promise<AuthUser> | null = null;
+const SESSION_CACHE_TTL_MS = 60_000;
+let validatedSession: {
+  accessToken: string | null;
+  refreshToken: string | null;
+  validatedAt: number;
+  user: AuthUser;
+} | null = null;
 
 // Share validation across dashboard mounts (including React Strict Mode).
 export function validateSession(): Promise<AuthUser> {
+  const accessToken = getAccessToken();
+  const refreshToken = getRefreshToken();
+  if (
+    validatedSession &&
+    Date.now() - validatedSession.validatedAt < SESSION_CACHE_TTL_MS &&
+    validatedSession.accessToken === accessToken &&
+    validatedSession.refreshToken === refreshToken
+  ) {
+    return Promise.resolve(validatedSession.user);
+  }
   if (sessionCheck) return sessionCheck;
-  sessionCheck = restoreSession().finally(() => {
-    sessionCheck = null;
-  });
+  sessionCheck = restoreSession()
+    .then((user) => {
+      validatedSession = {
+        accessToken: getAccessToken(),
+        refreshToken: getRefreshToken(),
+        validatedAt: Date.now(),
+        user,
+      };
+      return user;
+    })
+    .finally(() => {
+      sessionCheck = null;
+    });
   return sessionCheck;
 }
 

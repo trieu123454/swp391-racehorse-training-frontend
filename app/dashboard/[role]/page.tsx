@@ -4,36 +4,32 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   Activity,
-  CalendarDays,
-  ClipboardList,
-  HeartPulse,
-  LogOut,
+  Filter,
+  Pencil,
+  Plus,
+  Search,
   ShieldCheck,
   UserRound,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Brand } from "@/components/Brand";
-import { logout as logoutApi, validateSession } from "@/lib/api";
+import { HorseImage, Notice, StatusBadge } from "@/components/HorseUI";
+import HorseShell, { useHorseUser } from "@/components/HorseShell";
+import { validateSession } from "@/lib/api";
+import { errorMessage, getHorseStables, listHorses, type Horse, type Stable } from "@/lib/horses";
 import { roleForSlug, roleLabels, routeForRole } from "@/lib/roles";
-import { clearSession, getRefreshToken } from "@/lib/session";
 import type { AuthUser } from "@/lib/types";
 
 export default function RoleDashboardPage() {
   const { role } = useParams<{ role: string }>();
   const router = useRouter();
-  const [user, setUser] = useState<AuthUser | null>(null);
-
   useEffect(() => {
     let active = true;
-    setUser(null);
     validateSession()
       .then((current) => {
         if (!active) return;
         if (roleForSlug(role) !== current.roleName) {
           router.replace(routeForRole(current.roleName));
-          return;
         }
-        setUser(current);
       })
       .catch(() => {
         if (active) router.replace("/login");
@@ -43,42 +39,14 @@ export default function RoleDashboardPage() {
     };
   }, [role, router]);
 
-  async function handleLogout() {
-    const refreshToken = getRefreshToken();
-    try {
-      if (refreshToken) await logoutApi(refreshToken);
-    } catch {
-      // Still clear the local session when the server is unavailable.
-    } finally {
-      clearSession();
-      router.replace("/");
-    }
-  }
+  return <HorseShell><RoleDashboardContent /></HorseShell>;
+}
 
-  if (!user)
-    return (
-      <main className="grid min-h-screen place-items-center bg-equine-paper text-sm text-slate-600">
-        Đang xác thực quyền truy cập...
-      </main>
-    );
+function RoleDashboardContent() {
+  const user = useHorseUser();
 
   return (
-    <main className="min-h-screen bg-equine-paper">
-      <header className="border-b border-white/10 bg-equine-navy text-white">
-        <div className="mx-auto flex h-20 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
-          <Link href="/">
-            <Brand compact light />
-          </Link>
-          <button
-            className="flex items-center gap-2 rounded-md border border-white/20 px-4 py-2 text-xs font-bold uppercase text-white/80 hover:bg-white/10"
-            onClick={handleLogout}
-            type="button"
-          >
-            <LogOut size={16} /> Đăng xuất
-          </button>
-        </div>
-      </header>
-      <section className="mx-auto max-w-[1200px] px-5 py-12 sm:px-8">
+    <section className="dashboard-workspace">
         <p className="eyebrow">Bảng điều khiển chuyên biệt</p>
         <h1 className="mt-2 font-sans text-4xl font-semibold text-equine-navy">
           Xin chào, {user.fullName}
@@ -100,29 +68,12 @@ export default function RoleDashboardPage() {
             value={user.status === "APPROVED" ? "Đã phê duyệt" : user.status}
           />
         </div>
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
-          <Feature
-            icon={CalendarDays}
-            title="Lịch làm việc"
-            text="Theo dõi lịch trình và nhiệm vụ được phân công."
-          />
-          <Feature
-            icon={ClipboardList}
-            title="Hồ sơ chuyên môn"
-            text="Truy cập dữ liệu phù hợp với quyền của bạn."
-          />
-          <Feature
-            icon={HeartPulse}
-            title="Thông báo hệ thống"
-            text="Các cảnh báo quan trọng sẽ xuất hiện tại đây."
-          />
-        </div>
-        <p className="mt-10 rounded-md border border-equine-gold/25 bg-white p-5 text-sm text-slate-600">
-          Phần dashboard nghiệp vụ sẽ được phát triển ở giai đoạn tiếp theo.
-          Luồng đăng nhập, phân quyền và đăng xuất hiện đã sẵn sàng.
-        </p>
-      </section>
-    </main>
+        {user.roleName === "CLUB_MANAGER" || user.roleName === "HEAD_TRAINER" || user.roleName === "VETERINARIAN" || user.roleName === "GROOM" || user.roleName === "HORSE_OWNER" ? <HorseDashboardPanel user={user} /> : (
+          <div className="mt-10 rounded-md border border-equine-gold/25 bg-white p-5 text-sm text-slate-600">
+            Chức năng chuyên môn của vai trò này sẽ được hiển thị tại đây khi phân hệ tương ứng được triển khai.
+          </div>
+        )}
+    </section>
   );
 }
 
@@ -146,20 +97,47 @@ function Info({
   );
 }
 
-function Feature({
-  icon: Icon,
-  title,
-  text,
-}: {
-  icon: typeof UserRound;
-  title: string;
-  text: string;
-}) {
+function HorseDashboardPanel({ user }: { user: AuthUser }) {
+  const [horses, setHorses] = useState<Horse[]>([]);
+  const [stables, setStables] = useState<Stable[]>([]);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("ALL");
+  const [stable, setStable] = useState("ALL");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    Promise.all([
+      listHorses({ search: search.trim() || undefined, currentStatus: status === "ALL" ? undefined : status, stableBoxId: stable === "ALL" ? undefined : stable }),
+      getHorseStables(),
+    ]).then(([page, nextStables]) => {
+      if (!active) return;
+      setHorses(page.items);
+      setStables(nextStables);
+    }).catch((reason) => { if (active) setError(errorMessage(reason)); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [search, stable, status]);
+
   return (
-    <div className="bg-equine-navy p-6 text-white">
-      <Icon className="text-equine-champagne" size={22} />
-      <h2 className="mt-5 font-sans text-xl">{title}</h2>
-      <p className="mt-2 text-sm leading-6 text-white/65">{text}</p>
-    </div>
+    <section className="mt-10" aria-labelledby="horse-workspace-title">
+      <div className="flex flex-col gap-4 border-b border-equine-line pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="eyebrow">Flow 1 · Làm việc trực tiếp</p>
+          <h2 id="horse-workspace-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Hồ sơ ngựa</h2>
+          <p className="mt-2 text-sm text-slate-600">Danh sách đã được lọc theo quyền của tài khoản này.</p>
+        </div>
+        {user.roleName === "CLUB_MANAGER" && <Link href="/horses/new" className="gold-button self-start"><Plus size={17} /> Thêm ngựa mới</Link>}
+      </div>
+
+      {user.roleName !== "HORSE_OWNER" && <div className="mt-5 grid gap-3 rounded-2xl border border-equine-line bg-white p-4 shadow-sm md:grid-cols-[1.4fr_1fr_1fr]">
+        <label className="flex items-center gap-3 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2.5"><Search size={16} className="text-slate-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none" placeholder="Tìm theo tên ngựa..." /></label>
+        <label className="flex items-center gap-3 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2.5"><Filter size={16} className="text-slate-500" /><select value={status} onChange={(event) => setStatus(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none"><option value="ALL">Tất cả trạng thái</option><option value="Healthy">Khỏe mạnh</option><option value="Under Observation">Cần theo dõi</option><option value="Injured">Chấn thương</option><option value="Quarantine">Cách ly</option></select></label>
+        <select value={stable} onChange={(event) => setStable(event.target.value)} className="rounded-xl border border-equine-line bg-[#f7f9ff] px-3 text-sm outline-none"><option value="ALL">Tất cả chuồng</option>{stables.map((item) => <option key={item.id} value={item.id}>{item.box_code} - {item.section}</option>)}</select>
+      </div>}
+
+      <div className="mt-5">{error ? <Notice error>{error}</Notice> : loading ? <Notice>Đang tải hồ sơ ngựa...</Notice> : horses.length === 0 ? <Notice>Chưa có hồ sơ ngựa phù hợp.</Notice> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{horses.map((horse) => <article key={horse.id} className="horse-card overflow-hidden rounded-2xl border border-equine-line bg-white shadow-sm"><div className="h-44 bg-[#eef2ff]"><HorseImage horse={horse} /></div><div className="space-y-3 p-4"><div className="flex items-start justify-between gap-2"><div><h3 className="font-sans text-xl font-semibold text-equine-navy">{horse.horse_name}</h3><p className="text-sm text-slate-600">{horse.breed ?? "Chưa cập nhật"}</p></div><StatusBadge horse={horse} /></div><div className="text-sm text-slate-600"><p><strong>Chuồng:</strong> {horse.box_code ?? horse.stable_box_id}</p><p><strong>Chủ:</strong> {horse.owner_name ?? "Chưa gán"}</p></div><div className="flex flex-wrap gap-2 pt-1"><Link href={`/horses/${horse.id}`} className="soft-button h-10 px-4 text-equine-navy">Xem chi tiết</Link>{user.roleName === "CLUB_MANAGER" && <Link href={`/horses/${horse.id}/edit`} className="soft-button h-10 px-4 text-slate-700"><Pencil size={14} /> Sửa</Link>}</div></div></article>)}</div>}</div>
+    </section>
   );
 }
