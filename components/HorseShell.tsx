@@ -27,6 +27,10 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     let cachedUser: AuthUser | null = null;
     try {
       cachedUser = getUser();
+      if (cachedUser?.mustChangePassword) {
+        router.replace("/change-password");
+        return () => { active = false; };
+      }
       if (cachedUser?.status === "APPROVED") setUser(cachedUser);
     } catch {
       cachedUser = null;
@@ -34,6 +38,11 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     setError("");
     validateSession().then(current => {
       if (!active) return;
+      if (current.mustChangePassword) {
+        setUser(null);
+        router.replace("/change-password");
+        return;
+      }
       if (current.status !== "APPROVED" || !["CLUB_MANAGER", "HEAD_TRAINER", "VETERINARIAN", "GROOM", "HORSE_OWNER"].includes(current.roleName)) {
         setUser(null);
         setError("Tài khoản của bạn chưa có quyền truy cập quản lý ngựa."); return;
@@ -58,7 +67,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   return <UserContext.Provider value={user}><div className="horse-app">
     {open && <button className="horse-nav-overlay" aria-label="Đóng menu" onClick={() => setOpen(false)} />}
     <aside className={`horse-sidebar ${open ? "is-open" : ""}`}>
-      <Link href="/" className="horse-brand"><Brand compact light /></Link>
+      <Link href="/" className="horse-brand"><Brand compact /></Link>
       <button className="horse-mobile-close horse-icon-button" aria-label="Đóng menu" onClick={() => setOpen(false)}><X /></button>
       <p className="horse-nav-label">KHÔNG GIAN QUẢN LÝ</p>
       <nav aria-label="Điều hướng quản lý"><Link href={routeForRole(user.roleName)} className={pathname.startsWith("/dashboard") ? "active" : ""} aria-current={pathname.startsWith("/dashboard") ? "page" : undefined}><LayoutDashboard size={19} />Bảng điều khiển</Link><Link href="/horses" className={pathname.startsWith("/horses") ? "active" : ""} aria-current={pathname.startsWith("/horses") ? "page" : undefined}><Shield size={19} />Quản lý ngựa</Link>{user.roleName === "CLUB_MANAGER" && <Link href="/club-manager/users" className={pathname.startsWith("/club-manager") ? "active" : ""} aria-current={pathname.startsWith("/club-manager") ? "page" : undefined}><Shield size={19} />Quản lý tài khoản</Link>}</nav>

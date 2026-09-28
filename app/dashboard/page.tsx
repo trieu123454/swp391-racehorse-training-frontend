@@ -12,7 +12,12 @@ export default function DashboardPage() {
     let active = true;
     validateSession()
       .then((user) => {
-        if (active) router.replace(routeForRole(user.roleName));
+        if (active)
+          router.replace(
+            user.mustChangePassword
+              ? "/change-password"
+              : routeForRole(user.roleName),
+          );
       })
       .catch(() => {
         if (active) router.replace("/login");

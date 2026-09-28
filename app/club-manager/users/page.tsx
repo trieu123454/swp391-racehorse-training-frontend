@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Check, Filter, Lock, Pencil, RefreshCw, ShieldX, UserRound, X } from "lucide-react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Check, Copy, Filter, Lock, Pencil, RefreshCw, ShieldX, UserPlus, UserRound, X } from "lucide-react";
 import HorseShell, { useHorseUser } from "@/components/HorseShell";
 import { Modal, Notice } from "@/components/HorseUI";
 import {
   approveUser,
   clubManagerError,
+  createStaffAccount,
   handleRoleChange,
   listPendingUsers,
   listRoleChangeRequests,
@@ -15,6 +16,7 @@ import {
   rejectUser,
   updateUserRole,
   type AssignableRoleName,
+  type CreatableRoleName,
   type PendingUser,
   type RoleChangeRequest,
 } from "@/lib/club-manager";
@@ -35,7 +37,7 @@ export default function ClubManagerUsersPage() {
 
 function AccountManagement() {
   const user = useHorseUser();
-  const [tab, setTab] = useState<"pending" | "active" | "roles">("pending");
+  const [tab, setTab] = useState<"pending" | "active" | "roles" | "create">("pending");
   const [role, setRole] = useState("ALL");
   const [pending, setPending] = useState<PendingUser[]>([]);
   const [roleRequests, setRoleRequests] = useState<RoleChangeRequest[]>([]);
@@ -48,6 +50,16 @@ function AccountManagement() {
   const [roleTarget, setRoleTarget] = useState<PendingUser | null>(null);
   const [nextRole, setNextRole] = useState<AssignableRoleName>("GROOM");
   const [savingRole, setSavingRole] = useState(false);
+  const [creatingStaff, setCreatingStaff] = useState(false);
+  const [createdCredentials, setCreatedCredentials] = useState<{ email: string; password: string } | null>(null);
+  const [copiedCredentials, setCopiedCredentials] = useState(false);
+  const [newStaff, setNewStaff] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    password: "",
+    roleName: "GROOM" as CreatableRoleName,
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -58,7 +70,7 @@ function AccountManagement() {
         setPending(response.data);
       } else if (tab === "active") {
         setPending(await listUsers("APPROVED", role));
-      } else {
+      } else if (tab === "roles") {
         setRoleRequests(await listRoleChangeRequests());
       }
     } catch (reason) {
@@ -129,6 +141,28 @@ function AccountManagement() {
     } catch (reason) { setError(clubManagerError(reason)); }
   }
 
+  async function createAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    setCreatedCredentials(null);
+    setCopiedCredentials(false);
+    setCreatingStaff(true);
+    try {
+      const created = await createStaffAccount({
+        ...newStaff,
+        phone: newStaff.phone || undefined,
+      });
+      setNotice(`Đã tạo tài khoản ${created.email}. Hãy cung cấp mật khẩu tạm thời cho người dùng; họ sẽ phải đổi mật khẩu ở lần đăng nhập đầu tiên.`);
+      setCreatedCredentials({ email: created.email, password: newStaff.password });
+      setNewStaff({ fullName: "", email: "", phone: "", password: "", roleName: "GROOM" });
+    } catch (reason) {
+      setError(clubManagerError(reason));
+    } finally {
+      setCreatingStaff(false);
+    }
+  }
+
   if (user.roleName !== "CLUB_MANAGER") {
     return <Notice error>Chỉ Club Manager mới được quản lý tài khoản.</Notice>;
   }
@@ -139,7 +173,7 @@ function AccountManagement() {
         <div>
           <p className="eyebrow">RBAC · Club Manager</p>
           <h1 className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Quản lý tài khoản</h1>
-          <p className="mt-2 text-sm text-slate-600">Duyệt nhân sự, đổi vai trò và xử lý yêu cầu trong câu lạc bộ.</p>
+          <p className="mt-2 text-sm text-slate-600">Tạo tài khoản nhân sự, duyệt yêu cầu cũ, đổi vai trò và quản lý thành viên.</p>
         </div>
         <button type="button" className="soft-button h-10 px-4 text-equine-navy" onClick={() => void load()}><RefreshCw size={15} /> Làm mới</button>
       </div>
@@ -148,10 +182,35 @@ function AccountManagement() {
         <button type="button" className={`soft-button h-10 px-4 ${tab === "pending" ? "bg-equine-navy text-white" : "bg-white text-slate-700"}`} onClick={() => { setRole("ALL"); setTab("pending"); }}><UserRound size={15} /> Chờ duyệt</button>
         <button type="button" className={`soft-button h-10 px-4 ${tab === "active" ? "bg-equine-navy text-white" : "bg-white text-slate-700"}`} onClick={() => { setRole("ALL"); setTab("active"); }}><UserRound size={15} /> Đang hoạt động</button>
         <button type="button" className={`soft-button h-10 px-4 ${tab === "roles" ? "bg-equine-navy text-white" : "bg-white text-slate-700"}`} onClick={() => setTab("roles")}><Lock size={15} /> Đổi vai trò</button>
+        <button type="button" className={`soft-button h-10 px-4 ${tab === "create" ? "bg-equine-navy text-white" : "bg-white text-slate-700"}`} onClick={() => setTab("create")}><UserPlus size={15} /> Tạo tài khoản nhân sự</button>
       </div>
 
       {error && <div className="mt-5"><Notice error>{error}</Notice></div>}
       {notice && <div className="mt-5"><Notice>{notice}</Notice></div>}
+      {tab === "create" && createdCredentials && <div className="mt-4 max-w-3xl rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+        <h3 className="font-semibold">Thông tin để cấp cho người dùng</h3>
+        <p className="mt-2">Email: <strong>{createdCredentials.email}</strong></p>
+        <p className="mt-1">Mật khẩu tạm: <code className="rounded bg-white px-2 py-1">{createdCredentials.password}</code></p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className="soft-button h-9 bg-white px-3" onClick={() => void navigator.clipboard.writeText(`Email: ${createdCredentials.email}\nMật khẩu tạm: ${createdCredentials.password}`).then(() => setCopiedCredentials(true)).catch(() => setError("Không thể sao chép. Hãy sao chép thông tin hiển thị thủ công."))}><Copy size={14} /> {copiedCredentials ? "Đã sao chép" : "Sao chép thông tin"}</button>
+          <button type="button" className="soft-button h-9 bg-white px-3" onClick={() => setCreatedCredentials(null)}>Ẩn mật khẩu</button>
+        </div>
+      </div>}
+
+      {tab === "create" && <div className="mt-5 max-w-3xl rounded-2xl border border-equine-line bg-white p-5 shadow-sm sm:p-7">
+        <h2 className="font-sans text-xl font-semibold text-equine-navy">Cấp tài khoản nhân sự</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Tài khoản được kích hoạt ngay. Người dùng sẽ đăng nhập bằng email và mật khẩu tạm này, sau đó bắt buộc đặt mật khẩu mới.</p>
+        <form className="mt-5 space-y-4" onSubmit={createAccount}>
+          <label className="block"><span className="field-label">Họ và tên</span><input className="field-control px-4" maxLength={100} required value={newStaff.fullName} onChange={(event) => setNewStaff((current) => ({ ...current, fullName: event.target.value }))} /></label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block"><span className="field-label">Gmail / Email</span><input autoComplete="email" className="field-control px-4" maxLength={100} required type="email" value={newStaff.email} onChange={(event) => setNewStaff((current) => ({ ...current, email: event.target.value }))} /></label>
+            <label className="block"><span className="field-label">Số điện thoại (không bắt buộc)</span><input className="field-control px-4" maxLength={20} type="tel" value={newStaff.phone} onChange={(event) => setNewStaff((current) => ({ ...current, phone: event.target.value }))} /></label>
+          </div>
+          <label className="block"><span className="field-label">Vai trò</span><select className="field-control px-4" value={newStaff.roleName} onChange={(event) => setNewStaff((current) => ({ ...current, roleName: event.target.value as CreatableRoleName }))}><option value="HEAD_TRAINER">{roleLabels.HEAD_TRAINER}</option><option value="VETERINARIAN">{roleLabels.VETERINARIAN}</option><option value="GROOM">{roleLabels.GROOM}</option><option value="CLUB_MANAGER">{roleLabels.CLUB_MANAGER}</option></select></label>
+          <label className="block"><span className="field-label">Mật khẩu tạm thời</span><input autoComplete="new-password" className="field-control px-4" minLength={8} required type="password" value={newStaff.password} onChange={(event) => setNewStaff((current) => ({ ...current, password: event.target.value }))} /><span className="mt-1 block text-xs text-slate-500">Tối thiểu 8 ký tự. Hãy chuyển mật khẩu này cho nhân sự qua kênh riêng.</span></label>
+          <button className="gold-button w-full sm:w-auto" disabled={creatingStaff} type="submit">{creatingStaff ? "Đang tạo tài khoản..." : "Tạo và cấp tài khoản"}</button>
+        </form>
+      </div>}
 
       {(tab === "pending" || tab === "active") && <div className="mt-5 rounded-2xl border border-equine-line bg-white p-4 shadow-sm">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-sans text-xl font-semibold text-equine-navy">{tab === "pending" ? "Tài khoản chờ duyệt" : "Tài khoản đang hoạt động"}</h2><p className="mt-1 text-sm text-slate-500">{tab === "pending" ? "Horse Owner không xuất hiện vì được kích hoạt tự động." : "Có thể đổi vai trò hoặc khóa thành viên; không áp dụng với bạn và Club Manager."}</p></div><label className="flex items-center gap-2 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2 text-sm"><Filter size={15} /><select value={role} onChange={(event) => setRole(event.target.value)} className="border-0 bg-transparent outline-none"><option value="ALL">Tất cả vai trò</option>{(tab === "active" ? ACTIVE_ROLE_FILTERS : STAFF_ROLE_FILTERS).map((roleName) => <option key={roleName} value={roleName}>{roleLabels[roleName]}</option>)}</select></label></div>

@@ -18,6 +18,7 @@ import { validateSession } from "@/lib/api";
 import { errorMessage, getHorseStables, listHorses, type Horse, type Stable } from "@/lib/horses";
 import { roleForSlug, roleLabels, routeForRole } from "@/lib/roles";
 import type { AuthUser } from "@/lib/types";
+import VeterinarianWorkspace from "@/components/VeterinarianWorkspace";
 
 export default function RoleDashboardPage() {
   const { role } = useParams<{ role: string }>();
@@ -27,6 +28,10 @@ export default function RoleDashboardPage() {
     validateSession()
       .then((current) => {
         if (!active) return;
+        if (current.mustChangePassword) {
+          router.replace("/change-password");
+          return;
+        }
         if (roleForSlug(role) !== current.roleName) {
           router.replace(routeForRole(current.roleName));
         }
@@ -68,7 +73,7 @@ function RoleDashboardContent() {
             value={user.status === "APPROVED" ? "Đã phê duyệt" : user.status}
           />
         </div>
-        {user.roleName === "CLUB_MANAGER" || user.roleName === "HEAD_TRAINER" || user.roleName === "VETERINARIAN" || user.roleName === "GROOM" || user.roleName === "HORSE_OWNER" ? <HorseDashboardPanel user={user} /> : (
+        {user.roleName === "VETERINARIAN" ? <VeterinarianWorkspace /> : user.roleName === "CLUB_MANAGER" || user.roleName === "HEAD_TRAINER" || user.roleName === "GROOM" || user.roleName === "HORSE_OWNER" ? <HorseDashboardPanel user={user} /> : (
           <div className="mt-10 rounded-md border border-equine-gold/25 bg-white p-5 text-sm text-slate-600">
             Chức năng chuyên môn của vai trò này sẽ được hiển thị tại đây khi phân hệ tương ứng được triển khai.
           </div>

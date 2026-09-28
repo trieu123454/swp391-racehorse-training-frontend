@@ -207,36 +207,36 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="relative overflow-hidden bg-[#0b192c] px-5 py-20 text-white sm:px-8 sm:py-24 lg:px-12" id="vai-tro">
-        <div className="pointer-events-none absolute -right-40 -top-48 h-[540px] w-[540px] rounded-full border border-white/[0.06]" />
-        <div className="pointer-events-none absolute -right-20 -top-28 h-[300px] w-[300px] rounded-full border border-equine-gold/10" />
+      <section className="relative overflow-hidden bg-[#eaf4f8] px-5 py-20 text-equine-ink sm:px-8 sm:py-24 lg:px-12" id="vai-tro">
+        <div className="pointer-events-none absolute -right-40 -top-48 h-[540px] w-[540px] rounded-full border border-equine-navy/10" />
+        <div className="pointer-events-none absolute -right-20 -top-28 h-[300px] w-[300px] rounded-full border border-equine-gold/15" />
         <div className="relative mx-auto max-w-[1440px]">
           <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
             <div>
-              <p className="eyebrow text-equine-champagne">Công cụ phù hợp từng người</p>
-              <h2 className="display-title mt-4 max-w-3xl text-3xl text-white sm:text-5xl">Cả đội cùng chăm sóc. Mỗi người đúng chuyên môn.</h2>
+              <p className="eyebrow text-equine-gold">Công cụ phù hợp từng người</p>
+              <h2 className="display-title mt-4 max-w-3xl text-3xl text-equine-navy sm:text-5xl">Cả đội cùng chăm sóc. Mỗi người đúng chuyên môn.</h2>
             </div>
-            <p className="max-w-lg text-sm leading-6 text-white/55">Phân quyền theo nhiệm vụ giúp huấn luyện viên, bác sĩ, nhân viên, chủ ngựa và quản lý phối hợp mạch lạc.</p>
+            <p className="max-w-lg text-sm leading-6 text-slate-600">Phân quyền theo nhiệm vụ giúp huấn luyện viên, bác sĩ, nhân viên, chủ ngựa và quản lý phối hợp mạch lạc.</p>
           </div>
 
           <div className="mt-10 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {roles.map(({ icon: Icon, title, english, description, items }) => (
-              <article className="home-role-card group rounded-[20px] border border-white/10 bg-white/[0.045] p-5 backdrop-blur-sm" key={english}>
+              <article className="home-role-card group rounded-[20px] border border-equine-line bg-white p-5 shadow-sm" key={english}>
                 <div className="flex items-start justify-between gap-3">
-                  <span className="grid h-10 w-10 place-items-center rounded-xl border border-equine-gold/25 bg-equine-gold/10 text-equine-champagne"><Icon size={18} /></span>
-                  <span className="pt-1 text-[8px] font-bold uppercase tracking-[0.12em] text-white/35">{english}</span>
+                  <span className="grid h-10 w-10 place-items-center rounded-xl border border-equine-gold/20 bg-orange-50 text-equine-gold"><Icon size={18} /></span>
+                  <span className="pt-1 text-[8px] font-bold uppercase tracking-[0.12em] text-slate-400">{english}</span>
                 </div>
-                <h3 className="mt-5 text-base font-semibold leading-6 text-white">{title}</h3>
-                <p className="mt-2 min-h-[72px] text-xs leading-5 text-white/55">{description}</p>
-                <ul className="mt-4 space-y-2 border-t border-white/10 pt-4">
-                  {items.map((item) => <li className="flex items-center gap-2 text-[10px] text-white/65" key={item}><span className="h-1 w-1 rounded-full bg-equine-champagne/70" />{item}</li>)}
+                <h3 className="mt-5 text-base font-semibold leading-6 text-equine-navy">{title}</h3>
+                <p className="mt-2 min-h-[72px] text-xs leading-5 text-slate-600">{description}</p>
+                <ul className="mt-4 space-y-2 border-t border-equine-line pt-4">
+                  {items.map((item) => <li className="flex items-center gap-2 text-[10px] text-slate-600" key={item}><span className="h-1 w-1 rounded-full bg-equine-gold-bright" />{item}</li>)}
                 </ul>
               </article>
             ))}
           </div>
-          <div className="mt-6 flex flex-col justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.045] px-5 py-4 sm:flex-row sm:items-center sm:px-6">
-            <div className="flex items-center gap-3"><Users className="text-equine-champagne" size={20} /><p className="text-xs leading-5 text-white/65">Quyền truy cập được quản lý theo vai trò và phạm vi công việc.</p></div>
-            <span className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-equine-champagne"><ShieldCheck size={15} /> RBAC · Minh bạch · Có kiểm soát</span>
+          <div className="mt-6 flex flex-col justify-between gap-4 rounded-2xl border border-equine-line bg-white px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:px-6">
+            <div className="flex items-center gap-3"><Users className="text-equine-blue" size={20} /><p className="text-xs leading-5 text-slate-600">Quyền truy cập được quản lý theo vai trò và phạm vi công việc.</p></div>
+            <span className="inline-flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-equine-gold"><ShieldCheck size={15} /> RBAC · Minh bạch · Có kiểm soát</span>
           </div>
         </div>
       </section>
@@ -245,7 +245,7 @@ export default function HomePage() {
         <div className="mx-auto grid max-w-[1360px] overflow-hidden rounded-[30px] bg-white shadow-[0_24px_80px_-46px_rgba(11,25,44,0.45)] lg:grid-cols-[0.9fr_1.1fr]">
           <div className="home-stable-image media-frame relative min-h-[380px] lg:min-h-[580px]">
             <Image alt="Ngựa được chăm sóc trong chuồng trại" className="media-zoom object-cover object-[42%_center]" fill quality={78} sizes="(max-width: 1024px) 100vw, 42vw" src="/images/stable-horse.webp" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#071322]/85 via-[#071322]/5 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#1d4e6b]/70 via-[#1d4e6b]/5 to-transparent" />
             <div className="absolute inset-x-0 bottom-0 p-7 text-white sm:p-9">
               <p className="eyebrow text-equine-champagne">Từng việc nhỏ đều quan trọng</p>
               <p className="mt-3 max-w-md font-display text-3xl font-semibold leading-tight">Một ngày chăm sóc tốt tạo nên một mùa giải tốt.</p>

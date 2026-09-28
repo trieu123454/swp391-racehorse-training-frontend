@@ -1,13 +1,5 @@
 import type { RoleName } from "./types";
 
-export const roleOptions: Array<{ value: RoleName; label: string }> = [
-  { value: "HEAD_TRAINER", label: "Head Trainer - Huấn luyện viên trưởng" },
-  { value: "VETERINARIAN", label: "Veterinarian - Bác sĩ thú y" },
-  { value: "GROOM", label: "Groom - Nhân viên chăm sóc chuồng trại" },
-  { value: "HORSE_OWNER", label: "Horse Owner - Chủ sở hữu ngựa" },
-  { value: "CLUB_MANAGER", label: "Club Manager - Quản lý câu lạc bộ" },
-];
-
 export const roleRoutes: Record<RoleName, string> = {
   HEAD_TRAINER: "/dashboard/head-trainer",
   VETERINARIAN: "/dashboard/veterinarian",

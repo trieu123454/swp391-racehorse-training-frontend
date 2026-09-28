@@ -12,7 +12,7 @@ export function AuthVisual({ mode }: { mode: "login" | "register" }) {
         sizes="(max-width: 1200px) 42vw, 650px"
         src="/images/stable-horse.webp"
       />
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(11,25,44,0.2),rgba(11,25,44,0.92))]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(29,78,107,0.12),rgba(29,78,107,0.76))]" />
       <div className="absolute inset-x-0 top-0 flex items-center justify-between p-10">
         <span className="rounded-full border border-equine-gold/40 bg-equine-navy/65 px-4 py-2 text-[10px] font-bold uppercase text-equine-champagne backdrop-blur">
           <Sparkles className="mr-2 inline" size={14} />

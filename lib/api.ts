@@ -21,6 +21,10 @@ const API_BASE_URL =
 
 type ApiError = {
   message?: string;
+  error?: {
+    message?: string;
+    details?: unknown;
+  };
 };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -40,13 +44,44 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       error = { message: response.statusText };
     }
 
-    throw new ApiRequestError(
-      error.message || "Request failed",
-      response.status,
-    );
+    const message = error.error?.message || error.message || "Request failed";
+    let details = Array.isArray(error.error?.details)
+      ? error.error.details
+      ?.map((item) => [item.field, item.message].filter(Boolean).join(": "))
+      .filter(Boolean)
+      .join(" · ")
+      : "";
+    if (!details && error.error?.details && typeof error.error.details === "object") {
+      const conflicts = (error.error.details as { conflicts?: { event_type?: string; event_date?: string; start_time?: string; end_time?: string; horse_name?: string }[] }).conflicts;
+      if (conflicts?.length) {
+        details = conflicts.map((item) => [item.event_type, item.horse_name, item.event_date, item.start_time && item.end_time ? `${item.start_time}–${item.end_time}` : "cả ngày"].filter(Boolean).join(" · ")).join("; ");
+      }
+    }
+    throw new ApiRequestError(details ? `${message}: ${details}` : message, response.status);
   }
 
   return response.json() as Promise<T>;
+}
+
+/** Use the current signed-in session for role-protected API endpoints. */
+export async function authenticatedRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const accessToken = getAccessToken();
+  if (!accessToken) {
+    throw new ApiRequestError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", 401);
+  }
+  const withToken = (token: string) => ({
+    ...options,
+    headers: { ...(options.headers ?? {}), Authorization: `Bearer ${token}` },
+  });
+  try {
+    return await request<T>(path, withToken(accessToken));
+  } catch (error) {
+    if (!(error instanceof ApiRequestError) || error.status !== 401) throw error;
+    await validateSession(true);
+    const refreshed = getAccessToken();
+    if (!refreshed || refreshed === accessToken) throw error;
+    return request<T>(path, withToken(refreshed));
+  }
 }
 
 export function login(email: string, password: string) {
@@ -56,12 +91,20 @@ export function login(email: string, password: string) {
   });
 }
 
+export function changePassword(currentPassword: string, newPassword: string) {
+  return request<AuthResponse>("/api/auth/change-password", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${getAccessToken()}` },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
 export function register(input: {
   fullName: string;
   email: string;
   phone?: string;
   password: string;
-  roleName: RoleName;
+  roleName: "HORSE_OWNER";
 }) {
   return request<AuthUser>("/api/auth/register", {
     method: "POST",
@@ -93,9 +136,10 @@ let validatedSession: {
 } | null = null;
 
 // Share validation across dashboard mounts (including React Strict Mode).
-export function validateSession(): Promise<AuthUser> {
+export function validateSession(force = false): Promise<AuthUser> {
   const accessToken = getAccessToken();
   const refreshToken = getRefreshToken();
+  if (force) validatedSession = null;
   if (
     validatedSession &&
     Date.now() - validatedSession.validatedAt < SESSION_CACHE_TTL_MS &&

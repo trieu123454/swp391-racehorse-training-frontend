@@ -32,7 +32,11 @@ export default function LoginPage() {
   const completeLogin = useCallback(
     (auth: AuthResponse) => {
       saveSession(auth, remember);
-      router.replace(routeForRole(auth.user.roleName));
+      router.replace(
+        auth.user.mustChangePassword
+          ? "/change-password"
+          : routeForRole(auth.user.roleName),
+      );
     },
     [router, remember],
   );
@@ -128,7 +132,7 @@ export default function LoginPage() {
                 <label className="flex cursor-pointer items-center gap-2 text-slate-600">
                   <input
                     checked={remember}
-                    className="h-4 w-4 accent-[#0b192c]"
+                    className="h-4 w-4 accent-[#285f7e]"
                     onChange={(event) => setRemember(event.target.checked)}
                     type="checkbox"
                   />{" "}

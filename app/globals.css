@@ -4,8 +4,8 @@
 
 /* ============================================================
    EQUINE SOVEREIGN — DESIGN TOKENS
-   Editorial luxury: warm champagne parchment canvas, royal
-   midnight navy, polished brass gold. Serif display type
+   Bright sky blue canvas, clean white surfaces, honey amber accents.
+   Serif display type
    paired with a geometric, Vietnamese-first UI sans.
    ============================================================ */
 
@@ -13,21 +13,21 @@
   color-scheme: light;
 
   /* Surfaces */
-  --es-canvas: #f7f3ec;
-  --es-surface: #fffdfa;
-  --es-surface-recessed: #efe9de;
-  --es-hairline: #e2d8c6;
-  --es-hairline-strong: #d3c6ae;
+  --es-canvas: #f3f9fc;
+  --es-surface: #ffffff;
+  --es-surface-recessed: #eaf4f8;
+  --es-hairline: #d8e7ee;
+  --es-hairline-strong: #bdd5e2;
 
   /* Brand */
-  --es-navy: #0b192c;
-  --es-navy-soft: #12293f;
-  --es-navy-deep: #071322;
-  --es-blue: #1e3e62;
-  --es-gold: #c5a059;
-  --es-gold-bright: #e5c158;
-  --es-champagne: #ffdea5;
-  --es-ink: #1a202c;
+  --es-navy: #285f7e;
+  --es-navy-soft: #367795;
+  --es-navy-deep: #1d4e6b;
+  --es-blue: #3b83a3;
+  --es-gold: #a8602c;
+  --es-gold-bright: #e29b5d;
+  --es-champagne: #fff0d9;
+  --es-ink: #334654;
 
   /* Motion */
   --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -77,13 +77,13 @@ select {
 }
 
 ::selection {
-  background: #ffdea5;
-  color: #0b192c;
+  background: #ffe3c3;
+  color: #1d4e6b;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(197, 160, 89, 0.55) transparent;
+  scrollbar-color: rgba(226, 155, 93, 0.65) transparent;
 }
 ::-webkit-scrollbar {
   width: 10px;
@@ -93,13 +93,13 @@ select {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(197, 160, 89, 0.75), rgba(11, 25, 44, 0.55));
+  background: linear-gradient(180deg, rgba(226, 155, 93, 0.75), rgba(59, 131, 163, 0.5));
   border-radius: 999px;
   border: 3px solid transparent;
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(229, 193, 88, 0.95), rgba(11, 25, 44, 0.8));
+  background: linear-gradient(180deg, rgba(226, 155, 93, 0.95), rgba(40, 95, 126, 0.75));
   background-clip: content-box;
 }
 
@@ -170,7 +170,7 @@ select {
   /* ---------- Form controls ---------- */
   .field-label {
     @apply mb-2 block text-[11px] font-bold uppercase;
-    color: rgba(26, 32, 44, 0.72);
+    color: rgba(51, 70, 84, 0.78);
     letter-spacing: 0.09em;
   }
   .field-control {
@@ -184,7 +184,7 @@ select {
       background-color var(--dur-fast) var(--ease-soft);
   }
   .field-control::placeholder {
-    color: #8d8474;
+    color: #778d9a;
   }
   .field-control:hover {
     border-color: var(--es-hairline-strong);
@@ -192,7 +192,7 @@ select {
   .field-control:focus {
     border-color: var(--es-gold);
     background: #fff;
-    box-shadow: 0 0 0 3px rgba(197, 160, 89, 0.2);
+    box-shadow: 0 0 0 3px rgba(226, 155, 93, 0.2);
   }
 
   /* ---------- Buttons ---------- */
@@ -210,12 +210,12 @@ select {
 
   .gold-button {
     @apply inline-flex h-12 items-center justify-center gap-2 px-6;
-    background-image: linear-gradient(118deg, #ffe9c4 0%, #ffdea5 42%, #dfb872 100%);
+    background-image: linear-gradient(118deg, #ffe8cc 0%, #f7c28f 48%, #e6a66b 100%);
     background-size: 160% 160%;
     background-position: 0% 50%;
-    border: 1px solid #eed6a4;
-    color: #0b192c;
-    box-shadow: 0 6px 18px -8px rgba(197, 160, 89, 0.6);
+    border: 1px solid #edc393;
+    color: #1d4e6b;
+    box-shadow: 0 6px 18px -8px rgba(168, 96, 44, 0.3);
     transition:
       transform var(--dur-base) var(--ease-seal),
       box-shadow var(--dur-base) var(--ease-soft),
@@ -226,7 +226,7 @@ select {
     @apply inline-flex h-12 items-center justify-center gap-2 border px-6 text-white;
     border-color: var(--es-navy);
     background: var(--es-navy);
-    box-shadow: 0 10px 26px -14px rgba(11, 25, 44, 0.75);
+    box-shadow: 0 10px 26px -14px rgba(40, 95, 126, 0.4);
     transition:
       transform var(--dur-base) var(--ease-seal),
       box-shadow var(--dur-base) var(--ease-soft),
@@ -250,7 +250,7 @@ select {
   }
   .soft-button:hover {
     border-color: var(--es-gold);
-    background: rgba(197, 160, 89, 0.07);
+    background: rgba(226, 155, 93, 0.09);
   }
 
   /* Brass light sweep that crosses buttons on hover */
@@ -286,7 +286,7 @@ select {
     .navy-button:not(:disabled):hover,
     .soft-button:not(:disabled):hover {
       transform: translateY(-2px);
-      box-shadow: 0 12px 28px -12px rgba(11, 25, 44, 0.38);
+      box-shadow: 0 12px 28px -12px rgba(40, 95, 126, 0.24);
     }
     .gold-button:not(:disabled):hover {
       background-position: 100% 50%;
@@ -301,8 +301,8 @@ select {
     }
     .feature-card:hover {
       transform: translateY(-5px);
-      border-color: rgba(197, 160, 89, 0.62);
-      box-shadow: 0 18px 40px -18px rgba(11, 25, 44, 0.24);
+      border-color: rgba(226, 155, 93, 0.62);
+      box-shadow: 0 18px 40px -18px rgba(40, 95, 126, 0.18);
     }
     .feature-card:hover::before {
       opacity: 1;
@@ -359,7 +359,7 @@ select {
     border-radius: inherit;
     background: radial-gradient(
       560px circle at var(--mx, 50%) var(--my, 0%),
-      rgba(197, 160, 89, 0.13),
+      rgba(89, 167, 196, 0.15),
       transparent 62%
     );
     opacity: 0;
@@ -370,10 +370,10 @@ select {
   .panel-navy {
     position: relative;
     overflow: hidden;
-    color: #fff;
+    color: var(--es-ink);
     background:
-      radial-gradient(900px circle at 12% -10%, rgba(197, 160, 89, 0.2), transparent 58%),
-      linear-gradient(155deg, var(--es-navy) 0%, var(--es-navy-deep) 100%);
+      radial-gradient(900px circle at 12% -10%, rgba(226, 155, 93, 0.16), transparent 58%),
+      linear-gradient(155deg, #eaf4f8 0%, #dceef5 100%);
   }
 
   .hairline-top {
@@ -384,7 +384,7 @@ select {
   .media-frame {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(135deg, #f0ead9, #ded2ba);
+    background: linear-gradient(135deg, #f3f9fc, #deeff5);
   }
   .media-zoom {
     transition: transform var(--dur-cinematic) var(--ease-expo);
@@ -397,7 +397,7 @@ select {
     padding: 10px;
     border-radius: 16px;
     object-fit: contain;
-    background: linear-gradient(135deg, #f7f3ec, #e8dfd0);
+    background: linear-gradient(135deg, #f3f9fc, #deeff5);
   }
   .horse-placeholder {
     height: 100%;
@@ -408,8 +408,8 @@ select {
     text-align: center;
     color: var(--es-navy);
     background:
-      radial-gradient(circle at 50% 20%, rgba(197, 160, 89, 0.14), transparent 65%),
-      linear-gradient(135deg, #f6f1e6, #e6dcc9);
+      radial-gradient(circle at 50% 20%, rgba(226, 155, 93, 0.14), transparent 65%),
+      linear-gradient(135deg, #f3f9fc, #deeff5);
   }
   .horse-placeholder span,
   .horse-placeholder small {
@@ -423,7 +423,7 @@ select {
   }
   .horse-placeholder small {
     margin-top: 2px;
-    color: rgba(11, 25, 44, 0.62);
+    color: rgba(40, 95, 126, 0.72);
     font-size: 11px;
   }
 
@@ -485,8 +485,8 @@ select {
 
 .home-hero-veil {
   background:
-    linear-gradient(0deg, rgba(7, 19, 34, 0.86) 0%, rgba(7, 19, 34, 0.06) 64%),
-    linear-gradient(90deg, rgba(7, 19, 34, 0.98) 0%, rgba(7, 19, 34, 0.94) 32%, rgba(7, 19, 34, 0.79) 56%, rgba(7, 19, 34, 0.35) 100%);
+    linear-gradient(0deg, rgba(29, 78, 107, 0.76) 0%, rgba(29, 78, 107, 0.04) 64%),
+    linear-gradient(90deg, rgba(29, 78, 107, 0.9) 0%, rgba(29, 78, 107, 0.82) 32%, rgba(29, 78, 107, 0.62) 56%, rgba(29, 78, 107, 0.22) 100%);
 }
 
 .home-hero-glow {
@@ -503,7 +503,7 @@ select {
   height: 5px;
   border-radius: 50%;
   background: var(--es-champagne);
-  box-shadow: 0 0 0 4px rgba(255, 222, 165, 0.12);
+  box-shadow: 0 0 0 4px rgba(255, 240, 217, 0.16);
   animation: es-pulse-ring 2.4s var(--ease-soft) infinite;
 }
 
@@ -512,7 +512,7 @@ select {
 }
 
 .home-index-item:hover {
-  background: rgba(197, 160, 89, 0.055);
+  background: rgba(226, 155, 93, 0.08);
 }
 
 .home-workflow-card {
@@ -528,7 +528,7 @@ select {
   position: absolute;
   z-index: -1;
   inset: 0;
-  background: radial-gradient(400px circle at 100% 0%, rgba(197, 160, 89, 0.11), transparent 55%);
+  background: radial-gradient(400px circle at 100% 0%, rgba(226, 155, 93, 0.13), transparent 55%);
   opacity: 0;
   transition: opacity var(--dur-base) var(--ease-soft);
 }
@@ -544,8 +544,8 @@ select {
 @media (hover: hover) {
   .home-workflow-card:hover {
     transform: translateY(-6px);
-    border-color: rgba(197, 160, 89, 0.65);
-    box-shadow: 0 22px 50px -28px rgba(11, 25, 44, 0.34);
+    border-color: rgba(226, 155, 93, 0.65);
+    box-shadow: 0 22px 50px -28px rgba(40, 95, 126, 0.2);
   }
 
   .home-workflow-card:hover::before {
@@ -554,9 +554,9 @@ select {
 
   .home-role-card:hover {
     transform: translateY(-4px);
-    border-color: rgba(255, 222, 165, 0.34);
-    background-color: rgba(255, 255, 255, 0.075);
-    box-shadow: 0 20px 42px -28px rgba(0, 0, 0, 0.8);
+    border-color: rgba(59, 131, 163, 0.3);
+    background-color: #fbfdfe;
+    box-shadow: 0 20px 42px -28px rgba(40, 95, 126, 0.22);
   }
 }
 

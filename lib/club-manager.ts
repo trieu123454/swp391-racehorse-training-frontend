@@ -3,6 +3,7 @@ import { getAccessToken } from "./session";
 import type { RoleName } from "./types";
 
 export type AssignableRoleName = Exclude<RoleName, "CLUB_MANAGER">;
+export type CreatableRoleName = Exclude<RoleName, "HORSE_OWNER">;
 
 const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
@@ -80,6 +81,19 @@ export function rejectUser(id: number, reason: string) {
 
 export function lockUser(id: number, reason: string) {
   return request(`/users/${id}/lock`, { method: "PATCH", body: JSON.stringify({ reason: reason || null }) });
+}
+
+export function createStaffAccount(input: {
+  fullName: string;
+  email: string;
+  phone?: string;
+  password: string;
+  roleName: CreatableRoleName;
+}) {
+  return request<{ id: number; email: string; role_name: string; status: string; must_change_password: boolean }>(
+    "/users",
+    { method: "POST", body: JSON.stringify(input) },
+  );
 }
 
 export function updateUserRole(id: number, roleName: AssignableRoleName) {

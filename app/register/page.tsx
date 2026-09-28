@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
-  ChevronDown,
   Eye,
   EyeOff,
   LockKeyhole,
@@ -18,9 +17,9 @@ import { AuthVisual } from "@/components/AuthVisual";
 import { Brand } from "@/components/Brand";
 import { GoogleAuthButton } from "@/components/GoogleAuthButton";
 import { register } from "@/lib/api";
-import { roleOptions, routeForRole } from "@/lib/roles";
+import { routeForRole } from "@/lib/roles";
 import { saveSession } from "@/lib/session";
-import type { AuthResponse, RoleName } from "@/lib/types";
+import type { AuthResponse } from "@/lib/types";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -31,7 +30,6 @@ export default function RegisterPage() {
     password: "",
     confirmPassword: "",
   });
-  const [roleName, setRoleName] = useState<RoleName>("HORSE_OWNER");
   const [showPassword, setShowPassword] = useState(false);
   const [accepted, setAccepted] = useState(true);
   const [message, setMessage] = useState("");
@@ -42,7 +40,11 @@ export default function RegisterPage() {
   const googleSuccess = useCallback(
     (auth: AuthResponse) => {
       saveSession(auth);
-      router.replace(routeForRole(auth.user.roleName));
+      router.replace(
+        auth.user.mustChangePassword
+          ? "/change-password"
+          : routeForRole(auth.user.roleName),
+      );
     },
     [router],
   );
@@ -58,18 +60,14 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      const user = await register({
+      await register({
         fullName: form.fullName,
         email: form.email,
         phone: form.phone,
         password: form.password,
-        roleName,
+        roleName: "HORSE_OWNER",
       });
-      setMessage(
-        user.status === "APPROVED"
-          ? "Đăng ký thành công. Bạn có thể đăng nhập ngay."
-          : "Đăng ký thành công. Tài khoản đang chờ Club Manager phê duyệt.",
-      );
+      setMessage("Đăng ký thành công. Bạn có thể đăng nhập ngay.");
       setForm({
         fullName: "",
         email: "",
@@ -197,48 +195,17 @@ export default function RegisterPage() {
                   "Nhập lại mật khẩu",
                 )}
               </div>
-              <label className="block">
-                <span className="field-label">Vai trò đăng ký</span>
-                <span className="relative block">
-                  <select
-                    className="field-control cursor-pointer appearance-none px-4 pr-11"
-                    onChange={(event) =>
-                      setRoleName(event.target.value as RoleName)
-                    }
-                    value={roleName}
-                  >
-                    {roleOptions.map((role) => (
-                      <option key={role.value} value={role.value}>
-                        {role.label}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown
-                    className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"
-                    size={18}
-                  />
-                </span>
-              </label>
               <div className="flex gap-3 rounded-md bg-[#fff7e9] p-4 text-xs leading-5 text-[#674b12]">
                 <AlertTriangle className="shrink-0" size={19} />
                 <p>
-                  {roleName !== "HORSE_OWNER" ? (
-                    <>
-                      Tài khoản cần được <strong>Club Manager</strong> phê duyệt
-                      trước khi đăng nhập.
-                    </>
-                  ) : (
-                    <>
-                      Chủ ngựa được đăng nhập ngay sau khi đăng ký. Quyền xem dữ
-                      liệu ngựa cần được xác nhận quyền sở hữu riêng.
-                    </>
-                  )}
+                  Tài khoản đăng ký tại đây là tài khoản Chủ ngựa. Các vai trò
+                  nhân sự khác do Club Manager cấp tài khoản.
                 </p>
               </div>
               <label className="flex cursor-pointer items-start gap-3 text-xs leading-5 text-slate-600">
                 <input
                   checked={accepted}
-                  className="mt-1 h-4 w-4 accent-[#0b192c]"
+                  className="mt-1 h-4 w-4 accent-[#285f7e]"
                   onChange={(event) => setAccepted(event.target.checked)}
                   required
                   type="checkbox"
@@ -281,7 +248,7 @@ export default function RegisterPage() {
               label="signup_with"
               onError={showError}
               onSuccess={googleSuccess}
-              roleName={roleName}
+              roleName="HORSE_OWNER"
             />
             <p className="mt-6 text-center text-sm text-slate-600">
               Đã có tài khoản thành viên?{" "}

@@ -2,11 +2,18 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Pencil, ShieldAlert, Tag } from "lucide-react";
+import { ArrowLeft, CalendarDays, MapPin, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useHorseUser } from "@/components/HorseShell";
-import { HorseImage, Notice, StatusBadge } from "@/components/HorseUI";
-import { errorMessage, getHorse, type Horse } from "@/lib/horses";
+import { HorseImage, Modal, Notice, StatusBadge } from "@/components/HorseUI";
+import {
+  deleteHorse,
+  errorMessage,
+  getHorse,
+  getHorseDeletionWarnings,
+  type Horse,
+  type Warnings,
+} from "@/lib/horses";
 
 export default function HorseDetailPage() {
   const router = useRouter();
@@ -18,6 +25,10 @@ export default function HorseDetailPage() {
     horse: Horse | null;
     error: string;
   }>({ id: null, loading: true, horse: null, error: "" });
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteWarnings, setDeleteWarnings] = useState<Warnings | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleting, setDeleting] = useState(false);
   useEffect(() => {
     let active = true;
     const id = params.id;
@@ -37,6 +48,30 @@ export default function HorseDetailPage() {
   const horse = isCurrentRequest ? request.horse : null;
   const error = isCurrentRequest ? request.error : "";
   const isOwnerBlocked = user.roleName === "HORSE_OWNER" && horse && horse.owner_id !== user.id;
+
+  async function openDeleteDialog() {
+    setDeleteDialogOpen(true);
+    setDeleteWarnings(null);
+    setDeleteError("");
+    try {
+      setDeleteWarnings(await getHorseDeletionWarnings(params.id));
+    } catch (reason) {
+      setDeleteError(errorMessage(reason));
+    }
+  }
+
+  async function confirmDelete() {
+    if (!horse || user.roleName !== "CLUB_MANAGER") return;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await deleteHorse(horse.id);
+      router.replace("/horses");
+    } catch (reason) {
+      setDeleteError(errorMessage(reason));
+      setDeleting(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -111,11 +146,18 @@ export default function HorseDetailPage() {
           <button type="button" className="soft-button border-equine-line bg-white text-slate-700" onClick={() => router.push("/horses")}>
             <ArrowLeft size={16} /> Quay lại
           </button>
-          {user.roleName !== "HORSE_OWNER" && (
-            <Link className="gold-button" href={`/horses/${horse.id}/edit`}>
-              <Pencil size={16} /> Chỉnh sửa
-            </Link>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {user.roleName !== "HORSE_OWNER" && (
+              <Link className="gold-button" href={`/horses/${horse.id}/edit`}>
+                <Pencil size={16} /> Chỉnh sửa
+              </Link>
+            )}
+            {user.roleName === "CLUB_MANAGER" && (
+              <button type="button" className="soft-button border-red-200 bg-red-50 text-red-700" onClick={() => void openDeleteDialog()}>
+                <Trash2 size={16} /> Xóa hồ sơ
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
@@ -155,28 +197,52 @@ export default function HorseDetailPage() {
 
             <section className="rounded-3xl border border-equine-line bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2 text-equine-navy">
-                <ShieldAlert size={18} />
-                <h2 className="font-sans text-2xl font-semibold">Cảnh báo & ràng buộc</h2>
+                <MapPin size={18} />
+                <h2 className="font-sans text-2xl font-semibold">Chuồng trại & quản lý</h2>
               </div>
-              <div className="mt-4 space-y-3 text-sm text-slate-600">
-                <p>• Bảo mật dữ liệu theo role: Horse Owner chỉ có quyền xem hồ sơ thuộc sở hữu của mình.</p>
-                <p>• Phải thực hiện soft delete thay vì hard delete để giữ lịch sử và dữ liệu liên quan.</p>
-                <p>• Nếu ảnh không có, hệ thống hiển thị placeholder thay vì lỗi vỡ ảnh.</p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <InfoCard label="Chuồng" value={horse.box_code || horse.stable_box_id || "Chưa xếp chuồng"} />
+                <InfoCard label="Khu vực" value={horse.section ?? "Chưa cập nhật"} />
+                <InfoCard label="Chủ sở hữu" value={horse.owner_name ?? "Chưa xác định"} />
+                <InfoCard label="Mã hồ sơ" value={horse.id} />
               </div>
             </section>
 
             <section className="rounded-3xl border border-equine-line bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2 text-equine-navy">
-                <Tag size={18} />
-                <h2 className="font-sans text-2xl font-semibold">Lịch sử & chi tiết</h2>
+                <CalendarDays size={18} />
+                <h2 className="font-sans text-2xl font-semibold">Thời điểm ghi nhận</h2>
               </div>
-              <div className="mt-4 rounded-2xl bg-[#f7f9ff] p-4 text-sm text-slate-600">
-                - Khung hiện đang thể hiện UC-02: xem danh sách & chi tiết hồ sơ ngựa.\n- Khi Flow 5 triển khai, phần lịch sử thi đấu có thể bổ sung tab riêng cho Horse Owner.
+              <div className="mt-4 rounded-2xl bg-[#f7f9ff] p-4">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Ngày tạo hồ sơ</p>
+                <p className="mt-2 text-sm font-semibold text-equine-navy">{formatDateTime(horse.created_at)}</p>
+                <p className="mt-2 text-xs leading-5 text-slate-500">Thời điểm hồ sơ ngựa được ghi nhận trên hệ thống.</p>
               </div>
             </section>
           </div>
         </div>
       </div>
+      {deleteDialogOpen && (
+        <Modal title="Xác nhận xóa hồ sơ ngựa" busy={deleting} onClose={() => setDeleteDialogOpen(false)}>
+          <div className="space-y-4">
+            <p className="text-sm leading-6 text-slate-600">
+              Hồ sơ <strong>{horse.horse_name}</strong> sẽ được xóa mềm: hồ sơ bị ẩn khỏi danh sách nhưng lịch sử và dữ liệu liên quan vẫn được giữ lại.
+            </p>
+            {deleteWarnings ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                Hồ sơ hiện có {deleteWarnings.scheduledTraining} lịch tập, {deleteWarnings.medicalRecords} hồ sơ y tế và {deleteWarnings.activePrescriptions} đơn thuốc đang hoạt động.
+              </div>
+            ) : null}
+            {deleteError ? <Notice error>{deleteError}</Notice> : null}
+            <div className="flex justify-end gap-3 pt-2">
+              <button type="button" className="soft-button border-equine-line bg-white text-slate-700" disabled={deleting} onClick={() => setDeleteDialogOpen(false)}>Hủy</button>
+              <button type="button" className="soft-button border-red-200 bg-red-50 text-red-700" disabled={deleting || !deleteWarnings} onClick={() => void confirmDelete()}>
+                <Trash2 size={15} /> {deleting ? "Đang xóa..." : "Xác nhận xóa"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </main>
   );
 }
@@ -188,4 +254,14 @@ function InfoCard({ label, value }: { label: string; value: string }) {
       <p className="mt-2 text-sm font-semibold text-equine-navy">{value}</p>
     </div>
   );
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return "Chưa cập nhật";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Chưa cập nhật";
+  return new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }
