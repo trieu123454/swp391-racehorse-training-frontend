@@ -1,11 +1,8 @@
-import { ApiRequestError, validateSession } from "./api";
-import { getAccessToken } from "./session";
-import type { RoleName } from "./types";
+import { ApiRequestError, authenticatedRequest } from "@/lib/api";
+import type { RoleName } from "@/lib/types";
 
 export type AssignableRoleName = Exclude<RoleName, "CLUB_MANAGER">;
 export type CreatableRoleName = Exclude<RoleName, "HORSE_OWNER">;
-
-const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
 export type PendingUser = {
   id: number;
@@ -39,24 +36,7 @@ export type RoleChangeRequest = {
 };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const send = () => fetch(`${base}/api/club-manager${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers ?? {}),
-      Authorization: `Bearer ${getAccessToken()}`,
-    },
-  });
-  let response = await send();
-  if (response.status === 401) {
-    await validateSession();
-    response = await send();
-  }
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new ApiRequestError(body.message || "Không thể thực hiện yêu cầu.", response.status);
-  }
-  return response.json() as Promise<T>;
+  return authenticatedRequest<T>(`/api/club-manager${path}`, options);
 }
 
 export function listPendingUsers(role?: string, page = 1, limit = 10) {
@@ -81,6 +61,10 @@ export function rejectUser(id: number, reason: string) {
 
 export function lockUser(id: number, reason: string) {
   return request(`/users/${id}/lock`, { method: "PATCH", body: JSON.stringify({ reason: reason || null }) });
+}
+
+export function unlockUser(id: number) {
+  return request(`/users/${id}/unlock`, { method: "PATCH" });
 }
 
 export function createStaffAccount(input: {
@@ -111,5 +95,9 @@ export function handleRoleChange(id: string, action: "approve" | "reject") {
   return request(`/role-change-requests/${id}`, { method: "PATCH", body: JSON.stringify({ action }) });
 }
 
-export const clubManagerError = (error: unknown) =>
-  error instanceof Error ? error.message : "Có lỗi xảy ra. Vui lòng thử lại.";
+export const clubManagerError = (error: unknown) => {
+  if (error instanceof ApiRequestError && error.status === 401) {
+    return "Phiên đăng nhập không còn hợp lệ. Vui lòng đăng xuất rồi đăng nhập lại.";
+  }
+  return error instanceof Error ? error.message : "Có lỗi xảy ra. Vui lòng thử lại.";
+};

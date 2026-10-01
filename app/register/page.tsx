@@ -13,9 +13,9 @@ import {
   UserRound,
 } from "lucide-react";
 import { FormEvent, useCallback, useState } from "react";
-import { AuthVisual } from "@/components/AuthVisual";
-import { Brand } from "@/components/Brand";
-import { GoogleAuthButton } from "@/components/GoogleAuthButton";
+import { AuthVisual } from "@/features/auth/AuthVisual";
+import { Brand } from "@/shared/components/Brand";
+import { GoogleAuthButton } from "@/features/auth/GoogleAuthButton";
 import { register } from "@/lib/api";
 import { routeForRole } from "@/lib/roles";
 import { saveSession } from "@/lib/session";

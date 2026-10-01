@@ -12,8 +12,8 @@ import {
   Trash2,
   User,
 } from "lucide-react";
-import { useHorseUser } from "@/components/HorseShell";
-import { HorseImage, Modal, Notice, StatusBadge } from "@/components/HorseUI";
+import { useHorseUser } from "@/features/horses/HorseShell";
+import { HorseImage, Modal, Notice, StatusBadge } from "@/features/horses/HorseUI";
 import { routeForRole } from "@/lib/roles";
 import {
   deleteHorse as deleteHorseApi,
@@ -23,7 +23,7 @@ import {
   listHorses,
   type Horse,
   type Stable,
-} from "@/lib/horses";
+} from "@/features/horses/api";
 
 export default function HorsesPage() {
   const user = useHorseUser();
@@ -149,7 +149,7 @@ export default function HorsesPage() {
               >
                 <option value="ALL">Tất cả trạng thái</option>
                 <option value="Healthy">Khỏe mạnh</option>
-                <option value="Under Observation">Cần theo dõi</option>
+                <option value="Monitoring">Cần theo dõi</option>
                 <option value="Quarantine">Cách ly</option>
                 <option value="Injured">Chấn thương</option>
                 <option value="Sick">Đang bệnh</option>
@@ -216,6 +216,11 @@ export default function HorsesPage() {
                         </p>
                         <p>
                           <strong>Chủ sở hữu:</strong> {owner?.full_name ?? "Chưa có"}
+                        </p>
+                        <p>
+                          <strong>Chiều cao:</strong> {horse.height_cm == null ? "Chưa cập nhật" : `${horse.height_cm} cm`}
+                          <span className="px-2 text-slate-300">·</span>
+                          <strong>Cân nặng:</strong> {horse.current_weight_kg == null ? "Chưa có dữ liệu" : `${horse.current_weight_kg} kg`}
                         </p>
                         <p>
                           <strong>Khóa huấn luyện:</strong>{" "}

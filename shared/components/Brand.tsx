@@ -11,10 +11,10 @@ export function Brand({
     <div className="flex min-w-0 max-w-full items-center gap-3">
       <Image
         alt="Royal Equine"
-        className="rounded-sm"
-        height={compact ? 34 : 46}
+        className="shrink-0 rounded-sm"
+        height={compact ? 44 : 58}
         src="/images/equine-logo.webp"
-        width={compact ? 34 : 46}
+        width={compact ? 44 : 58}
       />
       <div className="min-w-0">
         <p

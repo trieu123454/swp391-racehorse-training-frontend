@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { ArrowUpRight, LayoutDashboard, LogOut, Menu, Shield, X } from "lucide-react";
-import { Brand } from "./Brand";
+import { Brand } from "@/shared/components/Brand";
 import { ApiRequestError, logout, validateSession } from "@/lib/api";
 import { clearSession, getRefreshToken, getUser } from "@/lib/session";
 import { roleLabels, routeForRole } from "@/lib/roles";

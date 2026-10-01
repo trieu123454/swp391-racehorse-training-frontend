@@ -17,8 +17,8 @@ import {
   Utensils,
   Warehouse,
 } from "lucide-react";
-import { SiteFooter } from "@/components/SiteFooter";
-import { SiteHeader } from "@/components/SiteHeader";
+import { SiteFooter } from "@/shared/components/SiteFooter";
+import { SiteHeader } from "@/shared/components/SiteHeader";
 
 const workflows = [
   {

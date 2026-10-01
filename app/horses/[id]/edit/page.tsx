@@ -4,29 +4,28 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ImagePlus, Save, Upload, X } from "lucide-react";
-import { Notice } from "@/components/HorseUI";
-import { errorMessage, getHorse, getHorseOwners, getHorseStables, saveHorse, uploadHorseImage, type Owner, type Stable } from "@/lib/horses";
+import { Notice } from "@/features/horses/HorseUI";
+import { OwnerCombobox } from "@/features/horses/OwnerCombobox";
+import { errorMessage, getHorse, getHorseStables, saveHorse, uploadHorseImage, type Stable } from "@/features/horses/api";
 
 export default function EditHorsePage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const [horse, setHorse] = useState<Awaited<ReturnType<typeof getHorse>> | null>(null);
-  const [form, setForm] = useState({ horseName: "", breed: "", birthYear: 2024, pedigreeFather: "", pedigreeMother: "", stableBoxId: "", ownerId: 0 });
+  const [form, setForm] = useState<{ horseName: string; breed: string; birthYear: number; heightCm: string; currentWeightKg: string; pedigreeFather: string; pedigreeMother: string; stableBoxId: string; ownerId: number | null }>({ horseName: "", breed: "", birthYear: 2024, heightCm: "", currentWeightKg: "", pedigreeFather: "", pedigreeMother: "", stableBoxId: "", ownerId: null });
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [stables, setStables] = useState<Stable[]>([]);
-  const [owners, setOwners] = useState<Owner[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    Promise.all([getHorse(params.id), getHorseStables(), getHorseOwners()]).then(([currentHorse, nextStables, nextOwners]) => {
+    Promise.all([getHorse(params.id), getHorseStables()]).then(([currentHorse, nextStables]) => {
       setHorse(currentHorse);
       setStables(nextStables);
-      setOwners(nextOwners);
-      setForm({ horseName: currentHorse.horse_name, breed: currentHorse.breed ?? "", birthYear: currentHorse.birth_year ?? 2024, pedigreeFather: currentHorse.pedigree_father ?? "", pedigreeMother: currentHorse.pedigree_mother ?? "", stableBoxId: currentHorse.stable_box_id, ownerId: currentHorse.owner_id ?? 0 });
+      setForm({ horseName: currentHorse.horse_name, breed: currentHorse.breed ?? "", birthYear: currentHorse.birth_year ?? 2024, heightCm: currentHorse.height_cm == null ? "" : String(currentHorse.height_cm), currentWeightKg: currentHorse.current_weight_kg == null ? "" : String(currentHorse.current_weight_kg), pedigreeFather: currentHorse.pedigree_father ?? "", pedigreeMother: currentHorse.pedigree_mother ?? "", stableBoxId: currentHorse.stable_box_id, ownerId: currentHorse.owner_id });
       setImagePath(currentHorse.image_url);
     }).catch((reason) => setError(errorMessage(reason)));
   }, [params.id]);
@@ -57,7 +56,7 @@ export default function EditHorsePage() {
     setSaving(true);
     setError("");
 
-    void saveHorse({ horseName: form.horseName, breed: form.breed || null, birthYear: form.birthYear || null, pedigreeFather: form.pedigreeFather || null, pedigreeMother: form.pedigreeMother || null, stableBoxId: form.stableBoxId, ownerId: form.ownerId || null, imagePath, confirmOwnerChange: form.ownerId !== safeHorse.owner_id }).then(() => {
+    void saveHorse({ horseName: form.horseName, breed: form.breed || null, birthYear: form.birthYear || null, heightCm: form.heightCm ? Number(form.heightCm) : null, currentWeightKg: form.currentWeightKg ? Number(form.currentWeightKg) : null, pedigreeFather: form.pedigreeFather || null, pedigreeMother: form.pedigreeMother || null, stableBoxId: form.stableBoxId, ownerId: form.ownerId || null, imagePath, confirmOwnerChange: form.ownerId !== safeHorse.owner_id }).then(() => {
       setSaving(false);
       router.push(`/horses/${safeHorse.id}`);
     }).catch((reason) => { setSaving(false); setError(errorMessage(reason)); });
@@ -109,6 +108,16 @@ export default function EditHorsePage() {
             </label>
 
             <label className="block">
+              <span className="field-label">Chiều cao đến vai (cm)</span>
+              <input type="number" min={50} max={250} step="0.1" value={form.heightCm} onChange={(event) => setForm({ ...form, heightCm: event.target.value })} className="field-control" placeholder="Ví dụ: 162.5" />
+            </label>
+
+            <label className="block">
+              <span className="field-label">Cân nặng hiện tại (kg)</span>
+              <input type="number" min={100} max={900} step="0.01" value={form.currentWeightKg} onChange={(event) => setForm({ ...form, currentWeightKg: event.target.value })} className="field-control" placeholder="Ví dụ: 452" />
+            </label>
+
+            <label className="block">
               <span className="field-label">Chuồng trại</span>
               <select value={form.stableBoxId} onChange={(event) => setForm({ ...form, stableBoxId: event.target.value })} className="field-control">
                 {stables.map((stable) => (
@@ -128,15 +137,7 @@ export default function EditHorsePage() {
             </label>
           </div>
 
-          <label className="block">
-            <span className="field-label">Chủ sở hữu</span>
-            <select value={form.ownerId} onChange={(event) => setForm({ ...form, ownerId: Number(event.target.value) })} className="field-control">
-              <option value={0}>Không gán chủ sở hữu</option>
-              {owners.map((owner) => (
-                <option key={owner.user_id} value={owner.user_id}>{owner.full_name}</option>
-              ))}
-            </select>
-          </label>
+          <OwnerCombobox value={form.ownerId} onChange={(ownerId) => setForm({ ...form, ownerId })} />
 
           <div className="rounded-2xl border border-dashed border-equine-line bg-[#f7f9ff] p-4">
             <span className="field-label">Ảnh ngựa</span>

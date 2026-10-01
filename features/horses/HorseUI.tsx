@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Shield, X } from "lucide-react";
-import { horseRequest, horseStatus, type Horse } from "@/lib/horses";
+import { horseRequest, horseStatus, type Horse } from "@/features/horses/api";
 
 export function HorseImage({ horse, preview }: { horse?: Horse; preview?: string }) {
   const [url, setUrl] = useState<string>();

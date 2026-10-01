@@ -1,10 +1,11 @@
-import { ApiRequestError, validateSession } from "./api";
-import { getAccessToken } from "./session";
+import { ApiRequestError, validateSession } from "@/lib/api";
+import { getAccessToken } from "@/lib/session";
 
 const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
 export type HorseStatus =
   | "Healthy"
+  | "Monitoring"
   | "Injured"
   | "Quarantine"
   | "Under Observation"
@@ -15,6 +16,8 @@ export type Horse = {
   horse_name: string;
   breed: string | null;
   birth_year: number | null;
+  height_cm: number | null;
+  current_weight_kg: number | null;
   pedigree_father: string | null;
   pedigree_mother: string | null;
   image_url: string | null;
@@ -24,6 +27,7 @@ export type Horse = {
   owner_id: number | null;
   owner_name?: string | null;
   current_status: HorseStatus | string;
+  readiness_status?: "Ready" | "NotReady" | "Unknown";
   is_training_locked: boolean;
   created_at: string;
   deleted_at?: string | null;
@@ -37,11 +41,14 @@ export type Stable = {
   occupied: number;
 };
 
-export type Owner = { user_id: number; full_name: string };
+export type Owner = { user_id: number; full_name: string; email: string; phone: string | null };
+export type OwnerPage = { items: Owner[]; hasMore: boolean; page: number; size: number };
 export type HorseInput = {
   horseName: string;
   breed: string | null;
   birthYear: number | null;
+  heightCm: number | null;
+  currentWeightKg: number | null;
   pedigreeFather: string | null;
   pedigreeMother: string | null;
   stableBoxId: string;
@@ -105,8 +112,9 @@ export function getHorseStables() {
   return horseRequest<Stable[]>("/options/stables");
 }
 
-export function getHorseOwners() {
-  return horseRequest<Owner[]>("/options/owners");
+export function getHorseOwners(query: string, page = 0, signal?: AbortSignal) {
+  const params = new URLSearchParams({ q: query, page: String(page), size: "20" });
+  return horseRequest<OwnerPage>(`/options/owners?${params.toString()}`, { signal });
 }
 
 export function saveHorse(input: HorseInput, id?: string) {
@@ -176,6 +184,7 @@ export async function uploadHorseImage(
 }
 
 export const statusLabels: Record<string, string> = {
+  Monitoring: "Cần theo dõi",
   Healthy: "Khỏe mạnh",
   Injured: "Chấn thương",
   Quarantine: "Cách ly",

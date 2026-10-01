@@ -629,3 +629,62 @@ select {
     transform: none !important;
   }
 }
+
+.racing-horse {
+  filter: drop-shadow(0 2px 1px rgb(75 49 31 / 18%));
+  transform-origin: center bottom;
+  animation: racing-horse-bob 220ms ease-in-out infinite alternate;
+}
+
+.racing-horse__tail {
+  transform-box: fill-box;
+  transform-origin: 100% 35%;
+  animation: racing-horse-tail 420ms ease-in-out infinite alternate;
+}
+
+.racing-horse__leg {
+  transform-box: view-box;
+}
+
+.racing-horse__leg--hind-a {
+  transform-origin: 38px 37px;
+  animation: racing-horse-gallop 260ms ease-in-out infinite alternate;
+}
+
+.racing-horse__leg--hind-b {
+  transform-origin: 48px 38px;
+  animation: racing-horse-gallop 260ms ease-in-out -130ms infinite alternate-reverse;
+}
+
+.racing-horse__leg--fore-a {
+  transform-origin: 74px 35px;
+  animation: racing-horse-gallop 260ms ease-in-out -65ms infinite alternate-reverse;
+}
+
+.racing-horse__leg--fore-b {
+  transform-origin: 81px 35px;
+  animation: racing-horse-gallop 260ms ease-in-out -195ms infinite alternate;
+}
+
+@keyframes racing-horse-bob {
+  from { transform: translateY(1px); }
+  to { transform: translateY(-2px); }
+}
+
+@keyframes racing-horse-gallop {
+  from { transform: rotate(-22deg); }
+  to { transform: rotate(24deg); }
+}
+
+@keyframes racing-horse-tail {
+  from { transform: rotate(-8deg); }
+  to { transform: rotate(9deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .racing-horse,
+  .racing-horse__tail,
+  .racing-horse__leg {
+    animation: none !important;
+  }
+}

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { LockKeyhole } from "lucide-react";
-import { Brand } from "@/components/Brand";
+import { Brand } from "@/shared/components/Brand";
 import { changePassword, validateSession } from "@/lib/api";
 import { routeForRole } from "@/lib/roles";
 import { isRemembered, saveSession } from "@/lib/session";

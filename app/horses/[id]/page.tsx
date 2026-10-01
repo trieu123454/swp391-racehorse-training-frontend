@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, CalendarDays, MapPin, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useHorseUser } from "@/components/HorseShell";
-import { HorseImage, Modal, Notice, StatusBadge } from "@/components/HorseUI";
+import { useHorseUser } from "@/features/horses/HorseShell";
+import { HorseImage, Modal, Notice, StatusBadge } from "@/features/horses/HorseUI";
 import {
   deleteHorse,
   errorMessage,
@@ -13,7 +13,7 @@ import {
   getHorseDeletionWarnings,
   type Horse,
   type Warnings,
-} from "@/lib/horses";
+} from "@/features/horses/api";
 
 export default function HorseDetailPage() {
   const router = useRouter();
@@ -190,6 +190,8 @@ export default function HorseDetailPage() {
               <div className="mt-5 grid gap-4 sm:grid-cols-2">
                 <InfoCard label="Tên cha" value={horse.pedigree_father ?? "Chưa cập nhật"} />
                 <InfoCard label="Tên mẹ" value={horse.pedigree_mother ?? "Chưa cập nhật"} />
+                <InfoCard label="Chiều cao đến vai" value={horse.height_cm == null ? "Chưa cập nhật" : `${horse.height_cm} cm`} />
+                <InfoCard label="Cân nặng gần nhất" value={horse.current_weight_kg == null ? "Chưa có dữ liệu" : `${horse.current_weight_kg} kg`} />
                 <InfoCard label="Trạng thái" value={horse.current_status} />
                 <InfoCard label="Khóa huấn luyện" value={horse.is_training_locked ? "Có" : "Không"} />
               </div>

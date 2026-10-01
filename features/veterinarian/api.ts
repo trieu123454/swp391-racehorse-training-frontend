@@ -1,4 +1,4 @@
-import { ApiRequestError, authenticatedRequest } from "./api";
+import { ApiRequestError, authenticatedRequest } from "@/lib/api";
 
 export type ApiPage<T> = {
   data: T[];
@@ -19,6 +19,7 @@ export type VetHorse = {
   horse_name: string;
   image_url: string | null;
   current_status: string;
+  readiness_status: "Ready" | "NotReady" | "Unknown";
   is_training_locked: boolean;
   lock_level: string | null;
   lock_reason: string | null;
@@ -119,6 +120,13 @@ export type InjuryMarker = {
   marked_at: string;
   marked_by?: number | null;
   suggest_lock?: boolean;
+  training_locked?: boolean;
+};
+
+export type VetStableIncident = {
+  id: string; horse_id: string; horse_name: string; current_status: string; readiness_status: string;
+  box_code: string | null; section: string | null; groom_id: number | null; groom_name: string | null;
+  issue_description: string; image_url: string | null; status: string; created_at: string; resolved_at: string | null;
 };
 
 export type CareEvent = {
@@ -216,6 +224,9 @@ export const veterinarianApi = {
     const query = queryString({ section });
     return call<HealthOverview>(`/api/vet/health-overview${query ? `?${query}` : ""}`);
   },
+  incidents(status = "Pending") {
+    return call<{ status: string; data: VetStableIncident[] }>(`/api/vet/stable-incidents?status=${encodeURIComponent(status)}`);
+  },
   exams(horse: string, page = 1) {
     return call<ApiPage<HealthExam>>(`/api/horses/${horse}/health-exams?page=${page}&limit=20`);
   },
@@ -268,8 +279,8 @@ export const veterinarianApi = {
   createInjury(horse: string, input: Record<string, unknown>) {
     return call<InjuryMarker>(`/api/horses/${horse}/injury-markers`, "POST", input);
   },
-  updateHealthStatus(horse: string, current_status: string, note?: string) {
-    return call<{ id: string; current_status: string; suggest_lock: boolean }>(`/api/horses/${horse}/health-status`, "PATCH", { current_status, note });
+  updateHealthStatus(horse: string, current_status: string, readiness_status: string, note?: string) {
+    return call<{ id: string; current_status: string; readiness_status: string; is_training_locked: boolean; upcoming_sessions: { training_schedule_id: string; event_date: string; start_time?: string; session_type: string }[] }>(`/api/horses/${horse}/health-status`, "PATCH", { current_status, readiness_status, note });
   },
   lockTraining(horse: string, input: { lock_level: string; lock_reason: string }) {
     return call<{ id: string; is_training_locked: boolean; was_locked: boolean; upcoming_sessions: unknown[] }>(`/api/horses/${horse}/training-lock`, "PUT", input);

@@ -3,34 +3,45 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Save, Upload, X } from "lucide-react";
-import { Notice } from "@/components/HorseUI";
-import { errorMessage, getHorseOwners, getHorseStables, saveHorse, uploadHorseImage, type Owner, type Stable } from "@/lib/horses";
+import { Notice } from "@/features/horses/HorseUI";
+import { OwnerCombobox } from "@/features/horses/OwnerCombobox";
+import { errorMessage, getHorseStables, saveHorse, uploadHorseImage, type Stable } from "@/features/horses/api";
 
 export default function NewHorsePage() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<{
+    horseName: string;
+    breed: string;
+    birthYear: number;
+    heightCm: string;
+    currentWeightKg: string;
+    pedigreeFather: string;
+    pedigreeMother: string;
+    stableBoxId: string;
+    ownerId: number | null;
+  }>({
     horseName: "",
     breed: "",
     birthYear: 2024,
+    heightCm: "",
+    currentWeightKg: "",
     pedigreeFather: "",
     pedigreeMother: "",
     stableBoxId: "box-005",
-    ownerId: 101,
+    ownerId: null,
   });
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [stables, setStables] = useState<Stable[]>([]);
-  const [owners, setOwners] = useState<Owner[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    Promise.all([getHorseStables(), getHorseOwners()]).then(([nextStables, nextOwners]) => {
+    getHorseStables().then((nextStables) => {
       setStables(nextStables);
-      setOwners(nextOwners);
       if (nextStables[0]) setForm((current) => ({ ...current, stableBoxId: nextStables[0].id }));
     }).catch((reason) => setError(errorMessage(reason)));
   }, []);
@@ -74,6 +85,8 @@ export default function NewHorsePage() {
         horseName: form.horseName,
         breed: form.breed || null,
         birthYear: form.birthYear || null,
+        heightCm: form.heightCm ? Number(form.heightCm) : null,
+        currentWeightKg: form.currentWeightKg ? Number(form.currentWeightKg) : null,
         pedigreeFather: form.pedigreeFather || null,
         pedigreeMother: form.pedigreeMother || null,
         stableBoxId: form.stableBoxId,
@@ -139,6 +152,16 @@ export default function NewHorsePage() {
                   onChange={(event) => setForm({ ...form, birthYear: Number(event.target.value) || 0 })}
                   className="field-control"
                 />
+              </label>
+
+              <label className="block">
+                <span className="field-label">Chiều cao đến vai (cm)</span>
+                <input type="number" min={50} max={250} step="0.1" value={form.heightCm} onChange={(event) => setForm({ ...form, heightCm: event.target.value })} className="field-control" placeholder="Ví dụ: 162.5" />
+              </label>
+
+              <label className="block">
+                <span className="field-label">Cân nặng hiện tại (kg)</span>
+                <input type="number" min={100} max={900} step="0.01" value={form.currentWeightKg} onChange={(event) => setForm({ ...form, currentWeightKg: event.target.value })} className="field-control" placeholder="Ví dụ: 452" />
               </label>
 
               <div className="grid gap-5 md:grid-cols-2">
@@ -215,21 +238,7 @@ export default function NewHorsePage() {
                 </select>
               </label>
 
-              <label className="block">
-                <span className="field-label">Chủ sở hữu</span>
-                <select
-                  value={form.ownerId}
-                  onChange={(event) => setForm({ ...form, ownerId: Number(event.target.value) })}
-                  className="field-control"
-                >
-                  <option value={0}>Không gán chủ sở hữu</option>
-                  {owners.map((owner) => (
-                    <option key={owner.user_id} value={owner.user_id}>
-                      {owner.full_name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <OwnerCombobox value={form.ownerId} onChange={(ownerId) => setForm({ ...form, ownerId })} />
             </div>
           </div>
 

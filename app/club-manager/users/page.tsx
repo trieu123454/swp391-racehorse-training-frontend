@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Check, Copy, Filter, Lock, Pencil, RefreshCw, ShieldX, UserPlus, UserRound, X } from "lucide-react";
-import HorseShell, { useHorseUser } from "@/components/HorseShell";
-import { Modal, Notice } from "@/components/HorseUI";
+import HorseShell, { useHorseUser } from "@/features/horses/HorseShell";
+import { Modal, Notice } from "@/features/horses/HorseUI";
+import { ApiRequestError } from "@/lib/api";
 import {
   approveUser,
   clubManagerError,
@@ -14,12 +15,13 @@ import {
   listUsers,
   lockUser,
   rejectUser,
+  unlockUser,
   updateUserRole,
   type AssignableRoleName,
   type CreatableRoleName,
   type PendingUser,
   type RoleChangeRequest,
-} from "@/lib/club-manager";
+} from "@/features/club-manager/api";
 import { roleLabels } from "@/lib/roles";
 
 const STAFF_ROLE_FILTERS = ["HEAD_TRAINER", "VETERINARIAN", "GROOM"] as const;
@@ -37,7 +39,7 @@ export default function ClubManagerUsersPage() {
 
 function AccountManagement() {
   const user = useHorseUser();
-  const [tab, setTab] = useState<"pending" | "active" | "roles" | "create">("pending");
+  const [tab, setTab] = useState<"pending" | "active" | "locked" | "roles" | "create">("pending");
   const [role, setRole] = useState("ALL");
   const [pending, setPending] = useState<PendingUser[]>([]);
   const [roleRequests, setRoleRequests] = useState<RoleChangeRequest[]>([]);
@@ -70,10 +72,17 @@ function AccountManagement() {
         setPending(response.data);
       } else if (tab === "active") {
         setPending(await listUsers("APPROVED", role));
+      } else if (tab === "locked") {
+        setPending(await listUsers("LOCKED", role));
       } else if (tab === "roles") {
         setRoleRequests(await listRoleChangeRequests());
       }
     } catch (reason) {
+      if (tab === "pending" || tab === "active" || tab === "locked") {
+        setPending([]);
+      } else if (tab === "roles") {
+        setRoleRequests([]);
+      }
       setError(clubManagerError(reason));
     } finally {
       setLoading(false);
@@ -110,6 +119,17 @@ function AccountManagement() {
       setNotice("Đã khóa tài khoản.");
       await load();
     } catch (reason) { setError(clubManagerError(reason)); }
+  }
+
+  async function unlock(id: number) {
+    try {
+      await unlockUser(id);
+      setNotice("Đã mở khóa tài khoản. Người dùng có thể đăng nhập lại.");
+      await load();
+    } catch (reason) {
+      if (reason instanceof ApiRequestError && reason.status === 401) setPending([]);
+      setError(clubManagerError(reason));
+    }
   }
 
   function editRole(account: PendingUser) {
@@ -181,6 +201,7 @@ function AccountManagement() {
       <div className="mt-6 flex flex-wrap gap-2 border-b border-equine-line pb-3">
         <button type="button" className={`soft-button h-10 px-4 ${tab === "pending" ? "bg-equine-navy text-white" : "bg-white text-slate-700"}`} onClick={() => { setRole("ALL"); setTab("pending"); }}><UserRound size={15} /> Chờ duyệt</button>
         <button type="button" className={`soft-button h-10 px-4 ${tab === "active" ? "bg-equine-navy text-white" : "bg-white text-slate-700"}`} onClick={() => { setRole("ALL"); setTab("active"); }}><UserRound size={15} /> Đang hoạt động</button>
+        <button type="button" className={`soft-button h-10 px-4 ${tab === "locked" ? "bg-equine-navy text-white" : "bg-white text-slate-700"}`} onClick={() => { setRole("ALL"); setTab("locked"); }}><Lock size={15} /> Đã khóa</button>
         <button type="button" className={`soft-button h-10 px-4 ${tab === "roles" ? "bg-equine-navy text-white" : "bg-white text-slate-700"}`} onClick={() => setTab("roles")}><Lock size={15} /> Đổi vai trò</button>
         <button type="button" className={`soft-button h-10 px-4 ${tab === "create" ? "bg-equine-navy text-white" : "bg-white text-slate-700"}`} onClick={() => setTab("create")}><UserPlus size={15} /> Tạo tài khoản nhân sự</button>
       </div>
@@ -212,11 +233,12 @@ function AccountManagement() {
         </form>
       </div>}
 
-      {(tab === "pending" || tab === "active") && <div className="mt-5 rounded-2xl border border-equine-line bg-white p-4 shadow-sm">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-sans text-xl font-semibold text-equine-navy">{tab === "pending" ? "Tài khoản chờ duyệt" : "Tài khoản đang hoạt động"}</h2><p className="mt-1 text-sm text-slate-500">{tab === "pending" ? "Horse Owner không xuất hiện vì được kích hoạt tự động." : "Có thể đổi vai trò hoặc khóa thành viên; không áp dụng với bạn và Club Manager."}</p></div><label className="flex items-center gap-2 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2 text-sm"><Filter size={15} /><select value={role} onChange={(event) => setRole(event.target.value)} className="border-0 bg-transparent outline-none"><option value="ALL">Tất cả vai trò</option>{(tab === "active" ? ACTIVE_ROLE_FILTERS : STAFF_ROLE_FILTERS).map((roleName) => <option key={roleName} value={roleName}>{roleLabels[roleName]}</option>)}</select></label></div>
+      {(tab === "pending" || tab === "active" || tab === "locked") && <div className="mt-5 rounded-2xl border border-equine-line bg-white p-4 shadow-sm">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-sans text-xl font-semibold text-equine-navy">{tab === "pending" ? "Tài khoản chờ duyệt" : tab === "locked" ? "Tài khoản đã khóa" : "Tài khoản đang hoạt động"}</h2><p className="mt-1 text-sm text-slate-500">{tab === "pending" ? "Horse Owner không xuất hiện vì được kích hoạt tự động." : tab === "locked" ? "Tài khoản vẫn được lưu tại đây; mở khóa sẽ cho phép người dùng đăng nhập lại." : "Có thể đổi vai trò hoặc khóa thành viên; không áp dụng với bạn và Club Manager."}</p></div><label className="flex items-center gap-2 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2 text-sm"><Filter size={15} /><select value={role} onChange={(event) => setRole(event.target.value)} className="border-0 bg-transparent outline-none"><option value="ALL">Tất cả vai trò</option>{(tab === "pending" ? STAFF_ROLE_FILTERS : ACTIVE_ROLE_FILTERS).map((roleName) => <option key={roleName} value={roleName}>{roleLabels[roleName]}</option>)}</select></label></div>
         {loading ? <Notice>Đang tải danh sách tài khoản...</Notice> : pending.length === 0 ? <Notice>Không có tài khoản phù hợp.</Notice> : <div className="space-y-3">{pending.map((account) => {
           const protectedAccount = account.id === user.id || account.role_name === "CLUB_MANAGER";
-          return <article key={account.id} className="flex flex-col gap-4 rounded-xl border border-equine-line p-4 md:flex-row md:items-center md:justify-between"><div><h3 className="font-semibold text-equine-navy">{account.full_name}</h3><p className="text-sm text-slate-600">{account.email}{account.phone ? ` · ${account.phone}` : ""}</p><p className="mt-1 text-xs font-semibold uppercase tracking-wide text-equine-gold">{roleLabels[account.role_name]}</p></div><div className="flex flex-wrap gap-2">{tab === "pending" ? <><button type="button" className="gold-button h-10 px-4" onClick={() => void approve(account.id)}><Check size={15} /> Duyệt</button><button type="button" className="soft-button h-10 border-red-200 bg-red-50 px-4 text-red-700" onClick={() => setRejectTarget(account)}><X size={15} /> Từ chối</button></> : !protectedAccount && <><button type="button" className="soft-button h-10 px-4 text-equine-navy" onClick={() => editRole(account)}><Pencil size={15} /> Sửa vai trò</button><button type="button" className="soft-button h-10 border-red-200 bg-red-50 px-4 text-red-700" onClick={() => setLockTarget(account)}><Lock size={15} /> Khóa</button></>}</div></article>;
+          const statusLabel = account.status === "LOCKED" ? "Đã khóa" : account.status === "PENDING" ? "Chờ duyệt" : "Đang hoạt động";
+          return <article key={account.id} className="flex flex-col gap-4 rounded-xl border border-equine-line p-4 md:flex-row md:items-center md:justify-between"><div><h3 className="font-semibold text-equine-navy">{account.full_name}</h3><p className="text-sm text-slate-600">{account.email}{account.phone ? ` · ${account.phone}` : ""}</p><p className="mt-1 text-xs font-semibold uppercase tracking-wide text-equine-gold">{roleLabels[account.role_name]}</p><p className="mt-1 text-xs text-slate-500">Trạng thái: {statusLabel}</p></div><div className="flex flex-wrap gap-2">{tab === "pending" ? <><button type="button" className="gold-button h-10 px-4" onClick={() => void approve(account.id)}><Check size={15} /> Duyệt</button><button type="button" className="soft-button h-10 border-red-200 bg-red-50 px-4 text-red-700" onClick={() => setRejectTarget(account)}><X size={15} /> Từ chối</button></> : tab === "locked" ? !protectedAccount && <button type="button" className="gold-button h-10 px-4" onClick={() => void unlock(account.id)}><Check size={15} /> Mở khóa</button> : !protectedAccount && <><button type="button" className="soft-button h-10 px-4 text-equine-navy" onClick={() => editRole(account)}><Pencil size={15} /> Sửa vai trò</button><button type="button" className="soft-button h-10 border-red-200 bg-red-50 px-4 text-red-700" onClick={() => setLockTarget(account)}><Lock size={15} /> Khóa</button></>}</div></article>;
         })}</div>}
       </div>}
 

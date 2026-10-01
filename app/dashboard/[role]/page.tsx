@@ -12,13 +12,17 @@ import {
   UserRound,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { HorseImage, Notice, StatusBadge } from "@/components/HorseUI";
-import HorseShell, { useHorseUser } from "@/components/HorseShell";
+import { HorseImage, Notice, StatusBadge } from "@/features/horses/HorseUI";
+import HorseShell, { useHorseUser } from "@/features/horses/HorseShell";
 import { validateSession } from "@/lib/api";
-import { errorMessage, getHorseStables, listHorses, type Horse, type Stable } from "@/lib/horses";
+import { errorMessage, getHorseStables, listHorses, type Horse, type Stable } from "@/features/horses/api";
 import { roleForSlug, roleLabels, routeForRole } from "@/lib/roles";
 import type { AuthUser } from "@/lib/types";
-import VeterinarianWorkspace from "@/components/VeterinarianWorkspace";
+import VeterinarianWorkspace from "@/features/veterinarian/VeterinarianWorkspace";
+import HorseOwnerWorkspace from "@/features/horse-owner/HorseOwnerWorkspace";
+import HeadTrainerWorkspace from "@/features/head-trainer/HeadTrainerWorkspace";
+import GroomWorkspace from "@/features/groom/GroomWorkspace";
+import ClubManagerWorkspace from "@/features/club-manager/ClubManagerWorkspace";
 
 export default function RoleDashboardPage() {
   const { role } = useParams<{ role: string }>();
@@ -52,15 +56,14 @@ function RoleDashboardContent() {
 
   return (
     <section className="dashboard-workspace">
-        <p className="eyebrow">Bảng điều khiển chuyên biệt</p>
-        <h1 className="mt-2 font-sans text-4xl font-semibold text-equine-navy">
-          Xin chào, {user.fullName}
-        </h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Bạn đang đăng nhập với vai trò{" "}
-          <strong>{roleLabels[user.roleName]}</strong>.
-        </p>
-        <div className="mt-10 grid gap-4 md:grid-cols-3">
+      <div className="mb-5 grid gap-3 border-b border-equine-line pb-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)] xl:items-end">
+        <div className="min-w-0">
+          <p className="eyebrow">Bảng điều khiển chuyên biệt</p>
+          <h1 className="mt-1 font-sans text-3xl font-semibold text-equine-navy">
+            Xin chào, {user.fullName}
+          </h1>
+        </div>
+        <div className="grid gap-2 md:grid-cols-3">
           <Info icon={UserRound} label="Thành viên" value={user.email} />
           <Info
             icon={ShieldCheck}
@@ -73,11 +76,12 @@ function RoleDashboardContent() {
             value={user.status === "APPROVED" ? "Đã phê duyệt" : user.status}
           />
         </div>
-        {user.roleName === "VETERINARIAN" ? <VeterinarianWorkspace /> : user.roleName === "CLUB_MANAGER" || user.roleName === "HEAD_TRAINER" || user.roleName === "GROOM" || user.roleName === "HORSE_OWNER" ? <HorseDashboardPanel user={user} /> : (
-          <div className="mt-10 rounded-md border border-equine-gold/25 bg-white p-5 text-sm text-slate-600">
-            Chức năng chuyên môn của vai trò này sẽ được hiển thị tại đây khi phân hệ tương ứng được triển khai.
-          </div>
-        )}
+      </div>
+      {user.roleName === "VETERINARIAN" ? <VeterinarianWorkspace /> : user.roleName === "HORSE_OWNER" ? <HorseOwnerWorkspace /> : user.roleName === "HEAD_TRAINER" ? <HeadTrainerWorkspace /> : user.roleName === "GROOM" ? <GroomWorkspace /> : user.roleName === "CLUB_MANAGER" ? <><ClubManagerWorkspace /><HorseDashboardPanel user={user} /></> : (
+        <div className="mt-10 rounded-md border border-equine-gold/25 bg-white p-5 text-sm text-slate-600">
+          Chức năng chuyên môn của vai trò này sẽ được hiển thị tại đây khi phân hệ tương ứng được triển khai.
+        </div>
+      )}
     </section>
   );
 }
@@ -92,12 +96,12 @@ function Info({
   value: string;
 }) {
   return (
-    <div className="border border-equine-line bg-white p-5">
-      <Icon className="text-equine-gold" size={20} />
-      <p className="mt-4 text-[10px] font-bold uppercase text-slate-500">
-        {label}
-      </p>
-      <p className="mt-1 break-words font-semibold text-equine-navy">{value}</p>
+    <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-equine-line bg-white px-3 py-2.5">
+      <Icon className="shrink-0 text-equine-gold" size={17} />
+      <div className="min-w-0">
+        <p className="text-[9px] font-bold uppercase leading-3 text-slate-500">{label}</p>
+        <p className="break-all text-xs font-semibold leading-4 text-equine-navy">{value}</p>
+      </div>
     </div>
   );
 }
@@ -138,7 +142,7 @@ function HorseDashboardPanel({ user }: { user: AuthUser }) {
 
       {user.roleName !== "HORSE_OWNER" && <div className="mt-5 grid gap-3 rounded-2xl border border-equine-line bg-white p-4 shadow-sm md:grid-cols-[1.4fr_1fr_1fr]">
         <label className="flex items-center gap-3 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2.5"><Search size={16} className="text-slate-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none" placeholder="Tìm theo tên ngựa..." /></label>
-        <label className="flex items-center gap-3 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2.5"><Filter size={16} className="text-slate-500" /><select value={status} onChange={(event) => setStatus(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none"><option value="ALL">Tất cả trạng thái</option><option value="Healthy">Khỏe mạnh</option><option value="Under Observation">Cần theo dõi</option><option value="Injured">Chấn thương</option><option value="Quarantine">Cách ly</option></select></label>
+        <label className="flex items-center gap-3 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2.5"><Filter size={16} className="text-slate-500" /><select value={status} onChange={(event) => setStatus(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none"><option value="ALL">Tất cả trạng thái</option><option value="Healthy">Khỏe mạnh</option><option value="Monitoring">Cần theo dõi</option><option value="Injured">Chấn thương</option><option value="Quarantine">Cách ly</option></select></label>
         <select value={stable} onChange={(event) => setStable(event.target.value)} className="rounded-xl border border-equine-line bg-[#f7f9ff] px-3 text-sm outline-none"><option value="ALL">Tất cả chuồng</option>{stables.map((item) => <option key={item.id} value={item.id}>{item.box_code} - {item.section}</option>)}</select>
       </div>}
 
