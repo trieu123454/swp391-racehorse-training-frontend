@@ -56,7 +56,7 @@ export default function EditHorsePage() {
     setSaving(true);
     setError("");
 
-    void saveHorse({ horseName: form.horseName, breed: form.breed || null, birthYear: form.birthYear || null, heightCm: form.heightCm ? Number(form.heightCm) : null, currentWeightKg: form.currentWeightKg ? Number(form.currentWeightKg) : null, pedigreeFather: form.pedigreeFather || null, pedigreeMother: form.pedigreeMother || null, stableBoxId: form.stableBoxId, ownerId: form.ownerId || null, imagePath, confirmOwnerChange: form.ownerId !== safeHorse.owner_id }).then(() => {
+    void saveHorse({ horseName: form.horseName, breed: form.breed || null, birthYear: form.birthYear || null, heightCm: form.heightCm ? Number(form.heightCm) : null, currentWeightKg: form.currentWeightKg ? Number(form.currentWeightKg) : null, pedigreeFather: form.pedigreeFather || null, pedigreeMother: form.pedigreeMother || null, stableBoxId: form.stableBoxId, ownerId: form.ownerId || null, imagePath, confirmOwnerChange: form.ownerId !== safeHorse.owner_id }, safeHorse.id).then(() => {
       setSaving(false);
       router.push(`/horses/${safeHorse.id}`);
     }).catch((reason) => { setSaving(false); setError(errorMessage(reason)); });
