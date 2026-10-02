@@ -60,6 +60,26 @@ export type TrainingSession = {
   metrics?: TrainingMetric[];
 };
 
+export type TrainerIncident = {
+  id: string;
+  horse_id: string;
+  horse_name: string;
+  groom_name: string | null;
+  issue_description: string;
+  image_url: string | null;
+  is_emergency: boolean;
+  status: string;
+  assigned_to: number;
+  assigned_role: string;
+  assignee_name: string | null;
+  assignment_note: string | null;
+  result_note: string | null;
+  created_at: string;
+  assigned_at: string | null;
+  result_at: string | null;
+  assigned_to_me: boolean;
+};
+
 export type TrainerHorse = {
   horse_id: string;
   horse_name: string;
@@ -135,6 +155,16 @@ function call<T>(path: string, method = "GET", body?: unknown): Promise<T> {
 }
 
 export const headTrainerApi = {
+  incidents() {
+    return call<{ data: TrainerIncident[] }>("/api/head-trainer/stable-incidents");
+  },
+  submitIncidentResult(id: string, result_note: string) {
+    return call<{ id: string; status: string; result_note: string }>(
+      `/api/head-trainer/stable-incidents/${encodeURIComponent(id)}/result`,
+      "PATCH",
+      { result_note },
+    );
+  },
   overview(includeSimulated = false) {
     return call<{ data: TrainerHorse[] }>(`/api/head-trainer/overview?include_simulated=${includeSimulated}`);
   },

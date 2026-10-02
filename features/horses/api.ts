@@ -1,5 +1,4 @@
-import { ApiRequestError, validateSession } from "@/lib/api";
-import { getAccessToken } from "@/lib/session";
+import { authenticatedRequest } from "@/lib/api";
 
 const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
@@ -64,28 +63,7 @@ export type Warnings = {
 };
 
 export async function horseRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const send = () => fetch(`${base}/api/horses${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers ?? {}),
-      Authorization: `Bearer ${getAccessToken()}`,
-    },
-  });
-
-  let response = await send();
-  if (response.status === 401) {
-    await validateSession();
-    response = await send();
-  }
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new ApiRequestError(
-      body.message || "Không thể thực hiện yêu cầu. Vui lòng thử lại.",
-      response.status,
-    );
-  }
-  return response.status === 204 ? (undefined as T) : response.json();
+  return authenticatedRequest<T>(`/api/horses${path}`, options);
 }
 
 export async function listHorses(params: {

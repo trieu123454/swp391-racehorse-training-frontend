@@ -16,6 +16,7 @@ import {
   getMyGroomHorses,
   getGroomSupplyRequests,
   reportGroomIncident,
+  submitGroomIncidentResult,
   uploadGroomIncidentImage,
   type GroomCalendar,
   type GroomDietRecord,
@@ -107,14 +108,32 @@ export default function GroomWorkspace() {
         String(values.get("horse_id")),
         String(values.get("issue_description")),
         imagePath,
+        values.get("is_emergency") === "on",
       );
       form.reset();
-      setNotice("Đã gửi báo cáo sự cố cho bác sĩ thú y và Club Manager.");
+      await load();
+      setNotice(values.get("is_emergency") === "on"
+        ? "Đã gửi báo cáo khẩn cấp cho bác sĩ thú y, Club Manager và chủ ngựa; huấn luyện viên phụ trách kế hoạch/lịch tập cũng được báo."
+        : "Đã gửi báo cáo cho Club Manager và chủ ngựa; huấn luyện viên được báo nếu đang phụ trách kế hoạch hoặc lịch tập của ngựa.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Không thể gửi báo cáo sự cố.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submitIncidentResult(event: FormEvent<HTMLFormElement>, incidentId: string) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const resultNote = String(new FormData(form).get("result_note") ?? "").trim();
+    setBusy(true); setError(""); setNotice("");
+    try {
+      await submitGroomIncidentResult(incidentId, resultNote);
+      setNotice("Đã gửi kết quả để Club Manager xem xét đóng sự cố.");
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Không thể gửi kết quả xử lý.");
+    } finally { setBusy(false); }
   }
 
   async function requestSupply(event: FormEvent<HTMLFormElement>) {
@@ -197,10 +216,11 @@ export default function GroomWorkspace() {
     </div>
     <section id="incident-report" className="scroll-mt-24 rounded-2xl border border-amber-200 bg-white p-4 shadow-sm sm:p-5">
       <h3 className="mb-3 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><AlertTriangle size={18} /> Báo cáo sự cố</h3>
-      {horses.length === 0 ? <p className="text-sm text-slate-500">Chỉ có thể báo cáo sự cố cho ngựa được phân công.</p> : <form onSubmit={incident} className="grid gap-3 sm:grid-cols-[1fr_2fr_2fr_auto] sm:items-end">
+      {horses.length === 0 ? <p className="text-sm text-slate-500">Chỉ có thể báo cáo sự cố cho ngựa được phân công.</p> : <form onSubmit={incident} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 sm:items-end">
         <label className="block"><span className="field-label">Ngựa được phân công</span><select className="field-control px-3" name="horse_id" required>{horses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}</option>)}</select></label>
         <label className="block"><span className="field-label">Mô tả sự cố</span><textarea className="field-control min-h-12 px-3 py-2" name="issue_description" maxLength={1000} required /></label>
         <label className="block"><span className="field-label">Ảnh sự cố (JPG, PNG, WebP · tối đa 5 MB)</span><input className="field-control px-3" name="image_file" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+        <label className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800"><input name="is_emergency" type="checkbox" className="h-4 w-4 accent-rose-700" /> Sự cố khẩn cấp · báo bác sĩ ngay</label>
         <button className="gold-button" disabled={busy}><Activity size={15} /> Gửi báo cáo</button>
       </form>}
     </section>
@@ -228,13 +248,21 @@ export default function GroomWorkspace() {
       </section>
     </div>
     <section id="reported-incidents" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
-      <h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><AlertTriangle size={18} /> Báo cáo sự cố đã gửi</h3>
+      <h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><AlertTriangle size={18} /> Sự cố đã báo cáo / được giao</h3>
       <div className="grid gap-3 sm:grid-cols-2">{incidents.map((item) => <article key={item.id} className="rounded-xl border border-equine-line p-3">
         <div className="flex justify-between gap-2"><p className="font-semibold text-equine-navy">{item.horse_name}</p><span className="text-xs text-slate-500">{item.status}</span></div>
+        {item.is_emergency && <p className="mt-2 inline-flex rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-800">KHẨN CẤP · Đã báo bác sĩ thú y</p>}
         <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{item.issue_description}</p>
+        {item.assignee_name && <p className="mt-2 text-sm font-semibold text-equine-navy">Phụ trách: {item.assignee_name} · {item.assigned_role}</p>}
+        {item.assignment_note && <p className="mt-1 whitespace-pre-wrap rounded-lg bg-blue-50 p-3 text-sm text-blue-900"><strong>Ghi chú giao việc:</strong> {item.assignment_note}</p>}
+        {item.result_note && <p className="mt-2 whitespace-pre-wrap rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900"><strong>Kết quả:</strong> {item.result_note}</p>}
         <IncidentPhoto incidentId={item.id} imageUrl={item.image_url} />
+        {item.assigned_to_me && item.status === "InProgress" && <form onSubmit={(event) => void submitIncidentResult(event, item.id)} className="mt-3 space-y-2 rounded-lg border border-equine-line bg-slate-50 p-3">
+          <label className="block"><span className="field-label">Kết quả xử lý</span><textarea className="field-control min-h-20 px-3 py-2" name="result_note" maxLength={2000} required /></label>
+          <button className="soft-button" disabled={busy}>Gửi kết quả cho Club Manager</button>
+        </form>}
         <p className="mt-2 text-[11px] text-slate-400">{new Date(item.created_at).toLocaleString("vi-VN")}</p>
-      </article>)}{!incidents.length && <p className="text-sm text-slate-500">Chưa gửi báo cáo sự cố nào.</p>}</div>
+      </article>)}{!incidents.length && <p className="text-sm text-slate-500">Chưa có sự cố được báo cáo hoặc giao cho bạn.</p>}</div>
     </section>
   </section>;
 }

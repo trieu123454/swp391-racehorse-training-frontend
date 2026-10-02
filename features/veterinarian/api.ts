@@ -126,7 +126,10 @@ export type InjuryMarker = {
 export type VetStableIncident = {
   id: string; horse_id: string; horse_name: string; current_status: string; readiness_status: string;
   box_code: string | null; section: string | null; groom_id: number | null; groom_name: string | null;
-  issue_description: string; image_url: string | null; status: string; created_at: string; resolved_at: string | null;
+  issue_description: string; image_url: string | null; status: string; is_emergency: boolean;
+  assigned_to: number | null; assigned_role: string | null; assignee_name: string | null;
+  assignment_note: string | null; result_note: string | null; assigned_to_me: boolean;
+  created_at: string; assigned_at: string | null; result_at: string | null; resolved_at: string | null;
 };
 
 export type CareEvent = {
@@ -224,8 +227,16 @@ export const veterinarianApi = {
     const query = queryString({ section });
     return call<HealthOverview>(`/api/vet/health-overview${query ? `?${query}` : ""}`);
   },
-  incidents(status = "Pending") {
+  incidents(status = "Open") {
     return call<{ status: string; data: VetStableIncident[] }>(`/api/vet/stable-incidents?status=${encodeURIComponent(status)}`);
+  },
+  claimEmergencyIncident(id: string) {
+    return call<{ id: string; status: string }>(`/api/vet/stable-incidents/${encodeURIComponent(id)}/claim`, "PATCH");
+  },
+  submitIncidentResult(id: string, result_note: string) {
+    return call<{ id: string; status: string; result_note: string }>(
+      `/api/vet/stable-incidents/${encodeURIComponent(id)}/result`, "PATCH", { result_note },
+    );
   },
   exams(horse: string, page = 1) {
     return call<ApiPage<HealthExam>>(`/api/horses/${horse}/health-exams?page=${page}&limit=20`);

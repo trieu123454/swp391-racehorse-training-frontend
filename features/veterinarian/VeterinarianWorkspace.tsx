@@ -628,10 +628,12 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
 }
 
 function StableIncidentsPanel({ onOpenHorse }: { onOpenHorse: (id: string) => void }) {
-  const [status, setStatus] = useState("Pending");
+  const [status, setStatus] = useState("Open");
   const [incidents, setIncidents] = useState<VetStableIncident[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try { setIncidents((await veterinarianApi.incidents(status)).data); }
@@ -639,17 +641,42 @@ function StableIncidentsPanel({ onOpenHorse }: { onOpenHorse: (id: string) => vo
     finally { setLoading(false); }
   }, [status]);
   useEffect(() => { void load(); }, [load]);
-  return <SectionCard title="Báo cáo sự cố từ Groom" description="Xem ảnh và triệu chứng tại chuồng để mở đúng hồ sơ ngựa cần kiểm tra." icon={AlertTriangle} action={<select value={status} onChange={(event) => setStatus(event.target.value)} className="field-control h-10 px-3"><option value="Pending">Đang chờ</option><option value="Resolved">Đã xử lý</option></select>}>
-    <ErrorLine>{error}</ErrorLine>
-    {loading ? <Notice>Đang tải báo cáo sự cố...</Notice> : error ? null : incidents.length === 0 ? <Empty>Không có báo cáo ở trạng thái này.</Empty> : <div className="grid gap-3 lg:grid-cols-2">{incidents.map((incident) => <article key={incident.id} className="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
-      <div className="flex flex-wrap items-start justify-between gap-2"><div><h4 className="font-semibold text-equine-navy">{incident.horse_name}</h4><p className="mt-1 text-xs text-slate-500">{incident.box_code ? `Khu ${incident.section} · Chuồng ${incident.box_code} · ` : ""}{incident.groom_name ?? "Groom"} · {new Date(incident.created_at).toLocaleString("vi-VN")}</p></div><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold">{incident.status}</span></div>
+
+  async function claim(incidentId: string) {
+    setBusy(true); setError(""); setNotice("");
+    try { await veterinarianApi.claimEmergencyIncident(incidentId); setNotice("Đã tiếp nhận sự cố khẩn cấp."); await load(); }
+    catch (reason) { setError(veterinarianError(reason)); }
+    finally { setBusy(false); }
+  }
+
+  async function submitResult(event: FormEvent<HTMLFormElement>, incidentId: string) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const resultNote = String(new FormData(form).get("result_note") ?? "").trim();
+    setBusy(true); setError(""); setNotice("");
+    try { await veterinarianApi.submitIncidentResult(incidentId, resultNote); setNotice("Đã gửi kết quả để Club Manager xem xét đóng sự cố."); await load(); }
+    catch (reason) { setError(veterinarianError(reason)); }
+    finally { setBusy(false); }
+  }
+
+  return <SectionCard title="Báo cáo sự cố từ Groom" description="Tiếp nhận sự cố khẩn cấp hoặc xử lý báo cáo được Club Manager giao." icon={AlertTriangle} action={<select aria-label="Lọc sự cố" value={status} onChange={(event) => setStatus(event.target.value)} className="field-control h-10 px-3"><option value="Open">Đang xử lý</option><option value="Pending">Chưa phân công</option><option value="InProgress">Đang thực hiện</option><option value="AwaitingClosure">Chờ đóng</option><option value="Resolved">Đã đóng</option><option value="All">Tất cả</option></select>}>
+    <ErrorLine>{error}</ErrorLine>{notice && <Notice>{notice}</Notice>}
+    {loading ? <Notice>Đang tải báo cáo sự cố...</Notice> : error ? null : incidents.length === 0 ? <Empty>Không có báo cáo ở trạng thái này.</Empty> : <div className="grid gap-3 lg:grid-cols-2">{incidents.map((incident) => <article key={incident.id} className={`rounded-xl border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/40" : "border-equine-line bg-white"}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2"><div><h4 className="font-semibold text-equine-navy">{incident.horse_name}</h4><p className="mt-1 text-xs text-slate-500">{incident.box_code ? `Khu ${incident.section} · Chuồng ${incident.box_code} · ` : ""}{incident.groom_name ?? "Groom"} · {new Date(incident.created_at).toLocaleString("vi-VN")}</p></div><div className="flex gap-2"><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold">{incident.status}</span>{incident.is_emergency && <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-800">KHẨN CẤP</span>}</div></div>
       <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{incident.issue_description}</p>
       <IncidentPhoto incidentId={incident.id} imageUrl={incident.image_url} />
+      {incident.assignee_name && <p className="mt-3 text-sm font-semibold text-equine-navy">Phụ trách: {incident.assignee_name} · {incident.assigned_role}</p>}
+      {incident.assignment_note && <p className="mt-2 whitespace-pre-wrap rounded-lg bg-blue-50 p-3 text-sm text-blue-900"><strong>Ghi chú giao việc:</strong> {incident.assignment_note}</p>}
+      {incident.result_note && <p className="mt-2 whitespace-pre-wrap rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900"><strong>Kết quả xử lý:</strong> {incident.result_note}</p>}
+      {incident.is_emergency && incident.status === "Pending" && !incident.assigned_to && <button type="button" className="soft-button mt-3 border-rose-200 bg-rose-100 text-rose-900" disabled={busy} onClick={() => void claim(incident.id)}>Tiếp nhận sự cố khẩn cấp</button>}
+      {incident.assigned_to_me && incident.status === "InProgress" && <form onSubmit={(event) => void submitResult(event, incident.id)} className="mt-3 space-y-2 rounded-lg bg-slate-50 p-3">
+        <label className="block"><span className="field-label">Kết quả xử lý</span><textarea className="field-control min-h-20 px-3 py-2" name="result_note" maxLength={2000} required /></label>
+        <button className="soft-button" disabled={busy}>Gửi kết quả cho Club Manager</button>
+      </form>}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><span className="text-xs text-slate-500">{statusLabels[incident.current_status] ?? incident.current_status} · {incident.readiness_status}</span><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => onOpenHorse(incident.horse_id)}>Mở hồ sơ y tế</button></div>
     </article>)}</div>}
   </SectionCard>;
 }
-
 function InjuryModel({ markers }: { markers: InjuryMarker[] }) {
   const located = markers.filter((marker) => marker.coordinate_x != null && marker.coordinate_y != null);
   const [selected, setSelected] = useState<string | null>(null);

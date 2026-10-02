@@ -61,12 +61,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new ApiRequestError(details ? `${message}: ${details}` : message, response.status);
   }
 
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
 /** Use the current signed-in session for role-protected API endpoints. */
 export async function authenticatedRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const accessToken = getAccessToken();
+  let accessToken = getAccessToken();
+  if (!accessToken) {
+    await validateSession();
+    accessToken = getAccessToken();
+  }
   if (!accessToken) {
     throw new ApiRequestError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", 401);
   }
@@ -181,7 +186,7 @@ async function restoreSession(): Promise<AuthUser> {
           throw error;
       }
     }
-    if (!refreshToken) throw new ApiRequestError("Please sign in again", 401);
+    if (!refreshToken) throw new ApiRequestError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", 401);
     const auth = await request<AuthResponse>("/api/auth/refresh", {
       method: "POST",
       body: JSON.stringify({ refreshToken }),

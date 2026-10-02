@@ -45,7 +45,10 @@ export type GroomInventoryItem = {
 };
 export type GroomIncident = {
   id: string; horse_id: string; horse_name: string; issue_description: string;
-  image_url: string | null; status: string; created_at: string;
+  image_url: string | null; status: string; created_at: string; is_emergency: boolean;
+  assigned_to: number | null; assigned_role: string | null; assignee_name: string | null;
+  assignment_note: string | null; result_note: string | null; assigned_at: string | null; result_at: string | null;
+  assigned_to_me: boolean;
 };
 export type GroomSupplyRequest = {
   id: string; item_id: string; item_name: string; quantity_requested: number;
@@ -98,13 +101,20 @@ export function completeGroomTrainingSession(id: string) {
   );
 }
 
-export function reportGroomIncident(horseId: string, issue_description: string, image_url?: string) {
+export function reportGroomIncident(horseId: string, issue_description: string, image_url?: string, is_emergency = false) {
   return authenticatedRequest<Record<string, unknown>>(
     `/api/groom/horses/${encodeURIComponent(horseId)}/incidents`,
     {
       method: "POST",
-      body: JSON.stringify({ issue_description, image_url: image_url || null }),
+      body: JSON.stringify({ issue_description, image_url: image_url || null, is_emergency }),
     },
+  );
+}
+
+export function submitGroomIncidentResult(id: string, result_note: string) {
+  return authenticatedRequest<{ id: string; status: string; result_note: string }>(
+    `/api/groom/incidents/${encodeURIComponent(id)}/result`,
+    { method: "PATCH", body: JSON.stringify({ result_note }) },
   );
 }
 

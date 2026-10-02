@@ -136,7 +136,7 @@ export default function LoginPage() {
                     onChange={(event) => setRemember(event.target.checked)}
                     type="checkbox"
                   />{" "}
-                  Ghi nhớ đăng nhập
+                  Ghi nhớ đăng nhập trong tab này
                 </label>
                 <button
                   disabled

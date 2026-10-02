@@ -23,7 +23,13 @@ import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 
 type Option = { id: string | number; full_name?: string; horse_name?: string };
 type ManagerTask = { id: string; horse_name: string; groom_name: string | null; task_type: string; task_date: string; status: string };
-type Incident = { id: string; horse_name: string; groom_name: string | null; issue_description: string; image_url: string | null; created_at: string };
+type IncidentAssignee = { id: number; full_name: string; email: string; role_name: "HEAD_TRAINER" | "VETERINARIAN" | "GROOM" };
+type AssignmentRole = IncidentAssignee["role_name"] | "CLUB_MANAGER";
+type Incident = {
+  id: string; horse_name: string; groom_name: string | null; issue_description: string; image_url: string | null;
+  is_emergency: boolean; status: string; assigned_to: number | null; assigned_role: string | null;
+  assignee_name: string | null; assignment_note: string | null; result_note: string | null; created_at: string;
+};
 type AuditRow = { id: string; user_name: string | null; email: string | null; action_performed: string; created_at: string };
 type InventoryItem = { id: string; item_name: string; category: string | null; unit: string | null; quantity_in_stock: number; reorder_threshold: number | null; is_low_stock: boolean };
 type SupplyRequest = { id: string; item_id: string; item_name: string; groom_name: string | null; quantity_requested: number; reason: string | null; status: string; created_at: string };
@@ -50,6 +56,93 @@ const EMPTY_ERRORS: LoadErrors = {
   overview: [], care: [], inventory: [], incidents: [], finance: [], races: [], audit: [],
 };
 
+const assignmentRoles: { value: AssignmentRole; label: string }[] = [
+  { value: "HEAD_TRAINER", label: "Huấn luyện viên trưởng" },
+  { value: "VETERINARIAN", label: "Bác sĩ thú y" },
+  { value: "GROOM", label: "Groom" },
+  { value: "CLUB_MANAGER", label: "Tôi tự xử lý · Club Manager" },
+];
+
+const incidentRoleLabels: Record<string, string> = {
+  HEAD_TRAINER: "Huấn luyện viên trưởng",
+  VETERINARIAN: "Bác sĩ thú y",
+  GROOM: "Groom",
+  CLUB_MANAGER: "Club Manager",
+};
+
+function isAssignmentRole(role: string | null): role is AssignmentRole {
+  return assignmentRoles.some((item) => item.value === role);
+}
+
+function IncidentAssignmentForm({
+  incident,
+  assignees,
+  busy,
+  onSubmit,
+}: {
+  incident: Pick<Incident, "id" | "assigned_to" | "assigned_role" | "assignment_note">;
+  assignees: IncidentAssignee[];
+  busy: boolean;
+  onSubmit: (event: FormEvent<HTMLFormElement>, incidentId: string) => void | Promise<void>;
+}) {
+  const currentAssignee = assignees.find((person) => person.id === incident.assigned_to);
+  const initialRole = isAssignmentRole(incident.assigned_role) ? incident.assigned_role : "";
+  const [role, setRole] = useState<AssignmentRole | "">(initialRole);
+  const [search, setSearch] = useState(currentAssignee?.full_name ?? "");
+  const [selectedId, setSelectedId] = useState(currentAssignee ? String(currentAssignee.id) : "");
+  const normalizedSearch = search.trim().toLocaleLowerCase("vi");
+  const matches = role && role !== "CLUB_MANAGER" && normalizedSearch.length >= 2
+    ? assignees.filter((person) => person.role_name === role
+      && `${person.full_name} ${person.email}`.toLocaleLowerCase("vi").includes(normalizedSearch)).slice(0, 8)
+    : [];
+  const selected = assignees.find((person) => String(person.id) === selectedId && person.role_name === role);
+  const assignmentValue = role === "CLUB_MANAGER"
+    ? role
+    : role && selectedId ? `${role}:${selectedId}` : "";
+
+  return <form onSubmit={(event) => void onSubmit(event, incident.id)} className="mt-4 grid gap-3 rounded-xl border border-equine-line bg-white p-3 sm:grid-cols-2">
+    <label className="block"><span className="field-label">Vai trò phụ trách</span>
+      <select className="field-control px-3" value={role} onChange={(event) => {
+        setRole(event.target.value as AssignmentRole | "");
+        setSearch("");
+        setSelectedId("");
+      }} required>
+        <option value="">Chọn vai trò</option>
+        {assignmentRoles.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+      </select>
+    </label>
+    {role && role !== "CLUB_MANAGER" && <div className="block">
+      <label className="block"><span className="field-label">Tìm người phụ trách theo tên hoặc email</span>
+        <input className="field-control px-3" type="search" value={search} onChange={(event) => {
+          setSearch(event.target.value);
+          setSelectedId("");
+        }} placeholder="Nhập ít nhất 2 ký tự" autoComplete="off" />
+      </label>
+      {selected && <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+        Đã chọn: <strong>{selected.full_name}</strong> · {selected.email}
+      </p>}
+      {normalizedSearch.length < 2
+        ? <p className="mt-2 text-xs text-slate-500">Chọn vai trò rồi nhập tên hoặc email để tìm đúng người.</p>
+        : <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-equine-line" role="listbox" aria-label="Kết quả tìm người phụ trách">
+          {matches.map((person) => <button key={person.id} type="button" role="option" aria-selected={selectedId === String(person.id)}
+            onClick={() => setSelectedId(String(person.id))}
+            className={`block w-full px-3 py-2 text-left hover:bg-slate-50 ${selectedId === String(person.id) ? "bg-emerald-50" : "bg-white"}`}>
+            <span className="block text-sm font-semibold text-equine-navy">{person.full_name}</span>
+            <span className="block text-xs text-slate-500">{person.email}</span>
+          </button>)}
+          {!matches.length && <p className="px-3 py-3 text-sm text-slate-500">Không tìm thấy người đang hoạt động phù hợp.</p>}
+        </div>}
+    </div>}
+    <input type="hidden" name="assignee" value={assignmentValue} />
+    <label className="block sm:col-span-2"><span className="field-label">Ghi chú xử lý / hướng dẫn</span>
+      <textarea className="field-control min-h-20 px-3 py-2" name="assignment_note" maxLength={1000} defaultValue={incident.assignment_note ?? ""} required />
+    </label>
+    <button className="soft-button sm:col-span-2" disabled={busy || !role || (role !== "CLUB_MANAGER" && !selectedId)}>
+      {incident.assigned_to ? "Cập nhật người phụ trách / ghi chú" : "Giao xử lý"}
+    </button>
+  </form>;
+}
+
 function today() {
   const value = new Date();
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
@@ -69,6 +162,8 @@ export default function ClubManagerWorkspace() {
   const [grooms, setGrooms] = useState<Option[]>([]);
   const [tasks, setTasks] = useState<ManagerTask[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [incidentAssignees, setIncidentAssignees] = useState<IncidentAssignee[]>([]);
+  const [incidentFilter, setIncidentFilter] = useState("Open");
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [supplyRequests, setSupplyRequests] = useState<SupplyRequest[]>([]);
@@ -82,7 +177,7 @@ export default function ClubManagerWorkspace() {
   const load = useCallback(async () => {
     const results = await Promise.allSettled([
       authenticatedRequest<{ data: ManagerTask[] }>(`/api/club-manager/groom-tasks?date=${date}`),
-      authenticatedRequest<{ data: Incident[] }>("/api/club-manager/groom-incidents?status=Pending"),
+      authenticatedRequest<{ data: Incident[] }>(`/api/club-manager/groom-incidents?status=${incidentFilter}`),
       authenticatedRequest<{ data: AuditRow[] }>(`/api/club-manager/audit-logs?from=${date}&to=${date}&page=1&limit=20`),
       authenticatedRequest<Report>(`/api/club-manager/operations-report?from=${date}&to=${date}`),
       authenticatedRequest<{ items: Option[] }>("/api/horses?page=1&size=100&limit=100"),
@@ -90,6 +185,7 @@ export default function ClubManagerWorkspace() {
       authenticatedRequest<{ data: InventoryItem[] }>("/api/club-manager/inventory-items"),
       authenticatedRequest<{ data: SupplyRequest[] }>("/api/club-manager/supply-requests?status=Pending"),
       authenticatedRequest<{ data: OfficialRace[] }>("/api/club-manager/races"),
+      authenticatedRequest<{ data: IncidentAssignee[] }>("/api/club-manager/groom-incidents/assignees"),
     ]);
 
     const nextErrors: LoadErrors = {
@@ -113,8 +209,9 @@ export default function ClubManagerWorkspace() {
     read(6, "Tồn kho vật tư", ["inventory"], (value) => setInventory((value as { data: InventoryItem[] }).data));
     read(7, "Đề xuất vật tư", ["inventory"], (value) => setSupplyRequests((value as { data: SupplyRequest[] }).data));
     read(8, "Danh sách giải đấu", ["races"], (value) => setOfficialRaces((value as { data: OfficialRace[] }).data));
+    read(9, "Người phụ trách sự cố", ["incidents"], (value) => setIncidentAssignees((value as { data: IncidentAssignee[] }).data));
     setLoadErrors(nextErrors);
-  }, [date]);
+  }, [date, incidentFilter]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -197,6 +294,37 @@ export default function ClubManagerWorkspace() {
 
   async function reviewSupply(id: string, action: "Approve" | "Reject") {
     await send(`/api/club-manager/supply-requests/${id}`, "PATCH", { action }, action === "Approve" ? "Đã duyệt đề xuất vật tư." : "Đã từ chối đề xuất vật tư.");
+  }
+
+  async function assignIncident(event: FormEvent<HTMLFormElement>, incidentId: string) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = new FormData(form);
+    const assignee = String(values.get("assignee"));
+    const [role, id] = assignee.split(":");
+    const body: Record<string, unknown> = {
+      assigned_role: role,
+      assignment_note: String(values.get("assignment_note") ?? "").trim(),
+    };
+    if (role !== "CLUB_MANAGER") body.assignee_id = Number(id);
+    const saved = await send(`/api/club-manager/groom-incidents/${incidentId}/assignment`, "PATCH", body,
+      "Đã giao người phụ trách và gửi ghi chú xử lý.");
+    if (saved) form.reset();
+  }
+
+  async function recordIncidentResult(event: FormEvent<HTMLFormElement>, incidentId: string) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = new FormData(form);
+    const saved = await send(`/api/club-manager/groom-incidents/${incidentId}/result`, "PATCH", {
+      result_note: String(values.get("result_note") ?? "").trim(),
+    }, "Đã ghi kết quả. Sự cố đang chờ Club Manager đóng.");
+    if (saved) form.reset();
+  }
+
+  async function closeIncident(incidentId: string) {
+    await send(`/api/club-manager/groom-incidents/${incidentId}/resolve`, "PATCH", undefined,
+      "Đã đóng sự cố sau khi ghi nhận kết quả.");
   }
 
   const tabs: { key: WorkspaceTab; label: string; icon: ReactNode; count?: number }[] = [
@@ -337,19 +465,44 @@ export default function ClubManagerWorkspace() {
         </Panel>
       </div>}
 
-      {tab === "incidents" && <Panel title="Sự cố Groom đang chờ" icon={AlertTriangle}>
+      {tab === "incidents" && <Panel title="Sự cố Groom" icon={AlertTriangle}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3">
+          <p className="text-sm text-slate-600">Xem xét báo cáo, giao người phụ trách, theo dõi kết quả và đóng sự cố.</p>
+          <select aria-label="Lọc sự cố" className="field-control h-10 px-3" value={incidentFilter} onChange={(event) => setIncidentFilter(event.target.value)}>
+            <option value="Open">Đang xử lý</option><option value="Resolved">Đã đóng</option><option value="All">Tất cả</option>
+          </select>
+        </div>
         <div className="space-y-3">
-          {incidents.map((incident) => <article key={incident.id} className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
-            <div className="flex flex-wrap justify-between gap-3"><div>
-              <p className="font-semibold text-equine-navy">{incident.horse_name}{incident.groom_name ? ` · ${incident.groom_name}` : ""}</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{incident.issue_description}</p>
-              <IncidentPhoto incidentId={incident.id} imageUrl={incident.image_url} />
-            </div><button type="button" className="soft-button" disabled={busy} onClick={() => void send(`/api/club-manager/groom-incidents/${incident.id}/resolve`, "PATCH", undefined, "Đã xử lý sự cố.")}><ShieldCheck size={14} /> Đã xử lý</button></div>
+          {incidents.map((incident) => <article key={incident.id} className={`rounded-xl border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/50" : "border-equine-line bg-white"}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold text-equine-navy">{incident.horse_name}{incident.groom_name ? ` · ${incident.groom_name}` : ""}</p>
+                <p className="mt-1 text-xs text-slate-500">{new Date(incident.created_at).toLocaleString("vi-VN")}</p>
+              </div>
+              <div className="flex items-center gap-2"><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold">{incident.status}</span>
+                {incident.is_emergency && <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-800">KHẨN CẤP · ĐÃ BÁO BÁC SĨ</span>}
+              </div>
+            </div>
+            <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{incident.issue_description}</p>
+            <IncidentPhoto incidentId={incident.id} imageUrl={incident.image_url} />
+            {incident.assignee_name && <p className="mt-3 text-sm font-semibold text-equine-navy">Phụ trách: {incident.assignee_name} · {incidentRoleLabels[incident.assigned_role ?? ""] ?? incident.assigned_role}</p>}
+            {incident.assignment_note && <p className="mt-2 whitespace-pre-wrap rounded-lg bg-blue-50 p-3 text-sm text-blue-900"><strong>Ghi chú giao việc:</strong> {incident.assignment_note}</p>}
+            {incident.result_note && <p className="mt-2 whitespace-pre-wrap rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900"><strong>Kết quả xử lý:</strong> {incident.result_note}</p>}
+            {(incident.status === "Pending" || incident.status === "InProgress") && <IncidentAssignmentForm
+              incident={incident}
+              assignees={incidentAssignees}
+              busy={busy}
+              onSubmit={assignIncident}
+            />}
+            {incident.status === "InProgress" && incident.assigned_role === "CLUB_MANAGER" && <form onSubmit={(event) => void recordIncidentResult(event, incident.id)} className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+              <label className="block"><span className="field-label">Kết quả xử lý</span><textarea className="field-control min-h-20 px-3 py-2" name="result_note" maxLength={2000} required /></label>
+              <button className="soft-button self-end" disabled={busy}>Ghi kết quả</button>
+            </form>}
+            {incident.status === "AwaitingClosure" && <button type="button" className="soft-button mt-3 border-emerald-200 bg-emerald-50 text-emerald-800" disabled={busy} onClick={() => void closeIncident(incident.id)}><ShieldCheck size={14} /> Đóng sự cố</button>}
           </article>)}
-          {!incidents.length && <p className="text-sm text-slate-500">Không có sự cố đang chờ.</p>}
+          {!incidents.length && <p className="text-sm text-slate-500">Không có sự cố ở bộ lọc này.</p>}
         </div>
       </Panel>}
-
       {tab === "races" && <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Thêm giải đấu chính thức" icon={Trophy}>
           <form onSubmit={addOfficialRace} className="grid gap-3 sm:grid-cols-2">

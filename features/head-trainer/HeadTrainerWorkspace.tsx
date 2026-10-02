@@ -16,11 +16,12 @@ import {
   type TrainingMetric,
   type TrainingPlan,
   type TrainingSession,
+  type TrainerIncident,
   type TrainerHorse,
 } from "@/features/head-trainer/api";
 
-type Tab = "overview" | "plans" | "calendar" | "races" | "simulation";
-const workspaceTabIds: readonly Tab[] = ["overview", "plans", "calendar", "races", "simulation"];
+type Tab = "overview" | "plans" | "calendar" | "races" | "simulation" | "incidents";
+const workspaceTabIds: readonly Tab[] = ["overview", "plans", "calendar", "races", "simulation", "incidents"];
 type Groom = { user_id: number; full_name: string; email: string };
 const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: "overview", label: "Thể lực", icon: Activity },
@@ -28,6 +29,7 @@ const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: "calendar", label: "Lịch tập", icon: CalendarDays },
   { id: "simulation", label: "Chạy đua", icon: Trophy },
   { id: "races", label: "Giải đấu", icon: Flag },
+  { id: "incidents", label: "Sự cố được giao", icon: AlertTriangle },
 ];
 
 function today() { return new Date().toLocaleDateString("en-CA"); }
@@ -85,6 +87,7 @@ export default function HeadTrainerWorkspace() {
   const [horseId, setHorseId] = useState("");
   const [plans, setPlans] = useState<TrainingPlan[]>([]);
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
+  const [incidents, setIncidents] = useState<TrainerIncident[]>([]);
   const [metrics, setMetrics] = useState<TrainingMetric[]>([]);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [simulationHorseIds, setSimulationHorseIds] = useState<string[]>([]);
@@ -125,16 +128,30 @@ export default function HeadTrainerWorkspace() {
   }, []);
 
   const loadOverview = useCallback(async () => {
-    const [horsePage, overviewPage, groomPage, racePage] = await Promise.all([
+    const [horsePage, overviewPage, groomPage, racePage, incidentPage] = await Promise.all([
       listHorses(), headTrainerApi.overview(includeSimulated), headTrainerApi.grooms(), headTrainerApi.races(),
+      headTrainerApi.incidents(),
     ]);
     setHorses(horsePage.items);
     setOverview(overviewPage.data);
     setGrooms(groomPage.data);
     setRaces(racePage.data);
+    setIncidents(incidentPage.data);
     setHorseId((current) => current || horsePage.items[0]?.id || "");
     setCompareIds((current) => current.length ? current : horsePage.items.slice(0, 3).map((item) => item.id));
   }, [includeSimulated]);
+
+  async function submitIncidentResult(event: FormEvent<HTMLFormElement>, incidentId: string) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const resultNote = String(new FormData(form).get("result_note") ?? "").trim();
+    const saved = await run(() => headTrainerApi.submitIncidentResult(incidentId, resultNote),
+      "Đã gửi kết quả để Club Manager xem xét đóng sự cố.");
+    if (saved) {
+      form.reset();
+      await loadOverview();
+    }
+  }
 
   const loadHorseData = useCallback(async () => {
     if (!horseId) { setPlans([]); setMetrics([]); setRaceEntries([]); return; }
@@ -329,7 +346,8 @@ export default function HeadTrainerWorkspace() {
     </div>
     <div className="mt-5 space-y-4">
       {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
-      {!horses.length ? <Notice>Chưa có hồ sơ ngựa đang hoạt động.</Notice> : <>
+      {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} />
+        : !horses.length ? <Notice>Chưa có hồ sơ ngựa đang hoạt động.</Notice> : <>
         {tab !== "simulation" && <div className="flex flex-wrap items-center gap-3 rounded-xl border border-equine-line bg-white p-3">
           <label className="text-xs font-bold uppercase tracking-wide text-slate-500" htmlFor="trainer-horse">Ngựa đang xem</label>
           <select id="trainer-horse" className="field-control max-w-sm px-3" value={horseId} onChange={(event) => setHorseId(event.target.value)}>{horses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}{horse.is_training_locked ? " · Đang khóa" : ""}</option>)}</select>
@@ -343,6 +361,33 @@ export default function HeadTrainerWorkspace() {
       </>}
     </div>
   </section>;
+}
+
+function TrainerIncidentsPanel({ incidents, busy, onSubmit }: {
+  incidents: TrainerIncident[];
+  busy: boolean;
+  onSubmit: (event: FormEvent<HTMLFormElement>, incidentId: string) => void | Promise<void>;
+}) {
+  return <Section title="Sự cố được giao cho bạn" description="Xem hướng dẫn, gửi kết quả xử lý để Club Manager đóng sự cố." icon={AlertTriangle}>
+    {!incidents.length ? <p className="text-sm text-slate-500">Hiện chưa có sự cố nào được giao cho bạn.</p>
+      : <div className="space-y-3">{incidents.map((incident) => <article key={incident.id} className={`rounded-xl border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/40" : "border-equine-line bg-white"}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><h3 className="font-semibold text-equine-navy">{incident.horse_name}</h3>
+            <p className="mt-1 text-xs text-slate-500">{incident.groom_name ?? "Groom"} · {new Date(incident.created_at).toLocaleString("vi-VN")}</p>
+          </div>
+          <div className="flex gap-2"><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold">{incident.status === "InProgress" ? "Đang xử lý" : "Chờ Club Manager đóng"}</span>
+            {incident.is_emergency && <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-800">KHẨN CẤP</span>}
+          </div>
+        </div>
+        <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{incident.issue_description}</p>
+        {incident.assignment_note && <p className="mt-3 whitespace-pre-wrap rounded-lg bg-blue-50 p-3 text-sm text-blue-900"><strong>Hướng dẫn:</strong> {incident.assignment_note}</p>}
+        {incident.result_note && <p className="mt-3 whitespace-pre-wrap rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900"><strong>Kết quả đã gửi:</strong> {incident.result_note}</p>}
+        {incident.status === "InProgress" && <form onSubmit={(event) => void onSubmit(event, incident.id)} className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+          <label className="block"><span className="field-label">Kết quả xử lý</span><textarea className="field-control min-h-20 px-3 py-2" name="result_note" maxLength={2000} required /></label>
+          <button className="soft-button self-end" disabled={busy}>Gửi kết quả cho Club Manager</button>
+        </form>}
+      </article>)}</div>}
+  </Section>;
 }
 
 function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, compareIds, setCompareIds, from, setFrom, to, setTo, includeSimulated, setIncludeSimulated }: {
