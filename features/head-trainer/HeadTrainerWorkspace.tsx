@@ -25,11 +25,11 @@ const workspaceTabIds: readonly Tab[] = ["overview", "plans", "calendar", "races
 type Groom = { user_id: number; full_name: string; email: string };
 const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: "overview", label: "Thể lực", icon: Activity },
+  { id: "incidents", label: "Sự cố được giao", icon: AlertTriangle },
   { id: "plans", label: "Giáo án", icon: ClipboardList },
   { id: "calendar", label: "Lịch tập", icon: CalendarDays },
   { id: "simulation", label: "Chạy đua", icon: Trophy },
   { id: "races", label: "Giải đấu", icon: Flag },
-  { id: "incidents", label: "Sự cố được giao", icon: AlertTriangle },
 ];
 
 function today() { return new Date().toLocaleDateString("en-CA"); }
@@ -337,15 +337,15 @@ export default function HeadTrainerWorkspace() {
 
   return <section className="mt-5" aria-labelledby="head-trainer-title">
     <div className="flex flex-col gap-4 border-b border-equine-line pb-5 lg:flex-row lg:items-end lg:justify-between">
-      <div><p className="eyebrow">Phân hệ huấn luyện</p><h2 id="head-trainer-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Head Trainer workspace</h2><p className="mt-2 max-w-2xl text-sm text-slate-600">Theo dõi thể lực, lập giáo án, sắp lịch tập, tổ chức cuộc đua và xem thành tích.</p></div>
+      <div><p className="eyebrow">Phân hệ huấn luyện</p><h2 id="head-trainer-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Không gian huấn luyện</h2><p className="mt-2 max-w-2xl text-sm text-slate-600">Theo dõi thể lực, lập giáo án, sắp lịch tập, tổ chức cuộc đua và xem thành tích.</p></div>
       <button type="button" onClick={() => void refresh()} className="soft-button self-start" disabled={busy}><RefreshCw size={15} /> Làm mới</button>
     </div>
+    {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
     <div className="mt-4"><NotificationCenter /></div>
     <div className="mt-5 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Chức năng huấn luyện">
-      {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { selectTab(id); setError(""); setNotice(""); }} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${tab === id ? "bg-equine-navy text-white" : "border border-equine-line bg-white text-slate-600 hover:bg-equine-mist"}`}><Icon size={16} />{label}</button>)}
+      {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { selectTab(id); setError(""); setNotice(""); }} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${tab === id ? "bg-equine-navy text-white" : id === "incidents" ? "border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100" : "border border-equine-line bg-white text-slate-600 hover:bg-equine-mist"}`}><Icon size={16} />{label}{id === "incidents" && <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-rose-700">{incidents.length}</span>}</button>)}
     </div>
     <div className="mt-5 space-y-4">
-      {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
       {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} />
         : !horses.length ? <Notice>Chưa có hồ sơ ngựa đang hoạt động.</Notice> : <>
         {tab !== "simulation" && <div className="flex flex-wrap items-center gap-3 rounded-xl border border-equine-line bg-white p-3">

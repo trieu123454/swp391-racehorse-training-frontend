@@ -3,20 +3,17 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
-  Activity,
   Filter,
   Pencil,
   Plus,
   Search,
-  ShieldCheck,
-  UserRound,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { HorseImage, Notice, StatusBadge } from "@/features/horses/HorseUI";
 import HorseShell, { useHorseUser } from "@/features/horses/HorseShell";
 import { validateSession } from "@/lib/api";
 import { errorMessage, getHorseStables, listHorses, type Horse, type Stable } from "@/features/horses/api";
-import { roleForSlug, roleLabels, routeForRole } from "@/lib/roles";
+import { roleForSlug, routeForRole } from "@/lib/roles";
 import type { AuthUser } from "@/lib/types";
 import VeterinarianWorkspace from "@/features/veterinarian/VeterinarianWorkspace";
 import HorseOwnerWorkspace from "@/features/horse-owner/HorseOwnerWorkspace";
@@ -56,53 +53,12 @@ function RoleDashboardContent() {
 
   return (
     <section className="dashboard-workspace">
-      <div className="mb-5 grid gap-3 border-b border-equine-line pb-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.2fr)] xl:items-end">
-        <div className="min-w-0">
-          <p className="eyebrow">Bảng điều khiển chuyên biệt</p>
-          <h1 className="mt-1 font-sans text-3xl font-semibold text-equine-navy">
-            Xin chào, {user.fullName}
-          </h1>
-        </div>
-        <div className="grid gap-2 md:grid-cols-3">
-          <Info icon={UserRound} label="Thành viên" value={user.email} />
-          <Info
-            icon={ShieldCheck}
-            label="Vai trò"
-            value={roleLabels[user.roleName]}
-          />
-          <Info
-            icon={Activity}
-            label="Trạng thái"
-            value={user.status === "APPROVED" ? "Đã phê duyệt" : user.status}
-          />
-        </div>
-      </div>
       {user.roleName === "VETERINARIAN" ? <VeterinarianWorkspace /> : user.roleName === "HORSE_OWNER" ? <HorseOwnerWorkspace /> : user.roleName === "HEAD_TRAINER" ? <HeadTrainerWorkspace /> : user.roleName === "GROOM" ? <GroomWorkspace /> : user.roleName === "CLUB_MANAGER" ? <><ClubManagerWorkspace /><HorseDashboardPanel user={user} /></> : (
         <div className="mt-10 rounded-md border border-equine-gold/25 bg-white p-5 text-sm text-slate-600">
-          Chức năng chuyên môn của vai trò này sẽ được hiển thị tại đây khi phân hệ tương ứng được triển khai.
+          Chức năng chuyên môn của vai trò này sẽ xuất hiện tại đây khi phân hệ tương ứng được triển khai.
         </div>
       )}
     </section>
-  );
-}
-
-function Info({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: typeof UserRound;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-equine-line bg-white px-3 py-2.5">
-      <Icon className="shrink-0 text-equine-gold" size={17} />
-      <div className="min-w-0">
-        <p className="text-[9px] font-bold uppercase leading-3 text-slate-500">{label}</p>
-        <p className="break-all text-xs font-semibold leading-4 text-equine-navy">{value}</p>
-      </div>
-    </div>
   );
 }
 

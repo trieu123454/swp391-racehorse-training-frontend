@@ -44,6 +44,7 @@ export default function GroomWorkspace() {
   const horseById = useMemo(() => new Map(horses.map((horse) => [horse.id, horse])), [horses]);
   const trainingEvents = calendar?.events.filter((event) => event.type === "training") ?? [];
   const careTasks = calendar?.events.filter((event) => event.type === "care_task") ?? [];
+  const activeIncidentCount = incidents.filter((item) => ["Open", "Pending", "InProgress", "AwaitingClosure"].includes(item.status)).length;
 
   const load = useCallback(async () => {
     setError("");
@@ -159,7 +160,7 @@ export default function GroomWorkspace() {
     <div className="flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <p className="eyebrow">Chăm sóc chuồng trại</p>
-        <h2 id="groom-workspace-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Groom workspace</h2>
+        <h2 id="groom-workspace-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Không gian chăm sóc</h2>
         <p className="mt-2 text-sm text-slate-600">Xem ngựa được phân công, lịch trong ngày và ghi nhận công việc chăm sóc.</p>
       </div>
       <div className="flex gap-2">
@@ -170,7 +171,7 @@ export default function GroomWorkspace() {
     {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
     <NotificationCenter />
     <nav aria-label="Các mục Groom" className="flex gap-2 overflow-x-auto rounded-2xl border border-equine-line bg-white p-2 shadow-sm">
-      {[["groom-horses", "Ngựa được giao"], ["care-tasks", "Việc chăm sóc"], ["training-support", "Buổi tập"], ["incident-report", "Báo sự cố"], ["diet-records", "Khẩu phần"], ["inventory", "Vật tư"], ["reported-incidents", "Lịch sử sự cố"]].map(([id, label]) => <a key={id} href={`#${id}`} className="inline-flex shrink-0 items-center rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-equine-mist hover:text-equine-navy">{label}</a>)}
+      {[["groom-horses", "Ngựa được giao"], ["care-tasks", "Việc chăm sóc"], ["training-support", "Buổi tập"], ["incident-report", "Báo sự cố"], ["diet-records", "Khẩu phần"], ["inventory", "Vật tư"], ["reported-incidents", "Lịch sử sự cố"]].map(([id, label]) => <a key={id} href={`#${id}`} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${id.includes("incident") ? "bg-rose-50 text-rose-800 hover:bg-rose-100" : "text-slate-600 hover:bg-equine-mist hover:text-equine-navy"}`}>{label}{id === "reported-incidents" && activeIncidentCount > 0 && <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-rose-700">{activeIncidentCount}</span>}</a>)}
     </nav>
     <section id="groom-horses" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
       <h3 className="mb-3 font-sans text-lg font-semibold text-equine-navy">Vị trí chuồng ngựa được phân công</h3>

@@ -17,13 +17,25 @@
   min-height: 100vh;
   background: #f3f9fc;
   color: #334654;
+  font-family: "Be Vietnam Pro", "Segoe UI", Arial, sans-serif;
+}
+
+.horse-app :where(h1, h2, h3, h4, button, input, select, textarea) {
+  font-family: inherit;
+}
+
+.horse-app :where(h1, h2, h3) {
+  color: #285f7e;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
 }
 
 .horse-sidebar {
   position: sticky;
   top: 0;
-  flex: 0 0 320px;
-  width: 320px;
+  flex: 0 0 clamp(280px, 19.5vw, 370px);
+  width: clamp(280px, 19.5vw, 370px);
   height: 100vh;
   height: 100dvh;
   overflow-y: auto;
@@ -39,8 +51,15 @@
 .horse-brand {
   display: inline-flex;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 28px;
   width: fit-content;
+}
+
+.horse-brand img {
+  width: 76px;
+  height: 76px;
+  border-radius: 12px;
+  object-fit: cover;
 }
 
 .horse-nav-label {
@@ -171,61 +190,202 @@
 }
 
 .horse-topbar {
+  position: relative;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #ffffff;
+  min-height: 100px;
+  background: linear-gradient(100deg, #ffffff 0%, #f8fbfd 100%);
   color: #334654;
   border-bottom: 1px solid #d8e7ee;
-  padding: 16px 22px;
-  gap: 12px;
+  padding: 14px clamp(18px, 2.4vw, 40px);
+  gap: 20px;
   animation: horse-slide-down 420ms ease-out both;
 }
 
-.horse-topbar > div {
+.horse-topbar-welcome {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   min-width: 0;
+}
+
+.horse-greeting-mark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  border-radius: 50%;
+  background: #fff0d9;
+  font-size: 23px;
+}
+
+.horse-greeting-copy {
+  min-width: 0;
+}
+
+.horse-greeting-copy h1 {
+  margin: 0;
+  overflow: hidden;
+  color: #1d4e6b;
+  font-size: clamp(20px, 2vw, 28px);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.horse-greeting-copy p {
+  margin: 4px 0 0;
+  color: #718697;
   font-size: 13px;
-  letter-spacing: 0.02em;
+  line-height: 1.5;
 }
 
-.horse-topbar span {
-  color: #617583;
+.horse-topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex: 0 0 auto;
 }
 
-.horse-topbar b {
-  color: #9aabb4;
-  font-weight: 600;
-}
-
-.horse-topbar strong {
+.horse-date-pill,
+.horse-profile-trigger {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #d8e7ee;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
   color: #285f7e;
+}
+
+.horse-date-pill {
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.horse-profile-menu {
+  position: relative;
+}
+
+.horse-profile-trigger {
+  max-width: 245px;
+  padding: 4px 12px 4px 6px;
+  text-align: left;
+}
+
+.horse-profile-trigger > svg {
+  flex: 0 0 auto;
+}
+
+.horse-profile-avatar {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #b77d57, #79583f);
+  color: white;
+  font-size: 15px;
   font-weight: 700;
 }
 
-.horse-topbar a {
+.horse-profile-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.horse-profile-copy strong,
+.horse-profile-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.horse-profile-copy strong {
   color: #285f7e;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  padding: 8px 12px;
-  background: #f3f9fc;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.horse-profile-copy small {
+  color: #718697;
+  font-size: 10px;
+}
+
+.horse-profile-popover {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: min(275px, calc(100vw - 24px));
+  min-width: 0;
+  gap: 4px;
+  padding: 12px;
   border: 1px solid #d8e7ee;
+  border-radius: 16px;
+  background: white;
+  box-shadow: 0 16px 40px rgba(29, 78, 107, 0.16);
+}
+
+.horse-profile-popover > strong {
+  overflow: hidden;
+  color: #285f7e;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.horse-profile-popover > span {
+  overflow: hidden;
+  color: #718697;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.horse-profile-popover > button {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: #fff1f0;
+  color: #b42332;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
 }
 
 .horse-main {
   flex: 1;
-  padding: 24px;
+  min-width: 0;
+  padding: 24px clamp(18px, 2.4vw, 40px) 36px;
   animation: horse-content-in 520ms 80ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .dashboard-workspace {
-  width: min(100%, 1200px);
+  width: min(100%, 1720px);
   margin: 0 auto;
+}
+
+.dashboard-workspace > section:first-child,
+.dashboard-workspace > .mt-10:first-child,
+.dashboard-workspace > .mt-5:first-child {
+  margin-top: 0;
 }
 
 .dashboard-workspace > .eyebrow {
@@ -281,7 +441,7 @@
   position: fixed;
   inset: 0 auto 0 0;
   z-index: 50;
-  width: min(82vw, 320px);
+  width: min(82vw, 370px);
   box-shadow: 12px 0 40px rgba(7, 16, 28, 0.35);
 }
 
@@ -532,15 +692,53 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #a8602c, #e29b5
   }
 
   .horse-topbar {
-    padding-left: 14px;
-    padding-right: 14px;
+    min-height: 84px;
+    padding: 12px 16px;
   }
 
-  .horse-topbar > a {
-    display: none;
+  .horse-topbar-actions {
+    gap: 8px;
   }
 
   .horse-main {
     padding: 18px 14px 24px;
+  }
+}
+
+@media (max-width: 700px) {
+  .horse-date-pill {
+    display: none;
+  }
+
+  .horse-greeting-mark {
+    display: none;
+  }
+
+  .horse-greeting-copy p {
+    display: none;
+  }
+
+  .horse-topbar {
+    gap: 10px;
+  }
+
+  .horse-topbar-welcome {
+    gap: 8px;
+  }
+
+  .horse-profile-trigger {
+    min-height: 40px;
+    gap: 7px;
+    padding-right: 8px;
+  }
+
+  .horse-profile-avatar {
+    width: 31px;
+    height: 31px;
+    flex-basis: 31px;
+  }
+
+  .horse-profile-copy {
+    max-width: 92px;
   }
 }

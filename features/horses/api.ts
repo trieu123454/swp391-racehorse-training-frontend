@@ -1,4 +1,5 @@
-import { authenticatedRequest } from "@/lib/api";
+import { ApiRequestError, authenticatedRequest, validateSession } from "@/lib/api";
+import { getAccessToken } from "@/lib/session";
 
 const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
