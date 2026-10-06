@@ -134,7 +134,7 @@ export default function HorseOwnerWorkspace() {
             </div>
           )}
 
-          <nav className="flex gap-2 overflow-x-auto rounded-2xl border border-equine-line bg-white p-2" aria-label="Thông tin Horse Owner">
+          <nav className="workspace-secondary-nav flex gap-2 overflow-x-auto rounded-2xl border border-equine-line bg-white p-2" aria-label="Thông tin Horse Owner">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button key={id} type="button" onClick={() => selectTab(id)} aria-current={tab === id ? "page" : undefined}
                 className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${tab === id ? "bg-equine-navy text-white" : "text-slate-600 hover:bg-equine-mist"}`}>

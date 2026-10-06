@@ -24,7 +24,7 @@ export function HorseImage({ horse, preview }: { horse?: Horse; preview?: string
     // Signed URLs expire and are authorized per user; do not cache them in Next's image optimizer.
     // eslint-disable-next-line @next/next/no-img-element
     ? <img className={`horse-photo ${loaded ? "is-loaded" : ""}`} src={preview || url} alt={horse?.horse_name || "Ảnh ngựa đã chọn"} onLoad={() => setLoaded(true)} onError={() => setBroken(true)} />
-    : <div className="horse-placeholder"><Shield size={44} strokeWidth={1.2} /><span>EQUINE SOVEREIGN</span><small>Chưa có ảnh hồ sơ</small></div>;
+    : <div className="horse-placeholder"><Shield size={44} strokeWidth={1.2} /><span>EQUINE</span><small>Chưa có ảnh hồ sơ</small></div>;
 }
 
 export function StatusBadge({ horse }: { horse: Horse }) {

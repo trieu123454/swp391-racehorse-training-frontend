@@ -134,7 +134,7 @@ export default function VeterinarianWorkspace() {
       {error && <div className="mt-5"><Notice error>{error}</Notice></div>}
       {notice && <div className="mt-5"><Notice>{notice}</Notice></div>}
 
-      <section className="mt-4 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5" aria-label="Sơ đồ sức khỏe chuồng trại">
+      <section hidden={tab !== "overview"} className="mt-4 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5" aria-label="Sơ đồ sức khỏe chuồng trại">
         <div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 lg:flex-row lg:items-center lg:justify-between">
           <div><h2 className="font-sans text-lg font-semibold text-equine-navy">Sơ đồ trạng thái chuồng trại</h2><p className="mt-1 text-sm text-slate-500">Chọn ô chuồng để mở hồ sơ sức khỏe tương ứng.</p></div>
           <div className="flex flex-wrap items-center gap-2">
@@ -153,7 +153,7 @@ export default function VeterinarianWorkspace() {
         </div>)}</div>
       </section>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(360px,0.42fr)_minmax(0,1fr)]">
+      <div className="mt-5 grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="h-fit rounded-2xl border border-equine-line bg-white p-4 shadow-sm xl:sticky xl:top-4">
           <div className="flex items-center justify-between gap-3">
             <div><h2 className="font-sans text-lg font-semibold text-equine-navy">Đàn ngựa</h2><p className="text-xs text-slate-500">{horses.length} hồ sơ đang hoạt động</p></div>
@@ -171,7 +171,7 @@ export default function VeterinarianWorkspace() {
         <div className="min-w-0">
           {horse && <>
             <HorseSummary horse={horse} />
-            <div className="mt-4 flex gap-2 overflow-x-auto border-b border-equine-line pb-2" role="tablist" aria-label="Chức năng bác sĩ thú y">
+            <div className="workspace-secondary-nav mt-4 flex gap-2 overflow-x-auto border-b border-equine-line pb-2" role="tablist" aria-label="Chức năng bác sĩ thú y">
               {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${tab === id ? "bg-equine-navy text-white" : "bg-white text-slate-600 hover:bg-equine-mist"}`} onClick={() => { selectTab(id); setNotice(""); }}><Icon size={15} />{label}{id === "notifications" && unread > 0 && <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] text-rose-700">{unread}</span>}</button>)}
             </div>
             <div className="mt-4">

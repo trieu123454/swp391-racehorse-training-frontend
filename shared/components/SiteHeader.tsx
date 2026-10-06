@@ -8,7 +8,6 @@ import { Brand } from "./Brand";
 const links = [
   ["Trang chủ", "/#top"],
   ["Nền tảng", "/#tong-quan"],
-  ["Quy trình", "/#quy-trinh"],
   ["Vai trò", "/#vai-tro"],
   ["Vận hành", "/#van-hanh"],
 ];
@@ -16,8 +15,8 @@ const links = [
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
   return (
-    <header className="fixed inset-x-0 top-0 z-50 border-b border-equine-line bg-white/95 text-equine-navy shadow-sm backdrop-blur-md">
-      <div className="mx-auto flex h-20 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-12">
+    <header className="site-header fixed inset-x-0 top-0 z-50 border-b border-equine-line bg-white/95 text-equine-navy shadow-sm backdrop-blur-md">
+      <div className="mx-auto flex h-20 max-w-[1280px] items-center justify-between px-5 sm:px-8 lg:px-12">
         <Link aria-label="Về trang chủ" href="/">
           <Brand compact />
         </Link>

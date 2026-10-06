@@ -18,7 +18,9 @@ export type TrainingMetric = {
 
 export type TrainingPlan = {
   id: string;
-  horse_id: string;
+  horse_id: string | null;
+  horse_ids?: string[];
+  horse_names?: string | null;
   stage_name: string;
   start_date: string | null;
   end_date: string | null;
@@ -114,11 +116,38 @@ export type SimulationHorse = {
   base_max_speed_kmh: number;
   base_resting_heart_rate: number;
   base_resting_bp: { systolic: number; diastolic: number };
-  variance_profile: string;
+  variance_profile?: string;
+};
+
+export type SensorReading = { elapsed_seconds: number; speed_kmh: number; heart_rate: number; bp_systolic: number; bp_diastolic: number };
+export type TrainingAnalysisSession = {
+  simulation_attempts?: {id:string;status:string;stop_reason?:string|null}[];
+  id: string; event_date: string; start_time?: string; session_type: string; effective_status: string;
+  snapshot_stage_name?: string | null; track_surface?: string | null; groom_name?: string | null;
+  target_distance_meters?: number | null; actual_distance_meters?: number | null;
+  avg_speed_kmh?: number | null; max_heart_rate?: number | null; recovery_heart_rate?: number | null;
+  estimated_stamina_score?: number | null; distance_achievement_percent?: number | null;
+  speed_change_kmh?: number | null; recovery_change_bpm?: number | null;
+  simulation_id?: string | null; stop_reason?: string | null; recommendation: string; trainer_review?: string | null;
+};
+export type TrainingAnalysis = {
+  weeks: {week_start:string;target_minutes:number;planned_minutes:number;actual_minutes:number;workload_achievement_percent:number|null;completed:number;missed:number;cancelled:number;rest:number}[];
+  sessions: TrainingAnalysisSession[]; trial_runs: TrainingAnalysisSession[];
 };
 
 export type Simulation = {
   simulation_id: string;
+  elapsed_seconds: number;
+  actual_distance_meters?: number | null;
+  target_intensity?: string;
+  readings?: SensorReading[];
+  phase?: string;
+  recovery_heart_rate?: number | null;
+  stamina_score?: number | null;
+  stop_reason?: string | null;
+  scenario?: string;
+  model_version?: number;
+  track_surface?: string | null;
   distance_meters: number;
   duration_seconds: number;
   training_schedule_id?: string | null;
@@ -126,15 +155,6 @@ export type Simulation = {
   injury_alert_speed_kmh: number;
   status: string;
   horses: SimulationHorse[];
-};
-
-export type SimulationResult = {
-  horse_id: string;
-  finish_time_seconds: number;
-  avg_speed_kmh: number;
-  max_heart_rate: number;
-  max_bp_systolic: number;
-  max_bp_diastolic: number;
 };
 
 type Page<T> = { data: T[]; total: number; page: number; limit: number };
@@ -165,22 +185,22 @@ export const headTrainerApi = {
       { result_note },
     );
   },
-  overview(includeSimulated = false) {
+  overview(includeSimulated = true) {
     return call<{ data: TrainerHorse[] }>(`/api/head-trainer/overview?include_simulated=${includeSimulated}`);
   },
-  metrics(horseId: string, from?: string, to?: string, includeSimulated = false) {
+  metrics(horseId: string, from?: string, to?: string, includeSimulated = true) {
     const params = query({ from, to, include_simulated: includeSimulated });
     return call<TrainingMetric[]>(`/api/horses/${horseId}/training-metrics?${params}`);
   },
-  compare(horseIds: string[], from?: string, to?: string, includeSimulated = false) {
+  compare(horseIds: string[], from?: string, to?: string, includeSimulated = true) {
     const params = query({ horse_ids: horseIds.join(","), from, to, include_simulated: includeSimulated });
     return call<{ horses: { horse_id: string; horse_name: string; metrics: TrainingMetric[] }[] }>(`/api/head-trainer/training-metrics/compare?${params}`);
   },
   plans(horseId: string, activeOnly = false) {
     return call<{ data: TrainingPlan[] }>(`/api/horses/${horseId}/training-plans?active_only=${activeOnly}`);
   },
-  createPlan(horseId: string, input: Record<string, unknown>) {
-    return call<TrainingPlan>(`/api/horses/${horseId}/training-plans`, "POST", input);
+  createPlan(input: Record<string, unknown>) {
+    return call<TrainingPlan>("/api/training-plans", "POST", input);
   },
   updatePlan(id: string, input: Record<string, unknown>) {
     return call<TrainingPlan>(`/api/training-plans/${id}`, "PATCH", input);
@@ -226,65 +246,33 @@ export const headTrainerApi = {
   raceEntries(horseId: string) {
     return call<Page<Record<string, unknown>>>(`/api/horses/${horseId}/race-entries?page=1&limit=100`);
   },
-  createSimulation(input: { horse_ids: string[]; distance_meters: number; duration_seconds: number; training_schedule_id?: string }) {
+  analysis(horseId: string, from: string, to: string) {
+    return call<TrainingAnalysis>(`/api/horses/${horseId}/training-analysis?${query({from,to})}`);
+  },
+  createSimulation(input: { horse_ids: string[]; training_schedule_id: string; scenario?: string }) {
     return call<Simulation>("/api/head-trainer/race-simulations", "POST", input);
   },
-  finishSimulation(id: string, input: { results: SimulationResult[]; copy_to_metrics?: boolean }) {
-    return call<{ simulation_id: string; race_id: string; race_name: string; status: string; ranking: { rank: number; horse_id: string; horse_name: string; finish_time_seconds: number }[] }>(
-      `/api/head-trainer/race-simulations/${id}/finish`, "POST", input,
+  activeSimulation() {
+    return call<Simulation | Record<string, never>>("/api/head-trainer/race-simulations/active");
+  },
+  activeSimulations() {
+    return call<{ data: Simulation[] }>("/api/head-trainer/race-simulations/active-sessions");
+  },
+  createSimulationGroup(sessions: { horse_ids: string[]; training_schedule_id: string; scenario?: string }[]) {
+    return call<{ data: Simulation[] }>("/api/head-trainer/race-simulations/group", "POST", { sessions });
+  },
+  simulation(id: string) {
+    return call<Simulation>(`/api/head-trainer/race-simulations/${id}`);
+  },
+  restartSimulation(id: string) {
+    return call<Simulation>(`/api/head-trainer/race-simulations/${id}/restart`, "POST", {});
+  },
+  finishSimulation(id: string) {
+    return call<{ simulation_id: string; race_id: string | null; race_name: string; status: string; ranking: { rank: number; horse_id: string; horse_name: string; finish_time_seconds: number }[] }>(
+      `/api/head-trainer/race-simulations/${id}/finish`, "POST", {},
     );
   },
 };
-
-function seededNoise(seed: number, progress: number, salt: number) {
-  const sample = Math.max(0, Math.min(10000, Math.floor(progress * 1000)));
-  let value = (seed ^ salt ^ Math.imul(sample, 0x45d9f3b)) | 0;
-  value ^= value >>> 16;
-  value = Math.imul(value, 0x45d9f3b);
-  value ^= value >>> 16;
-  return (value & 0x7fffffff) / 0x7fffffff;
-}
-
-export function speedFactor(progress: number) {
-  const p = Math.max(0, Math.min(1, progress));
-  if (p < 0.15) {
-    const x = p / 0.15;
-    const eased = x < 0.5 ? 2 * x * x : 1 - ((-2 * x + 2) ** 2) / 2;
-    return 0.93 * eased;
-  }
-  if (p < 0.8) return 0.94 + 0.035 * Math.sin(((p - 0.15) / 0.65) * Math.PI);
-  return 0.975 - 0.105 * ((p - 0.8) / 0.2);
-}
-
-export function simulatedVitals(horse: SimulationHorse, progress: number) {
-  const ratioNoise = (seededNoise(horse.seed, progress, 0) - 0.5) * 0.03;
-  const speed = Math.max(0, horse.base_max_speed_kmh * (speedFactor(progress) + ratioNoise));
-  const ratio = horse.base_max_speed_kmh <= 0 ? 0 : speed / horse.base_max_speed_kmh;
-  const heartRate = Math.round(Math.max(horse.base_resting_heart_rate, Math.min(230,
-    horse.base_resting_heart_rate + (220 - horse.base_resting_heart_rate) * ratio * 0.7
-      + (seededNoise(horse.seed, progress, 0x4f1bbcdc) - 0.5) * 7)));
-  const systolic = Math.round(Math.max(40, Math.min(300, horse.base_resting_bp.systolic + ratio * 40
-    + (seededNoise(horse.seed, progress, 0x7a143589) - 0.5) * 8)));
-  const diastolic = Math.round(Math.max(60, Math.min(90, horse.base_resting_bp.diastolic
-    + 3 * Math.sin(Math.max(0, Math.min(1, progress)) * Math.PI * 2)
-    + (seededNoise(horse.seed, progress, 0x1b873593) - 0.5) * 6)));
-  return { speed, heartRate, systolic, diastolic };
-}
-
-export function racePosition(horse: SimulationHorse, progress: number) {
-  const p = Math.max(0, Math.min(1, progress));
-  if (p === 0) return 0;
-  let traveled = 0;
-  let total = 0;
-  const samples = 80;
-  for (let index = 1; index <= samples; index += 1) {
-    const sampleProgress = index / samples;
-    const speed = simulatedVitals(horse, sampleProgress).speed;
-    total += speed;
-    if (sampleProgress <= p) traveled += speed;
-  }
-  return total === 0 ? p : traveled / total;
-}
 
 export function headTrainerError(error: unknown) {
   return error instanceof Error ? error.message : "Không thể kết nối máy chủ. Vui lòng thử lại.";

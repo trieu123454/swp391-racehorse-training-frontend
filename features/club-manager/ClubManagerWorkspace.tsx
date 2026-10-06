@@ -341,8 +341,8 @@ export default function ClubManagerWorkspace() {
     <div className="flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
         <p className="eyebrow">Vận hành câu lạc bộ</p>
-        <h2 id="club-manager-workspace-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Club Manager workspace</h2>
-        <p className="mt-2 text-sm text-slate-600">Quản lý từng nghiệp vụ tại các mục riêng bên dưới.</p>
+        <h2 id="club-manager-workspace-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Điều hành câu lạc bộ</h2>
+        <p className="mt-2 text-sm text-slate-600">Theo dõi vận hành và điều phối công việc của câu lạc bộ.</p>
       </div>
       <div className="flex gap-2">
         <input aria-label="Ngày báo cáo" type="date" className="field-control px-3" value={date} onChange={(event) => setDate(event.target.value)} />
@@ -354,7 +354,7 @@ export default function ClubManagerWorkspace() {
     {notice && <Notice>{notice}</Notice>}
     <NotificationCenter />
 
-    <div role="tablist" aria-label="Các mục quản lý câu lạc bộ" className="flex gap-2 overflow-x-auto rounded-2xl border border-equine-line bg-white p-2 shadow-sm">
+    <div role="tablist" aria-label="Các mục quản lý câu lạc bộ" className="workspace-secondary-nav flex gap-2 overflow-x-auto rounded-2xl border border-equine-line bg-white p-2 shadow-sm">
       {tabs.map((item) => <button
         key={item.key}
         id={`manager-tab-${item.key}`}

@@ -18,7 +18,11 @@ export function useDashboardTab<T extends string>(
 
     syncFromUrl();
     window.addEventListener("popstate", syncFromUrl);
-    return () => window.removeEventListener("popstate", syncFromUrl);
+    window.addEventListener("workspace-tab-change", syncFromUrl);
+    return () => {
+      window.removeEventListener("popstate", syncFromUrl);
+      window.removeEventListener("workspace-tab-change", syncFromUrl);
+    };
   }, [allowedTabs, defaultTab]);
 
   const selectTab = useCallback((tab: T) => {
@@ -31,6 +35,7 @@ export function useDashboardTab<T extends string>(
     else url.searchParams.set(TAB_QUERY_PARAM, tab);
 
     window.history.pushState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    window.dispatchEvent(new Event("workspace-tab-change"));
   }, [defaultTab]);
 
   return [activeTab, selectTab] as const;

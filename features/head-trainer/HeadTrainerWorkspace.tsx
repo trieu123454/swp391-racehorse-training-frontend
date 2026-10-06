@@ -1,18 +1,21 @@
 "use client";
 
-import { Activity, AlertTriangle, CalendarDays, Check, ClipboardList, Flag, Gauge, HeartPulse, Medal, Pencil, Play, Plus, RefreshCw, Timer, Trophy, Trash2, Users, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowUpRight, CalendarDays, Check, ClipboardList, Flag, Gauge, HeartPulse, Medal, Pencil, Play, Plus, RefreshCw, Search, Timer, Trash2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { HorseImage, Notice } from "@/features/horses/HorseUI";
+import SessionTargetsEditor from "./SessionTargetsEditor";
+import TrainingAnalysisPanel from "./TrainingAnalysisPanel";
+import SensorTimeline from "./SensorTimeline";
+import RaceTrackVisualization from "./RaceTrackVisualization";
 import NotificationCenter from "@/shared/components/NotificationCenter";
 import { listHorses, type Horse } from "@/features/horses/api";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import {
   headTrainerApi,
   headTrainerError,
-  racePosition,
-  simulatedVitals,
   type RaceOption,
   type Simulation,
+  type SensorReading,
   type TrainingMetric,
   type TrainingPlan,
   type TrainingSession,
@@ -20,44 +23,40 @@ import {
   type TrainerHorse,
 } from "@/features/head-trainer/api";
 
-type Tab = "overview" | "plans" | "calendar" | "races" | "simulation" | "incidents";
-const workspaceTabIds: readonly Tab[] = ["overview", "plans", "calendar", "races", "simulation", "incidents"];
+type Tab = "overview" | "analysis" | "plans" | "calendar" | "races" | "simulation" | "incidents";
+const workspaceTabIds: readonly Tab[] = ["overview", "plans", "calendar", "simulation", "analysis", "races", "incidents"];
 type Groom = { user_id: number; full_name: string; email: string };
+type SensorVitals = { speed: number; heartRate: number; systolic: number; diastolic: number };
+const distanceOptions: [string, string][] = [["", "Chọn cự ly"], ...Array.from({ length: 15 }, (_, index) => {
+  const distance = String((index + 2) * 200);
+  return [distance, `${Number(distance).toLocaleString("vi-VN")} m`] as [string, string];
+})];
+function distanceOptionsWithCurrent(value?: number | null): [string, string][] {
+  if (value == null || distanceOptions.some(([distance]) => distance === String(value))) return distanceOptions;
+  return [...distanceOptions, [String(value), `${Number(value).toLocaleString("vi-VN")} m (hiện tại)`]];
+}
 const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
-  { id: "overview", label: "Thể lực", icon: Activity },
-  { id: "incidents", label: "Sự cố được giao", icon: AlertTriangle },
+  { id: "overview", label: "Tổng quan", icon: Activity },
   { id: "plans", label: "Giáo án", icon: ClipboardList },
   { id: "calendar", label: "Lịch tập", icon: CalendarDays },
-  { id: "simulation", label: "Chạy đua", icon: Trophy },
+  { id: "simulation", label: "Giả lập", icon: Timer },
+  { id: "analysis", label: "Phân tích thể lực", icon: Gauge },
   { id: "races", label: "Giải đấu", icon: Flag },
+  { id: "incidents", label: "Sự cố", icon: AlertTriangle },
 ];
 
-function today() { return new Date().toLocaleDateString("en-CA"); }
-function simulationResults(simulation: Simulation) {
-  return simulation.horses.map((horse) => {
-    let speedTotal = 0;
-    let maxHeartRate = 0;
-    let maxSystolic = 0;
-    let maxDiastolic = 0;
-    for (let index = 0; index <= 100; index += 1) {
-      const point = simulatedVitals(horse, index / 100);
-      speedTotal += point.speed;
-      maxHeartRate = Math.max(maxHeartRate, point.heartRate);
-      maxSystolic = Math.max(maxSystolic, point.systolic);
-      maxDiastolic = Math.max(maxDiastolic, point.diastolic);
-    }
-    const averageSpeed = speedTotal / 101;
-    return {
-      horse_id: horse.horse_id,
-      finish_time_seconds: Number((simulation.distance_meters / (averageSpeed / 3.6)).toFixed(2)),
-      avg_speed_kmh: Number(averageSpeed.toFixed(2)),
-      max_heart_rate: maxHeartRate,
-      max_bp_systolic: maxSystolic,
-      max_bp_diastolic: maxDiastolic,
-    };
-  });
+function surfaceLabel(surface?: string | null) {
+  const value = surface?.trim().toLowerCase();
+  if (!value) return "Chưa chọn mặt sân";
+  if (value === "dirt" || value.includes("đất")) return "Đất · Dirt";
+  if (value === "turf" || value === "grass" || value.includes("cỏ")) return "Cỏ · Turf";
+  return "Nhân tạo · Synthetic";
 }
 
+function dateInputValue(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+function today() { return dateInputValue(new Date()); }
 function suggestedTrainingWindow() {
   const start = new Date();
   start.setMinutes(0, 0, 0);
@@ -71,7 +70,7 @@ function suggestedTrainingWindow() {
 function plusDays(date: string, days: number) {
   const value = new Date(`${date}T12:00:00`);
   value.setDate(value.getDate() + days);
-  return value.toLocaleDateString("en-CA");
+  return dateInputValue(value);
 }
 function metricDate(value?: string | null) {
   if (!value) return "Chưa có dữ liệu";
@@ -90,17 +89,22 @@ export default function HeadTrainerWorkspace() {
   const [incidents, setIncidents] = useState<TrainerIncident[]>([]);
   const [metrics, setMetrics] = useState<TrainingMetric[]>([]);
   const [compareIds, setCompareIds] = useState<string[]>([]);
-  const [simulationHorseIds, setSimulationHorseIds] = useState<string[]>([]);
   const [compare, setCompare] = useState<{ horse_id: string; horse_name: string; metrics: TrainingMetric[] }[]>([]);
   const [raceEntries, setRaceEntries] = useState<Record<string, unknown>[]>([]);
   const [simulation, setSimulation] = useState<Simulation | null>(null);
+  const [activeSimulations, setActiveSimulations] = useState<Simulation[]>([]);
+  const [liveReadings,setLiveReadings] = useState<SensorReading[]>([]);
+  const [simulationPhase,setSimulationPhase] = useState("");
   const [ranking, setRanking] = useState<{ rank: number; horse_id: string; horse_name: string; finish_time_seconds: number }[]>([]);
   const [progress, setProgress] = useState(0);
-  const [vitals, setVitals] = useState<Record<string, ReturnType<typeof simulatedVitals>>>({});
+  const [vitals, setVitals] = useState<Record<string, SensorVitals>>({});
   const [activeOnly, setActiveOnly] = useState(false);
-  const [includeSimulated, setIncludeSimulated] = useState(false);
-  const [from, setFrom] = useState(today());
-  const [to, setTo] = useState(plusDays(today(), 14));
+  const [analysisRevision, setAnalysisRevision] = useState(0);
+  const [includeSimulated, setIncludeSimulated] = useState(true);
+  const [from, setFrom] = useState(() => plusDays(today(), -30));
+  const [to, setTo] = useState(() => today());
+  const [calendarFrom, setCalendarFrom] = useState(() => today());
+  const [calendarTo, setCalendarTo] = useState(() => plusDays(today(), 14));
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -109,11 +113,18 @@ export default function HeadTrainerWorkspace() {
   const [scheduleDraft, setScheduleDraft] = useState<{ horseId: string; planId: string; startDate: string | null } | null>(null);
   const [showMetricsFor, setShowMetricsFor] = useState<string | null>(null);
   const [finishFailed, setFinishFailed] = useState(false);
-  const startAtRef = useRef(0);
   const finishStartedRef = useRef(false);
+  const horseRequestRef = useRef(0);
+  const horseQueryKey = `${horseId}|${activeOnly}|${from}|${to}|${includeSimulated}`;
+  const horseQueryRef = useRef(horseQueryKey);
+  useEffect(() => {
+    horseQueryRef.current = horseQueryKey;
+    ++horseRequestRef.current;
+  }, [horseQueryKey]);
 
   const selectedHorse = useMemo(() => horses.find((horse) => horse.id === horseId) ?? null, [horses, horseId]);
   const selectedOverview = useMemo(() => overview.find((horse) => horse.horse_id === horseId), [overview, horseId]);
+  const featuredSimulation = activeSimulations.find((item) => item.status === "Running") ?? null;
 
   const run = useCallback(async <T,>(action: () => Promise<T>, success?: string) => {
     setBusy(true); setError(""); setNotice("");
@@ -154,21 +165,39 @@ export default function HeadTrainerWorkspace() {
   }
 
   const loadHorseData = useCallback(async () => {
+    if (horseQueryRef.current !== horseQueryKey) return;
+    const request = ++horseRequestRef.current;
     if (!horseId) { setPlans([]); setMetrics([]); setRaceEntries([]); return; }
     const [planPage, history, entries] = await Promise.all([
       headTrainerApi.plans(horseId, activeOnly),
       headTrainerApi.metrics(horseId, from, to, includeSimulated),
       headTrainerApi.raceEntries(horseId),
     ]);
+    if (request !== horseRequestRef.current || horseQueryRef.current !== horseQueryKey) return;
     setPlans(planPage.data);
     setMetrics(history);
     setRaceEntries(entries.data);
-  }, [horseId, activeOnly, from, to, includeSimulated]);
+  }, [horseId, activeOnly, from, to, includeSimulated, horseQueryKey]);
 
+  const calendarRequestRef = useRef(0);
+  const calendarQueryKey = `${calendarFrom}|${calendarTo}`;
+  const calendarQueryRef = useRef(calendarQueryKey);
+  useEffect(() => { calendarQueryRef.current = calendarQueryKey; ++calendarRequestRef.current; }, [calendarQueryKey]);
   const loadCalendar = useCallback(async () => {
-    const data = await headTrainerApi.calendar(from, to);
-    setSessions(data.data);
-  }, [from, to]);
+    if(calendarQueryRef.current!==calendarQueryKey) return;
+    const request=++calendarRequestRef.current;
+    const data = await headTrainerApi.calendar(calendarFrom, calendarTo);
+    if(request===calendarRequestRef.current && calendarQueryRef.current===calendarQueryKey)setSessions(data.data);
+  }, [calendarFrom, calendarTo, calendarQueryKey]);
+
+  useEffect(() => {
+    if (tab !== "calendar") return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      loadCalendar().catch((reason) => { if (active) setError(headTrainerError(reason)); });
+    }, 15000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [tab, loadCalendar]);
 
   useEffect(() => {
     let active = true;
@@ -194,25 +223,26 @@ export default function HeadTrainerWorkspace() {
       .then((response) => { if (active) setCompare(response.horses); })
       .catch((reason) => { if (active) setError(headTrainerError(reason)); });
     return () => { active = false; };
-  }, [tab, compareIds, from, to, includeSimulated]);
+  }, [tab, compareIds, from, to, includeSimulated, analysisRevision]);
 
   const finishSimulation = useCallback(async (currentSimulation: Simulation) => {
     if (finishStartedRef.current) return;
     finishStartedRef.current = true;
     setBusy(true); setError(""); setNotice(""); setFinishFailed(false);
-    let raceSaved = false;
+    let saved = false;
     try {
-      const response = await headTrainerApi.finishSimulation(currentSimulation.simulation_id, {
-        results: simulationResults(currentSimulation),
-      });
-      raceSaved = true;
+      const response = await headTrainerApi.finishSimulation(currentSimulation.simulation_id);
+      saved = true;
       setRanking(response.ranking);
-      setSimulation((value) => value ? { ...value, status: "Completed" } : value);
-      setNotice(`Đã lưu ${response.race_name} và cập nhật lịch sử giải đấu.`);
-      await Promise.all([loadOverview(), loadHorseData()]);
+      setSimulation((value) => value ? { ...value, status: response.status } : value);
+      setNotice("Đã lưu dữ liệu buổi tập vào lịch sử phân tích.");
+      setAnalysisRevision((value) => value + 1);
+      const detail = await headTrainerApi.simulation(currentSimulation.simulation_id);
+      setSimulation(detail); setLiveReadings(detail.readings??[]); setSimulationPhase(detail.phase??"");
+      await Promise.all([loadOverview(), loadHorseData(), loadCalendar()]);
     } catch (reason) {
-      if (raceSaved) {
-        setError("Cuộc đua đã được ghi nhận; chưa tải lại được các bảng. Nhấn Làm mới để cập nhật.");
+      if (saved) {
+        setError("Buổi tập đã được ghi nhận; chưa tải lại được các bảng. Nhấn Làm mới để cập nhật.");
       } else {
         setError(headTrainerError(reason));
         setFinishFailed(true);
@@ -221,41 +251,79 @@ export default function HeadTrainerWorkspace() {
     } finally {
       setBusy(false);
     }
-  }, [loadOverview, loadHorseData]);
+  }, [loadOverview, loadHorseData, loadCalendar]);
 
   useEffect(() => {
-    if (!simulation || simulation.status === "Completed") return;
-    startAtRef.current ||= performance.now();
-    let frame = 0;
-    const tick = () => {
-      const elapsed = (performance.now() - startAtRef.current) / 1000;
-      const current = Math.min(1, elapsed / simulation.duration_seconds);
-      setProgress(current);
-      setVitals(Object.fromEntries(simulation.horses.map((horse) => [horse.horse_id, simulatedVitals(horse, current)])));
-      if (current >= 1 && !finishStartedRef.current) {
-        void finishSimulation(simulation);
-      } else if (current < 1) frame = requestAnimationFrame(tick);
+    let active = true;
+    let fetching = false;
+    const reload = async () => {
+      if (fetching) return;
+      fetching = true;
+      try {
+        const result = await headTrainerApi.activeSimulations();
+        if (active) {
+          setActiveSimulations(result.data);
+          setSimulation(current => current ?? result.data[0] ?? null);
+        }
+      } catch (reason) { if (active) setError(headTrainerError(reason)); }
+      finally { fetching = false; }
     };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [simulation, finishSimulation]);
+    void reload();
+    const interval = window.setInterval(() => void reload(), 15000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, []);
+
+  useEffect(() => {
+    if (!simulation || simulation.status !== "Running") return;
+    let active = true;
+    let fetching = false;
+    const tick = async () => {
+      if (fetching) return;
+      fetching = true;
+      try {
+        const snapshot = await headTrainerApi.simulation(simulation.simulation_id);
+        if (!active) return;
+        setProgress(Math.min(1, snapshot.elapsed_seconds / snapshot.duration_seconds));
+        setLiveReadings(snapshot.readings??[]); setSimulationPhase(snapshot.phase??"");
+        const latest = snapshot.readings?.at(-1);
+        if (latest) setVitals(Object.fromEntries(snapshot.horses.map((horse) => [horse.horse_id, {
+          speed: latest.speed_kmh, heartRate: latest.heart_rate, systolic: latest.bp_systolic, diastolic: latest.bp_diastolic,
+        }])));
+        if (snapshot.status !== "Running") {
+          setSimulation(snapshot);
+          setAnalysisRevision(value=>value+1);
+          void Promise.all([loadOverview(),loadHorseData(),loadCalendar()]).catch(reason=>setError(headTrainerError(reason)));
+          setNotice(snapshot.status === "Completed" ? "Buổi tập đã hoàn thành và lưu dữ liệu." : "Buổi giả lập đã dừng. Dữ liệu đã thu vẫn được giữ lại.");
+        } else if (snapshot.elapsed_seconds >= snapshot.duration_seconds && !finishFailed) {
+          await finishSimulation(snapshot);
+        }
+      } catch (reason) { if (active) setError(headTrainerError(reason)); }
+      finally { fetching = false; }
+    };
+    void tick();
+    const interval = window.setInterval(() => { void tick(); }, 5000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [simulation, finishSimulation, finishFailed, loadOverview, loadHorseData, loadCalendar]);
 
   const refresh = useCallback(async () => {
-    try { await Promise.all([loadOverview(), loadHorseData(), tab === "calendar" ? loadCalendar() : Promise.resolve()]); }
+    try { setAnalysisRevision((value) => value + 1); await Promise.all([loadOverview(), loadHorseData(), tab === "calendar" ? loadCalendar() : Promise.resolve()]); }
     catch (reason) { setError(headTrainerError(reason)); }
   }, [loadOverview, loadHorseData, loadCalendar, tab]);
 
   async function createPlan(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!horseId) return;
+    event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-    const result = await run(() => headTrainerApi.createPlan(horseId, {
+    const horseIds = data.getAll("horse_ids").map(String);
+    if (horseIds.length === 0) return;
+    const result = await run(() => headTrainerApi.createPlan({
+      horse_ids: horseIds,
       stage_name: data.get("stage_name"), start_date: data.get("start_date") || null,
       end_date: data.get("end_date") || null, objective: data.get("objective") || null,
       target_distance_meters: Number(data.get("target_distance_meters")) || null,
       target_workload_minutes: Number(data.get("target_workload_minutes")) || null,
       target_track_surface: data.get("target_track_surface") || null,
-      target_intensity: data.get("target_intensity"), update_deadline_hours: Number(data.get("update_deadline_hours")) || 24,
+      target_intensity: data.get("target_intensity"), update_deadline_hours: Number(data.get("update_deadline_hours") ?? 24),
     }), "Đã tạo giáo án.");
     if (result) { form.reset(); await refresh(); }
   }
@@ -269,7 +337,7 @@ export default function HeadTrainerWorkspace() {
       target_workload_minutes: Number(data.get("target_workload_minutes")) || null,
       target_track_surface: data.get("target_track_surface") || null,
       target_intensity: data.get("target_intensity") || null,
-      update_deadline_hours: Number(data.get("update_deadline_hours")) || 24,
+      update_deadline_hours: Number(data.get("update_deadline_hours") ?? 24),
     }), "Đã cập nhật giáo án.");
     if (result) { setEditingPlan(null); await refresh(); }
   }
@@ -283,7 +351,7 @@ export default function HeadTrainerWorkspace() {
   }
 
   function scheduleFromPlan(plan: TrainingPlan) {
-    setScheduleDraft({ horseId: plan.horse_id, planId: plan.id, startDate: plan.start_date });
+    setScheduleDraft({ horseId, planId: plan.id, startDate: plan.start_date });
     selectTab("calendar");
     setError("");
     setNotice(`Đã chọn giáo án “${plan.stage_name}”. Hãy chọn ngày, giờ và Groom để lên lịch buổi tập.`);
@@ -297,6 +365,8 @@ export default function HeadTrainerWorkspace() {
       start_time: data.get("start_time"), end_time: data.get("end_time"),
       assigned_groom_id: data.get("assigned_groom_id") ? Number(data.get("assigned_groom_id")) : null,
       notes: data.get("notes") || null,
+      target_distance_meters: Number(data.get("session_distance")) || null,
+      target_intensity: data.get("session_intensity") || null,
     }), "Đã tạo lịch tập.");
     if (result) { form.reset(); setScheduleDraft(null); await refresh(); }
   }
@@ -323,27 +393,93 @@ export default function HeadTrainerWorkspace() {
     if(result){form.reset();await refresh();}
   }
 
-  async function startSimulation(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const data = new FormData(event.currentTarget);
+  async function openTrainingSimulation(session: TrainingSession, scenario="Normal") {
     const result = await run(() => headTrainerApi.createSimulation({
-      horse_ids: simulationHorseIds.slice(0, 5), distance_meters: Number(data.get("distance_meters")),
-      duration_seconds: Number(data.get("duration_seconds")),
-      training_schedule_id: data.get("training_schedule_id") ? String(data.get("training_schedule_id")) : undefined,
+      horse_ids: [session.horse_id], training_schedule_id: session.training_schedule_id, scenario,
     }));
-    if (result) { setRanking([]); setProgress(0); setFinishFailed(false); finishStartedRef.current = false; startAtRef.current = performance.now(); setSimulation(result); }
+    if (result) {
+      selectSimulation(result); selectTab("simulation");
+      setActiveSimulations(current => [...current.filter(item => item.simulation_id !== result.simulation_id), result]);
+      await loadCalendar();
+    }
+  }
+
+  async function startSimulation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const ids = data.getAll("training_schedule_id").map(String);
+    const selected = sessions.filter(item => ids.includes(item.training_schedule_id));
+    if (!selected.length) { setError("Chọn ít nhất một buổi tập."); return; }
+    const scenario = String(data.get("scenario") ?? "Normal");
+    const result = await run(() => headTrainerApi.createSimulationGroup(selected.map(session => ({
+      horse_ids: [session.horse_id], training_schedule_id: session.training_schedule_id, scenario,
+    }))));
+    if (result?.data.length) {
+      setActiveSimulations(current => [...current.filter(item => !result.data.some(next => next.simulation_id === item.simulation_id)), ...result.data]);
+      selectSimulation(result.data[0]);
+      await loadCalendar();
+    }
+  }
+
+  async function restartOutdatedSimulation(current: Simulation) {
+    if (!window.confirm("Chạy lại theo vận tốc ngựa đua? Phiên hiện tại sẽ được lưu là gián đoạn; dữ liệu đã thu vẫn được giữ trong lịch sử.")) return;
+    const replacement = await run(() => headTrainerApi.restartSimulation(current.simulation_id),
+      "Đã lưu phiên cũ và bắt đầu buổi tập theo công thức vận tốc mới.");
+    if (replacement) {
+      selectSimulation(replacement);
+      setActiveSimulations(items => [...items.filter(item => item.simulation_id !== current.simulation_id && item.simulation_id !== replacement.simulation_id), replacement]);
+      await loadCalendar();
+    }
+  }
+
+  function selectSimulation(next: Simulation) {
+    setRanking([]); setProgress(next.elapsed_seconds / next.duration_seconds);
+    const latest = next.readings?.at(-1);
+    setVitals(latest ? Object.fromEntries(next.horses.map(horse => [horse.horse_id, {
+      speed: latest.speed_kmh, heartRate: latest.heart_rate, systolic: latest.bp_systolic, diastolic: latest.bp_diastolic,
+    }])) : {});
+    setLiveReadings(next.readings ?? []); setSimulationPhase(next.phase ?? "");
+    setFinishFailed(false); finishStartedRef.current = false; setSimulation(next);
   }
 
   if (loading) return <div className="mt-10 rounded-2xl border border-equine-line bg-white p-6"><Notice>Đang tải dữ liệu huấn luyện…</Notice></div>;
 
-  return <section className="mt-5" aria-labelledby="head-trainer-title">
-    <div className="flex flex-col gap-4 border-b border-equine-line pb-5 lg:flex-row lg:items-end lg:justify-between">
-      <div><p className="eyebrow">Phân hệ huấn luyện</p><h2 id="head-trainer-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Không gian huấn luyện</h2><p className="mt-2 max-w-2xl text-sm text-slate-600">Theo dõi thể lực, lập giáo án, sắp lịch tập, tổ chức cuộc đua và xem thành tích.</p></div>
-      <button type="button" onClick={() => void refresh()} className="soft-button self-start" disabled={busy}><RefreshCw size={15} /> Làm mới</button>
+  return <section className="head-trainer-workspace mt-5" aria-labelledby="head-trainer-title">
+    <div className="mb-4 flex items-center justify-between gap-3">
+      <div><p className="eyebrow">Phân hệ huấn luyện</p><h2 id="head-trainer-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Điều phối huấn luyện</h2></div>
+      <button type="button" onClick={() => void refresh()} className="soft-button" disabled={busy}><RefreshCw size={15} /> Làm mới</button>
+    </div>
+    <div className="training-hero" hidden={tab !== "overview"}>
+      <div className="training-hero__veil" />
+      <div className="training-hero__copy">
+        <p className="training-hero__eyebrow"><span className={featuredSimulation ? "training-live-dot" : "training-hero__dash"} />{featuredSimulation ? "ĐANG CÓ BUỔI TẬP TRỰC TIẾP" : "TRƯỜNG ĐUA HUẤN LUYỆN"}</p>
+        <h3>{featuredSimulation ? `Theo dõi ${featuredSimulation.horses[0]?.horse_name ?? "buổi tập"}` : "Đưa từng buổi tập lên đường đua"}</h3>
+        <p>{featuredSimulation ? "Vận tốc, cự ly và chỉ số cơ thể được cập nhật trong lúc ngựa chạy." : "Lên lịch, chọn mặt sân và theo dõi ngựa di chuyển theo dữ liệu mô phỏng."}</p>
+        <div className="training-hero__actions">
+          <button type="button" className="training-hero__primary" onClick={() => { if (featuredSimulation) selectSimulation(featuredSimulation); selectTab("simulation"); setError(""); setNotice(""); }}>
+            <Play size={16} />{featuredSimulation ? "Theo dõi buổi tập" : "Mở giả lập"}<ArrowUpRight size={16} />
+          </button>
+          <button type="button" className="training-hero__secondary" onClick={() => { selectTab("calendar"); setError(""); setNotice(""); }}><CalendarDays size={16} /> Lịch tập</button>
+        </div>
+      </div>
+      <aside className="training-hero__summary" aria-live="polite">
+        {featuredSimulation ? <>
+          <div className="training-hero__summary-top"><span>ĐANG TẬP</span><span>{Math.min(100, Math.round(featuredSimulation.elapsed_seconds / Math.max(1, featuredSimulation.duration_seconds) * 100))}%</span></div>
+          <strong>{featuredSimulation.horses.length > 1 ? `${featuredSimulation.horses.length} ngựa trên sân` : featuredSimulation.horses[0]?.horse_name}</strong>
+          <p>{featuredSimulation.distance_meters.toLocaleString("vi-VN")} m mục tiêu · {surfaceLabel(featuredSimulation.track_surface)}</p>
+          <div className="training-hero__progress"><span style={{ width: `${Math.min(100, featuredSimulation.elapsed_seconds / Math.max(1, featuredSimulation.duration_seconds) * 100)}%` }} /></div>
+        </> : <>
+          <div className="training-hero__summary-top"><span>MẶT SÂN</span><span>03 LOẠI</span></div>
+          <strong>Cỏ · Đất · Nhân tạo</strong>
+          <p>Hình ảnh trường đua thay đổi theo mặt sân của lịch tập.</p>
+          <div className="training-surface-swatches"><i className="grass" /><i className="dirt" /><i className="synthetic" /></div>
+        </>}
+      </aside>
     </div>
     {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
     <div className="mt-4"><NotificationCenter /></div>
-    <div className="mt-5 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Chức năng huấn luyện">
-      {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { selectTab(id); setError(""); setNotice(""); }} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${tab === id ? "bg-equine-navy text-white" : id === "incidents" ? "border border-rose-200 bg-rose-50 text-rose-800 hover:bg-rose-100" : "border border-equine-line bg-white text-slate-600 hover:bg-equine-mist"}`}><Icon size={16} />{label}{id === "incidents" && <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-rose-700">{incidents.length}</span>}</button>)}
+    <div className="workspace-secondary-nav trainer-tabs mt-5" role="tablist" aria-label="Chức năng huấn luyện">
+      {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { selectTab(id); setError(""); setNotice(""); }} className={`trainer-tab ${tab === id ? "is-active" : ""} ${id === "incidents" && tab !== id ? "is-alert" : ""}`}><Icon size={16} />{label}{id === "incidents" && <span className="trainer-tab__count">{incidents.length}</span>}{id === "simulation" && featuredSimulation && <span className="trainer-tab__live">LIVE</span>}</button>)}
     </div>
     <div className="mt-5 space-y-4">
       {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} />
@@ -354,10 +490,11 @@ export default function HeadTrainerWorkspace() {
           {selectedOverview?.is_training_locked && <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700"><AlertTriangle size={14} /> Khóa huấn luyện · {selectedOverview.lock_reason}</span>}
         </div>}
         {tab === "overview" && <OverviewPanel horses={horses} overview={overview} selectedHorseId={horseId} metrics={metrics} compare={compare} compareIds={compareIds} setCompareIds={setCompareIds} from={from} setFrom={setFrom} to={to} setTo={setTo} includeSimulated={includeSimulated} setIncludeSimulated={setIncludeSimulated} />}
-        {tab === "plans" && <PlansPanel horse={selectedHorse} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} busy={busy} />}
-        {tab === "calendar" && <CalendarPanel horses={horses} sessions={sessions} grooms={grooms} from={from} setFrom={setFrom} to={to} setTo={setTo} scheduleDraft={scheduleDraft} onDraftUsed={() => setScheduleDraft(null)} onCreate={createSchedule} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onMetrics={recordMetrics} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} />}
+        {tab === "analysis" && <TrainingAnalysisPanel horseId={horseId} from={from} to={to} setFrom={setFrom} setTo={setTo} revision={analysisRevision}/>}
+        {tab === "plans" && <PlansPanel horse={selectedHorse} horses={horses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} busy={busy} />}
+        {tab === "calendar" && <CalendarPanel onTargetsSaved={refresh} horses={horses} sessions={sessions} grooms={grooms} from={calendarFrom} setFrom={setCalendarFrom} to={calendarTo} setTo={setCalendarTo} scheduleDraft={scheduleDraft} onDraftUsed={() => setScheduleDraft(null)} onCreate={createSchedule} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onMetrics={recordMetrics} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} />}
         {tab === "races" && <RaceEntriesPanel selectedHorse={selectedHorse} races={races} entries={raceEntries} onRecordResult={async (entryId,input) => { const result=await run(()=>headTrainerApi.recordRaceResult(entryId,input),"Race result saved."); if(result) await refresh(); }} onRegister={async (raceId) => { if (!horseId) return; const result = await run(() => headTrainerApi.registerRace(horseId, raceId), "Đã đăng ký ngựa vào giải."); if (result) await refresh(); }} busy={busy} />}
-        {tab === "simulation" && <SimulationPanel horses={horses} selectedIds={simulationHorseIds} setSelectedIds={setSimulationHorseIds} sessions={sessions} simulation={simulation} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} />}
+        {tab === "simulation" && <SimulationPanel sessions={sessions} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} />}
       </>}
     </div>
   </section>;
@@ -397,9 +534,13 @@ function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, co
   includeSimulated: boolean; setIncludeSimulated: (value: boolean) => void;
 }) {
   const [comparisonMetric, setComparisonMetric] = useState<ComparisonMetricKey>("avg_speed_kmh");
+  const [prioritySearch, setPrioritySearch] = useState("");
   const selected = overview.find((item) => item.horse_id === selectedHorseId);
   const lockedCount = overview.filter((item) => item.is_training_locked).length;
   const alertCount = overview.filter((item) => item.has_injury_alert).length;
+  const normalizedQuery = normalizeHorseSearch(prioritySearch.trim());
+  const priorityHorses = overview.filter((item) => !normalizedQuery || normalizeHorseSearch(item.horse_name).includes(normalizedQuery));
+  const visiblePriorityHorses = normalizedQuery ? priorityHorses : priorityHorses.slice(0, 8);
   return <div className="space-y-5">
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <StatCard icon={Users} label="Ngựa đang hoạt động" value={String(horses.length)} />
@@ -409,15 +550,20 @@ function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, co
     </div>
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
       <Section title="Ưu tiên theo dõi" description="Ngựa bị khóa hoặc có cảnh báo gần nhất được xếp lên trước." icon={AlertTriangle}>
-        <div className="space-y-2">{overview.slice(0, 8).map((item) => <div key={item.horse_id} className="flex items-center gap-3 rounded-xl border border-equine-line p-3">
+        <label className="relative mb-3 block">
+          <span className="sr-only">Tìm ngựa theo tên</span>
+          <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input type="search" value={prioritySearch} onChange={(event) => setPrioritySearch(event.target.value)} placeholder="Tìm ngựa theo tên..." className="field-control pl-9 pr-3" />
+        </label>
+        <div className="space-y-2">{visiblePriorityHorses.map((item) => <div key={item.horse_id} className="flex items-center gap-3 rounded-xl border border-equine-line p-3">
           <HorsePhoto id={item.horse_id} name={item.horse_name} image={item.image_url} />
           <div className="min-w-0 flex-1"><p className="truncate font-semibold text-equine-navy">{item.horse_name}</p><p className="text-xs text-slate-500">{metricDate(item.recorded_at)}</p></div>
           {item.is_training_locked && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Đang khóa</span>}
           {!item.is_training_locked && item.has_injury_alert && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">Cảnh báo</span>}
           <span className="text-right text-xs text-slate-600">{item.stamina_score ?? "—"}<small className="block">thể lực</small></span>
-        </div>)}</div>
+        </div>)}{visiblePriorityHorses.length === 0 && <p className="rounded-xl border border-dashed border-equine-line p-4 text-center text-sm text-slate-500">Không tìm thấy ngựa phù hợp.</p>}</div>
       </Section>
-      <Section title="Biểu đồ tiến độ và so sánh" description="So sánh cùng một chỉ số trên cùng thang đo; rê chuột lên điểm hoặc mở danh sách để xem từng lần đo." icon={Activity}>
+      <Section title="So sánh chỉ số theo thời gian" description="Mỗi ngày là một nhóm cột; màu sắc đại diện cho từng ngựa." icon={Activity}>
         <div className="grid gap-3 sm:grid-cols-2"><Field label="Từ ngày" name="from" type="date" value={from} onChange={setFrom} /><Field label="Đến ngày" name="to" type="date" value={to} onChange={setTo} /></div>
         <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={includeSimulated} onChange={(event) => setIncludeSimulated(event.target.checked)} />Gồm dữ liệu mô phỏng</label>
         <label className="mt-3 block max-w-sm"><span className="field-label">Chỉ số cần theo dõi</span><select className="field-control px-3" value={comparisonMetric} onChange={(event) => setComparisonMetric(event.target.value as ComparisonMetricKey)}>{comparisonMetrics.map((metric) => <option key={metric.key} value={metric.key}>{metric.label} ({metric.unit})</option>)}</select></label>
@@ -431,7 +577,7 @@ function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, co
   </div>;
 }
 
-const chartColors = ["#bd843d", "#2f6875", "#784f6b", "#6d7b4e", "#b15d46", "#52648e", "#886b35", "#4d7b69"];
+const chartColors = ["#4169e1", "#d17a2b", "#2f855a", "#805ad5", "#d64545", "#159a9c", "#8c5a3c", "#c44b86"];
 type ComparisonMetricKey = "avg_speed_kmh" | "stamina_score" | "max_heart_rate" | "body_weight_kg" | "bp_systolic" | "bp_diastolic";
 const comparisonMetrics: { key: ComparisonMetricKey; label: string; unit: string }[] = [
   { key: "avg_speed_kmh", label: "Tốc độ trung bình", unit: "km/h" },
@@ -447,12 +593,16 @@ function comparisonValue(metric: TrainingMetric, key: ComparisonMetricKey) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function normalizeHorseSearch(value: string) {
+  return value.toLocaleLowerCase("vi").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+}
+
 function formatChartValue(value: number) {
   return new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 2 }).format(value);
 }
 
-function shortMetricDate(timestamp: number) {
-  return new Date(timestamp).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "2-digit" });
+function chartDateLabel(value: string) {
+  return new Date(value + "T12:00:00").toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
 function ComparisonChart({ compare, metricKey }: {
@@ -466,7 +616,10 @@ function ComparisonChart({ compare, metricKey }: {
     points: horse.metrics.flatMap((metric) => {
       const value = comparisonValue(metric, metricKey);
       const timestamp = new Date(metric.recorded_at).getTime();
-      return value === null || !Number.isFinite(timestamp) ? [] : [{ metric, value, timestamp }];
+      if (value === null || !Number.isFinite(timestamp)) return [];
+      const date = new Date(timestamp);
+      const dayKey = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
+      return [{ metric, value, timestamp, dayKey }];
     }).sort((a, b) => a.timestamp - b.timestamp),
   }));
   const allPoints = rows.flatMap((row) => row.points);
@@ -477,62 +630,91 @@ function ComparisonChart({ compare, metricKey }: {
   }
   if (allPoints.length === 0) {
     return <div className="mt-5 rounded-xl border border-dashed border-equine-line bg-slate-50 p-6 text-center text-sm text-slate-500">
-      Chưa có dữ liệu {definition.label.toLowerCase()} trong khoảng ngày đã chọn. Thử đổi chỉ số hoặc mở rộng khoảng ngày.
+      Chưa có lần đo {definition.label.toLowerCase()} trong khoảng ngày này. Hãy mở rộng khoảng ngày, bật dữ liệu mô phỏng hoặc ghi chỉ số sau khi hoàn tất buổi tập.
     </div>;
   }
 
-  const chart = { left: 74, right: 956, top: 18, bottom: 204, width: 1000, height: 262 };
-  const minTime = Math.min(...allPoints.map((point) => point.timestamp));
-  const maxTime = Math.max(...allPoints.map((point) => point.timestamp));
-  const timeSpan = Math.max(maxTime - minTime, 1);
-  const minValue = Math.min(...allPoints.map((point) => point.value));
-  const maxValue = Math.max(...allPoints.map((point) => point.value));
-  const valuePadding = Math.max((maxValue - minValue) * 0.12, Math.abs(minValue) * 0.04, 0.5);
-  const domainMin = minValue - valuePadding;
-  const domainMax = maxValue + valuePadding;
-  const x = (timestamp: number) => minTime === maxTime
-    ? (chart.left + chart.right) / 2
-    : chart.left + ((timestamp - minTime) / timeSpan) * (chart.right - chart.left);
+  const dateKeys = [...new Set(allPoints.map((point) => point.dayKey))].sort();
+  const chartRows = rows.map((row) => {
+    const dailyPoints = new Map(row.points.map((point) => [point.dayKey, point] as const));
+    return { ...row, dailyPoints };
+  });
+  const values = chartRows.flatMap((row) => Array.from(row.dailyPoints.values(), (point) => point.value));
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const domainMin = Math.min(0, minValue);
+  const valuePadding = Math.max((maxValue - domainMin) * 0.08, Math.abs(maxValue) * 0.06, 0.5);
+  const domainMax = Math.max(0, maxValue) + valuePadding;
+  const chart = { left: 62, right: 20, top: 24, bottom: 208, height: 300 };
+  const groupWidth = Math.max(100, chartRows.length * 19 + 30);
+  const plotWidth = Math.max(dateKeys.length * groupWidth, 620 - chart.left - chart.right);
+  const effectiveGroupWidth = plotWidth / dateKeys.length;
+  const chartWidth = chart.left + plotWidth + chart.right;
   const y = (value: number) => chart.bottom - ((value - domainMin) / (domainMax - domainMin)) * (chart.bottom - chart.top);
-  const yTicks = [domainMax, (domainMin + domainMax) / 2, domainMin];
-  const xTicks = minTime === maxTime
-    ? [{ timestamp: minTime, position: (chart.left + chart.right) / 2 }]
-    : [
-      { timestamp: minTime, position: chart.left },
-      { timestamp: minTime + timeSpan / 2, position: (chart.left + chart.right) / 2 },
-      { timestamp: maxTime, position: chart.right },
-    ];
-  const firstDate = new Date(minTime).toLocaleDateString("vi-VN");
-  const lastDate = new Date(maxTime).toLocaleDateString("vi-VN");
+  const yTicks = Array.from({ length: 5 }, (_, index) => domainMax - ((domainMax - domainMin) * index) / 4);
+  const zeroY = y(0);
+  const barGap = 3;
+  const barWidth = Math.min(24, Math.max(8, (effectiveGroupWidth - 28 - barGap * Math.max(chartRows.length - 1, 0)) / Math.max(chartRows.length, 1)));
 
   return <div className="mt-5 space-y-4">
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600">
-      {rows.map((row) => <span key={row.horse_id} className="inline-flex min-w-0 items-center gap-2"><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.color }} /><span className="max-w-48 truncate">{row.horse_name}</span></span>)}
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-600">
+      {chartRows.map((row) => <span key={row.horse_id} className="inline-flex max-w-full items-center gap-2">
+        <span className="h-3 w-3 shrink-0 rounded-sm" style={{ backgroundColor: row.color }} />
+        <span className="max-w-40 truncate" title={row.horse_name}>{row.horse_name}</span>
+      </span>)}
       <span className="ml-auto text-slate-500">Trục dọc: {definition.label} ({definition.unit})</span>
     </div>
-    <div className="overflow-x-auto rounded-xl border border-equine-line bg-white p-2">
-      <svg viewBox={`0 0 ${chart.width} ${chart.height}`} className="h-64 min-w-[620px] w-full" role="img" aria-label={`So sánh ${definition.label.toLowerCase()} của các ngựa từ ${firstDate} đến ${lastDate}`}>
-        <desc>Biểu đồ dùng chung thang đo cho tất cả ngựa. Mỗi điểm có ngày giờ và giá trị khi rê chuột.</desc>
+    <div className="overflow-x-auto rounded-xl border border-equine-line bg-[#f7f8fa] px-2 py-2">
+      <svg
+        viewBox={"0 0 " + chartWidth + " " + chart.height}
+        className="block h-[300px] w-full"
+        style={{ minWidth: chartWidth }}
+        role="img"
+        aria-label={"So sánh " + definition.label.toLowerCase() + " của từng ngựa theo ngày (" + definition.unit + ")"}
+      >
+        <desc>Biểu đồ cột nhóm theo ngày. Mỗi màu đại diện cho một ngựa; nếu có nhiều lần đo trong cùng ngày thì hiển thị lần đo gần nhất.</desc>
         {yTicks.map((tick, index) => {
           const tickY = y(tick);
           return <g key={`y-${index}`}>
-            <line x1={chart.left} x2={chart.right} y1={tickY} y2={tickY} stroke="#dbe4eb" strokeDasharray={index === 1 ? "4 4" : undefined} />
-            <text x={chart.left - 10} y={tickY + 4} textAnchor="end" fill="#64748b" fontSize="12">{formatChartValue(tick)}</text>
+            <line x1={chart.left} x2={chartWidth - chart.right} y1={tickY} y2={tickY} stroke={index === yTicks.length - 1 ? "#94a3b8" : "#d9dee7"} />
+            <text x={chart.left - 10} y={tickY + 4} textAnchor="end" fill="#6b7280" fontSize="11">{formatChartValue(tick)}</text>
           </g>;
         })}
-        {xTicks.map((tick, index) => {
-          const tickX = tick.position;
-          return <g key={`x-${index}`}>
-            <line x1={tickX} x2={tickX} y1={chart.top} y2={chart.bottom} stroke="#eef2f6" />
-            <text x={tickX} y={chart.bottom + 22} textAnchor={xTicks.length === 1 ? "middle" : index === 0 ? "start" : index === xTicks.length - 1 ? "end" : "middle"} fill="#64748b" fontSize="12">{shortMetricDate(tick.timestamp)}</text>
+        <line x1={chart.left} x2={chartWidth - chart.right} y1={zeroY} y2={zeroY} stroke="#94a3b8" />
+        {dateKeys.map((dateKey, index) => {
+          const center = chart.left + index * effectiveGroupWidth + effectiveGroupWidth / 2;
+          const clusterWidth = chartRows.length * barWidth + Math.max(chartRows.length - 1, 0) * barGap;
+          const startX = center - clusterWidth / 2;
+          return <g key={dateKey}>
+            <line x1={center} x2={center} y1={chart.top} y2={chart.bottom} stroke="#e5e7eb" />
+            {chartRows.map((row, rowIndex) => {
+              const point = row.dailyPoints.get(dateKey);
+              if (!point) return null;
+              const valueY = y(point.value);
+              const barTop = Math.min(zeroY, valueY);
+              const barHeight = Math.max(Math.abs(zeroY - valueY), 1);
+              return <rect
+                key={row.horse_id}
+                x={startX + rowIndex * (barWidth + barGap)}
+                y={barTop}
+                width={barWidth}
+                height={barHeight}
+                rx="2"
+                fill={row.color}
+              >
+                <title>{row.horse_name + " · " + metricDate(point.metric.recorded_at) + " · " + formatChartValue(point.value) + " " + definition.unit}</title>
+              </rect>;
+            })}
+            <text
+              x={center}
+              y={chart.bottom + 39}
+              textAnchor="end"
+              fill="#4b5563"
+              fontSize="11"
+              transform={"rotate(-25 " + center + " " + (chart.bottom + 39) + ")"}
+            >{chartDateLabel(dateKey)}</text>
           </g>;
         })}
-        {rows.map((row) => <g key={row.horse_id}>
-          {row.points.length > 1 && <polyline fill="none" stroke={row.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" points={row.points.map((point) => `${x(point.timestamp)},${y(point.value)}`).join(" ")} />}
-          {row.points.map((point, pointIndex) => <circle key={point.metric.id ?? `${point.timestamp}-${pointIndex}`} cx={x(point.timestamp)} cy={y(point.value)} r="4.5" fill={row.color} stroke="white" strokeWidth="2">
-            <title>{`${row.horse_name} · ${metricDate(point.metric.recorded_at)} · ${formatChartValue(point.value)} ${definition.unit}`}</title>
-          </circle>)}
-        </g>)}
       </svg>
     </div>
     <div className="grid gap-3 md:grid-cols-2">
@@ -555,50 +737,120 @@ function ComparisonChart({ compare, metricKey }: {
     </div>
   </div>;
 }
-
-function PlansPanel({ horse, plans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, onCreate, onUpdate, onDelete, onSchedule, busy }: {
-  horse: Horse | null; plans: TrainingPlan[]; activeOnly: boolean; setActiveOnly: (value: boolean) => void;
+function PlansPanel({ horse, horses, plans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, onCreate, onUpdate, onDelete, onSchedule, busy }: {
+  horse: Horse | null; horses: Horse[]; plans: TrainingPlan[]; activeOnly: boolean; setActiveOnly: (value: boolean) => void;
   editingPlan: string | null; setEditingPlan: (id: string | null) => void;
   onCreate: (event: FormEvent<HTMLFormElement>) => void; onUpdate: (event: FormEvent<HTMLFormElement>, id: string) => void;
   onDelete: (id: string) => void; onSchedule: (plan: TrainingPlan) => void; busy: boolean;
 }) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [horseSearch, setHorseSearch] = useState("");
+  const [selectedHorseIds, setSelectedHorseIds] = useState<string[]>(horse && !horse.is_training_locked ? [horse.id] : []);
+  const selectableHorseId = horse && !horse.is_training_locked ? horse.id : null;
+  useEffect(() => {
+    setSelectedHorseIds(selectableHorseId ? [selectableHorseId] : []);
+  }, [selectableHorseId]);
+  const canCreate = selectedHorseIds.length > 0 && selectedHorseIds.every((id) => horses.some((item) => item.id === id && !item.is_training_locked));
+  const normalizedSearch = normalizeHorseSearch(horseSearch.trim());
+  const visibleHorses = horses.filter((item) => normalizeHorseSearch(item.horse_name).includes(normalizedSearch));
   return <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
-    <Section title="Tạo giáo án theo giai đoạn" description={horse ? `Áp dụng cho ${horse.horse_name}` : "Chọn ngựa trước khi tạo"} icon={Plus}>
-      {horse?.is_training_locked && <Notice error>Ngựa đang bị khóa huấn luyện. Gỡ khóa bởi bác sĩ trước khi tạo giáo án.</Notice>}
+    <Section title="Tạo giáo án theo giai đoạn" description="Chọn một hoặc nhiều ngựa để dùng chung giáo án." icon={Plus}>
       <form onSubmit={onCreate} className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <span className="field-label">Ngựa áp dụng *</span>
+          {selectedHorseIds.map((id) => <input key={id} type="hidden" name="horse_ids" value={id} />)}
+          <div className="relative mt-1">
+            <Search aria-hidden="true" size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input type="search" value={horseSearch} onChange={(event) => setHorseSearch(event.target.value)} placeholder="Tìm theo tên ngựa..." aria-label="Tìm ngựa theo tên"
+              className="field-control pl-9 pr-3" />
+          </div>
+          <div className="mt-1 grid max-h-44 gap-2 overflow-y-auto rounded-xl border border-equine-line p-3 sm:grid-cols-2">
+            {visibleHorses.map((item) => <label key={item.id} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${item.is_training_locked ? "cursor-not-allowed text-slate-400" : "cursor-pointer text-slate-700"}`}>
+              <input type="checkbox" value={item.id} checked={selectedHorseIds.includes(item.id)} disabled={busy || item.is_training_locked}
+                onChange={(event) => setSelectedHorseIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />
+              <span>{item.horse_name}{item.is_training_locked ? " · Đang khóa huấn luyện" : ""}</span>
+            </label>)}
+            {horses.length === 0 && <span className="text-sm text-slate-500">Chưa có ngựa khả dụng.</span>}
+            {horses.length > 0 && visibleHorses.length === 0 && <span className="text-sm text-slate-500">Không tìm thấy ngựa phù hợp.</span>}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">Các ngựa đã khóa huấn luyện không thể chọn.</p>
+        </div>
         <Field label="Tên giai đoạn" name="stage_name" required maxLength={100} />
-        <Field label="Cự ly mục tiêu (m)" name="target_distance_meters" type="number" min={1} />
-        <Field label="Khối lượng mục tiêu (phút/tuần)" name="target_workload_minutes" type="number" min={1} max={1440} />
-        <SelectField label="Mặt sân ưu tiên" name="target_track_surface" options={[["", "Chưa chọn"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
-        <Field label="Ngày bắt đầu" name="start_date" type="date" />
-        <Field label="Ngày kết thúc" name="end_date" type="date" />
-        <SelectField label="Cường độ" name="target_intensity" options={[["Low", "Thấp"], ["Medium", "Vừa"], ["High", "Cao"]]} />
+        <SelectField label="Cự ly mục tiêu (m)" name="target_distance_meters" required options={distanceOptions} />
+        <Field label="Khối lượng mục tiêu (phút/tuần)" name="target_workload_minutes" type="number" min={1} required max={1440} />
+        <SelectField label="Mặt sân ưu tiên" name="target_track_surface" required options={[["", "Chưa chọn"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
+        <Field label="Ngày bắt đầu" name="start_date" type="date" required />
+        <Field label="Ngày kết thúc" name="end_date" type="date" required />
+        <SelectField label="Cường độ" name="target_intensity" required options={[["Low", "Thấp"], ["Medium", "Vừa"], ["High", "Cao"]]} />
         <Field label="Hạn sửa trước buổi tập (giờ)" name="update_deadline_hours" type="number" min={0} defaultValue={24} />
         <TextArea label="Mục tiêu" name="objective" rows={3} />
-        <div className="flex items-end"><button className="gold-button w-full" disabled={busy || !horse || horse.is_training_locked}><Plus size={15} /> Tạo giáo án</button></div>
+        <div className="flex items-end"><button className="gold-button w-full" disabled={busy || !canCreate}><Plus size={15} /> Tạo giáo án</button></div>
       </form>
-      <p className="mt-3 text-xs leading-5 text-slate-500">Tạo giáo án chỉ lưu kế hoạch giai đoạn. Để bắt đầu thực hiện, chọn giáo án bên cạnh rồi lên lịch từng buổi tập với ngày, giờ và Groom.</p>
+      <p className="mt-3 text-xs leading-5 text-slate-500">Giáo án được dùng chung cho các ngựa đã chọn. Để bắt đầu thực hiện, chọn giáo án ở danh sách bên cạnh rồi lên lịch từng buổi tập với ngày, giờ và Groom.</p>
     </Section>
     <Section title="Giáo án của ngựa" description="Giáo án mô tả mục tiêu giai đoạn; lên lịch từng buổi để thực hiện. Có thể sửa trước hạn của buổi tập gần nhất." icon={ClipboardList} action={<label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} />Chỉ đang hoạt động</label>}>
       <div className="space-y-3">{plans.map((plan) => <article key={plan.id} className="rounded-xl border border-equine-line p-4">
         {editingPlan === plan.id ? <form onSubmit={(event) => onUpdate(event, plan.id)} className="grid gap-2 sm:grid-cols-2">
           <Field label="Tên giai đoạn" name="stage_name" required defaultValue={plan.stage_name} />
-          <Field label="Cự ly mục tiêu (m)" name="target_distance_meters" type="number" min={1} defaultValue={plan.target_distance_meters} />
-          <Field label="Khối lượng mục tiêu (phút/tuần)" name="target_workload_minutes" type="number" min={1} max={1440} defaultValue={plan.target_workload_minutes} />
-          <SelectField label="Mặt sân ưu tiên" name="target_track_surface" defaultValue={plan.target_track_surface ?? ""} options={[["", "Chưa chọn"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
-          <Field label="Ngày bắt đầu" name="start_date" type="date" defaultValue={plan.start_date} />
-          <Field label="Ngày kết thúc" name="end_date" type="date" defaultValue={plan.end_date} />
-          <SelectField label="Cường độ" name="target_intensity" defaultValue={plan.target_intensity ?? ""} options={[["", "Chưa đặt"], ["Low", "Thấp"], ["Medium", "Vừa"], ["High", "Cao"]]} />
+          <SelectField label="Cự ly mục tiêu (m)" name="target_distance_meters" required defaultValue={String(plan.target_distance_meters ?? "")} options={distanceOptionsWithCurrent(plan.target_distance_meters)} />
+          <Field label="Khối lượng mục tiêu (phút/tuần)" name="target_workload_minutes" type="number" min={1} required max={1440} defaultValue={plan.target_workload_minutes} />
+          <SelectField label="Mặt sân ưu tiên" name="target_track_surface" required defaultValue={plan.target_track_surface ?? ""} options={[["", "Chưa chọn"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
+          <Field label="Ngày bắt đầu" name="start_date" type="date" required defaultValue={plan.start_date} />
+          <Field label="Ngày kết thúc" name="end_date" type="date" required defaultValue={plan.end_date} />
+          <SelectField label="Cường độ" name="target_intensity" required defaultValue={plan.target_intensity ?? ""} options={[["", "Chưa đặt"], ["Low", "Thấp"], ["Medium", "Vừa"], ["High", "Cao"]]} />
           <Field label="Hạn sửa trước buổi tập (giờ)" name="update_deadline_hours" type="number" min={0} defaultValue={plan.update_deadline_hours} />
           <TextArea label="Mục tiêu" name="objective" defaultValue={plan.objective} />
           <div className="flex items-end gap-2"><button className="gold-button" disabled={busy}><Check size={15} /> Lưu</button><button type="button" className="soft-button" onClick={() => setEditingPlan(null)}><X size={15} /> Bỏ</button></div>
-        </form> : <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><div className="flex items-center gap-2"><h3 className="font-semibold text-equine-navy">{plan.stage_name}</h3><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${plan.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{plan.is_active ? "Đang hoạt động" : "Ngoài giai đoạn"}</span></div><p className="mt-1 text-sm text-slate-600">{plan.start_date ?? "—"} → {plan.end_date ?? "—"} · {plan.target_distance_meters ?? "—"} m · {plan.target_workload_minutes ? `${plan.target_workload_minutes} phút/tuần` : "Chưa đặt khối lượng"} · {plan.target_track_surface ?? "Chưa chọn mặt sân"} · {plan.target_intensity ?? "Chưa đặt cường độ"}</p><p className="mt-1 text-xs text-slate-500">{plan.objective || "Chưa có mục tiêu"} · {plan.training_schedules_count} buổi đã gắn</p></div>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" className="gold-button" disabled={busy || Boolean(plan.end_date && plan.end_date < today())} title={plan.end_date && plan.end_date < today() ? "Giai đoạn này đã kết thúc" : undefined} onClick={() => onSchedule(plan)}><CalendarDays size={14} /> Lên lịch buổi tập</button>
-            <button type="button" className="soft-button" disabled={busy} onClick={() => { setConfirmDelete(null); setEditingPlan(plan.id); }}><Pencil size={14} /> Sửa</button>
-            {plan.training_schedules_count === 0 ? <button type="button" className="soft-button text-rose-700" disabled={busy} onClick={() => setConfirmDelete(confirmDelete === plan.id ? null : plan.id)}><Trash2 size={14} /> Xóa</button> : <button type="button" className="soft-button cursor-not-allowed text-slate-400" disabled title="Giáo án đang gắn với lịch tập; giữ lại để bảo toàn lịch sử."><Trash2 size={14} /> Đang dùng</button>}
+        </form> : <div className="space-y-4">
+          <header className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-lg font-semibold text-equine-navy">{plan.stage_name}</h3>
+                <span className={"rounded-full px-2.5 py-1 text-xs font-semibold " + (plan.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>
+                  {plan.is_active ? "Đang hoạt động" : "Ngoài giai đoạn"}
+                </span>
+              </div>
+              {plan.horse_names && <p className="mt-1 text-sm text-slate-500">Ngựa áp dụng: <span className="font-medium text-slate-700">{plan.horse_names}</span></p>}
+            </div>
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-equine-mist px-3 py-1.5 text-xs font-medium text-equine-navy">
+              <ClipboardList size={14} /> {plan.training_schedules_count} buổi gắn giáo án
+            </span>
+          </header>
+
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+              <p className="text-xs text-slate-500">Thời gian</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{plan.start_date ?? "Chưa đặt ngày"} <span className="font-normal text-slate-400">→</span> {plan.end_date ?? "Chưa đặt ngày"}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+              <p className="text-xs text-slate-500">Cự ly mục tiêu</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{plan.target_distance_meters == null ? "Chưa đặt" : String(plan.target_distance_meters.toLocaleString("vi-VN")) + " m"}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+              <p className="text-xs text-slate-500">Khối lượng mục tiêu</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{plan.target_workload_minutes == null ? "Chưa đặt" : String(plan.target_workload_minutes) + " phút / tuần"}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+              <p className="text-xs text-slate-500">Mặt sân ưu tiên</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{surfaceLabel(plan.target_track_surface)}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-3 py-2.5">
+              <p className="text-xs text-slate-500">Cường độ</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">{({ Low: "Thấp", Medium: "Vừa", High: "Cao" } as Record<string, string>)[plan.target_intensity ?? ""] ?? "Chưa đặt"}</p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-equine-line px-3 py-2.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mục tiêu giai đoạn</p>
+            <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">{plan.objective || "Chưa có mô tả mục tiêu."}</p>
+          </div>
+
+          <div className="flex flex-col gap-2 border-t border-equine-line pt-4 sm:flex-row sm:flex-wrap">
+            <button type="button" className="gold-button min-h-11 justify-center sm:min-w-52" disabled={busy || Boolean(plan.end_date && plan.end_date < today())} title={plan.end_date && plan.end_date < today() ? "Giai đoạn này đã kết thúc" : undefined} onClick={() => onSchedule(plan)}><CalendarDays size={15} /> Lên lịch buổi tập</button>
+            <button type="button" className="soft-button min-h-11 justify-center sm:min-w-28" disabled={busy} onClick={() => { setConfirmDelete(null); setEditingPlan(plan.id); }}><Pencil size={15} /> Sửa giáo án</button>
+            {plan.training_schedules_count === 0
+              ? <button type="button" className="soft-button min-h-11 justify-center text-rose-700 sm:min-w-28" disabled={busy} onClick={() => setConfirmDelete(confirmDelete === plan.id ? null : plan.id)}><Trash2 size={15} /> Xóa giáo án</button>
+              : <button type="button" className="soft-button min-h-11 cursor-not-allowed justify-center text-slate-400 sm:min-w-28" disabled title="Giáo án đang gắn với lịch tập; giữ lại để bảo toàn lịch sử."><Trash2 size={15} /> Đang dùng</button>}
           </div>
         </div>}
         {confirmDelete === plan.id && editingPlan !== plan.id && <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800"><span>Xóa giáo án “{plan.stage_name}”? Thao tác này không thể hoàn tác.</span><div className="flex gap-2"><button type="button" className="soft-button" disabled={busy} onClick={() => setConfirmDelete(null)}>Giữ lại</button><button type="button" className="soft-button border-rose-200 bg-rose-600 text-white hover:bg-rose-700" disabled={busy} onClick={() => { setConfirmDelete(null); onDelete(plan.id); }}><Trash2 size={14} /> Xác nhận xóa</button></div></div>}
@@ -612,20 +864,27 @@ function sessionTypeLabel(value: string) {
 }
 
 function scheduleStatusLabel(value: string) {
-  return ({ Scheduled: "Đã lên lịch", Blocked: "Chờ xử lý y tế", InProgress: "Đang diễn ra", Completed: "Hoàn thành", Cancelled: "Đã hủy" } as Record<string, string>)[value] ?? value;
+  if (value === "Missed") return "B\u1ecf l\u1ee1";
+  return ({ Scheduled: "Đã lên lịch", Blocked: "Chờ xử lý y tế", InProgress: "Đang diễn ra", Completed: "Hoàn thành", Cancelled: "Đã hủy", Missed: "Bỏ lỡ" } as Record<string, string>)[value] ?? value;
 }
 
-function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, scheduleDraft, onDraftUsed, onCreate, onAssign, onStatus, onMetrics, onVideo, showMetricsFor, setShowMetricsFor, busy }: {
+function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, scheduleDraft, onDraftUsed, onCreate, onAssign, onStatus, onMetrics, onVideo, showMetricsFor, setShowMetricsFor, busy, onOpenSimulation, onTargetsSaved }: {
   horses: Horse[]; sessions: TrainingSession[]; grooms: Groom[]; from: string; setFrom: (value: string) => void;
   to: string; setTo: (value: string) => void; onCreate: (event: FormEvent<HTMLFormElement>) => void;
   scheduleDraft: { horseId: string; planId: string; startDate: string | null } | null; onDraftUsed: () => void;
+  onTargetsSaved: () => Promise<void>;
+  onOpenSimulation: (session: TrainingSession) => void;
   onAssign: (id: string, groomId: number) => void; onStatus: (id: string, status: string) => void;
   onMetrics: (event: FormEvent<HTMLFormElement>, id: string) => void; onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; showMetricsFor: string | null;
   setShowMetricsFor: (id: string | null) => void; busy: boolean;
 }) {
   const [createHorse, setCreateHorse] = useState(horses[0]?.id ?? "");
   const [horsePlans, setHorsePlans] = useState<TrainingPlan[]>([]);
+  const [horsePlansLoading, setHorsePlansLoading] = useState(false);
+  const [horsePlansError, setHorsePlansError] = useState("");
+  const [plansReload, setPlansReload] = useState(0);
   const [selectedPlanId, setSelectedPlanId] = useState("");
+  const [sessionType, setSessionType] = useState("Training");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [scheduleDefaults] = useState(() => suggestedTrainingWindow());
   const createFormRef = useRef<HTMLFormElement>(null);
@@ -642,25 +901,45 @@ function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, sch
   }, [scheduleDraft]);
   useEffect(() => {
     let active = true;
-    if (createHorse) headTrainerApi.plans(createHorse).then((result) => {
+    setHorsePlans([]);
+    setHorsePlansError("");
+    if (!createHorse) {
+      setHorsePlansLoading(false);
+      return () => { active = false; };
+    }
+    setHorsePlansLoading(true);
+    headTrainerApi.plans(createHorse).then((result) => {
       if (!active) return;
-      setHorsePlans(result.data);
-      setSelectedPlanId((current) => result.data.some((plan) => plan.id === current) ? current : "");
-    }).catch(() => { if (active) { setHorsePlans([]); setSelectedPlanId(""); } });
-    else setHorsePlans([]);
+      const plans = Array.isArray(result.data) ? result.data : [];
+      setHorsePlans(plans);
+      setSelectedPlanId((current) => plans.some((plan) => plan.id === current) ? current : "");
+    }).catch((reason) => {
+      if (!active) return;
+      setHorsePlans([]);
+      setHorsePlansError(headTrainerError(reason));
+    }).finally(() => {
+      if (active) setHorsePlansLoading(false);
+    });
     return () => { active = false; };
-  }, [createHorse]);
+  }, [createHorse, plansReload]);
   useEffect(() => {
     const interval = window.setInterval(() => setNowMs(Date.now()), 15000);
     return () => window.clearInterval(interval);
   }, []);
-  return <div className="space-y-5">
+  return <div className="trainer-calendar space-y-5">
     <Section title="Tạo buổi tập" description="Ngựa không thể có lịch tập chồng thời gian." icon={Plus}>
       <form ref={createFormRef} onSubmit={onCreate} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SelectField label="Ngựa" name="horse_id" value={createHorse} onChange={(id) => { setCreateHorse(id); setSelectedPlanId(""); onDraftUsed(); }} options={horses.map((horse) => [horse.id, horse.horse_name])} />
-        <SelectField label="Giáo án" name="training_plan_id" value={selectedPlanId} onChange={setSelectedPlanId} options={[["", "Không gắn giáo án"], ...horsePlans.map((plan) => [plan.id, plan.stage_name] as [string, string])]} />
-        <SelectField label="Loại buổi" name="session_type" options={[["Training", "Huấn luyện"], ["TrialRun", "Chạy thử"], ["Rest", "Nghỉ"]]} />
-        <Field label="Mặt sân" name="track_surface" placeholder="Cát, cỏ…" />
+        <SelectField label="Giáo án" name="training_plan_id" required={sessionType !== "Rest"} value={selectedPlanId} onChange={setSelectedPlanId} options={[["", "Không gắn giáo án"], ...horsePlans.map((plan) => [plan.id, plan.stage_name] as [string, string])]} />
+        {(horsePlansLoading || horsePlansError || (!horsePlansLoading && !horsePlansError && createHorse && horsePlans.length === 0)) && <div aria-live="polite" className="-mt-2 text-xs text-slate-600 sm:col-span-2 lg:col-span-4">
+          {horsePlansLoading && <span>Đang tải giáo án của ngựa…</span>}
+          {horsePlansError && <span className="text-rose-700">Không tải được giáo án: {horsePlansError} <button type="button" className="ml-2 underline" onClick={() => setPlansReload((value) => value + 1)}>Thử tải lại</button></span>}
+          {!horsePlansLoading && !horsePlansError && createHorse && horsePlans.length === 0 && <span>Ngựa này chưa có giáo án. Hãy tạo giáo án cho đúng ngựa trong tab Giáo án.</span>}
+        </div>}
+        <SelectField label="Loại buổi" name="session_type" value={sessionType} onChange={setSessionType} options={[["Training", "Huấn luyện"], ["TrialRun", "Chạy thử"], ["Rest", "Nghỉ"]]} />
+        <SelectField key={"surface-"+selectedPlanId} label="Mặt sân buổi tập" name="track_surface" required={sessionType !== "Rest"} defaultValue={selectedPlan?.target_track_surface ?? ""} options={[["", "Chọn mặt sân"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
+        <SelectField key={"distance-"+selectedPlanId} label="Cự ly buổi tập (m)" name="session_distance" required={sessionType !== "Rest"} defaultValue={String(selectedPlan?.target_distance_meters ?? "")} options={distanceOptionsWithCurrent(selectedPlan?.target_distance_meters)} />
+        <SelectField key={"intensity-"+selectedPlanId} label="Cường độ buổi tập" name="session_intensity" required={sessionType !== "Rest"} defaultValue={selectedPlan?.target_intensity ?? ""} options={[["", "Chọn cường độ"], ["Low", "Thấp"], ["Medium", "Vừa"], ["High", "Cao"]]} />
         <Field label="Ngày" name="event_date" type="date" required min={selectedPlan?.start_date && selectedPlan.start_date > today() ? selectedPlan.start_date : today()} max={selectedPlan?.end_date ?? undefined} defaultValue={scheduleDraft?.startDate && scheduleDraft.startDate > today() ? scheduleDraft.startDate : scheduleDefaults.date} />
         <Field label="Bắt đầu (24 giờ)" name="start_time" type="text" required defaultValue={scheduleDefaults.start} maxLength={5} pattern="([01][0-9]|2[0-3]):[0-5][0-9]" placeholder="HH:mm" title="Nhập giờ theo dạng 24 giờ, ví dụ 06:30" />
         <Field label="Kết thúc (24 giờ)" name="end_time" type="text" required defaultValue={scheduleDefaults.end} maxLength={5} pattern="([01][0-9]|2[0-3]):[0-5][0-9]" placeholder="HH:mm" title="Nhập giờ theo dạng 24 giờ, ví dụ 07:30" />
@@ -670,28 +949,45 @@ function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, sch
       </form>
     </Section>
     <Section title="Lịch tập" description="Chỉ bắt đầu trong khung giờ đã đặt; chỉ ghi chỉ số sau khi buổi tập hoàn tất." icon={CalendarDays}>
-      <div className="mb-4 grid max-w-lg gap-3 sm:grid-cols-2"><Field label="Từ ngày" name="from" type="date" value={from} onChange={setFrom} /><Field label="Đến ngày" name="to" type="date" value={to} onChange={setTo} /></div>
-      <div className="space-y-3">{sessions.map((session) => {
+      <div className="trainer-calendar__filters"><Field label="Từ ngày" name="from" type="date" value={from} onChange={setFrom} /><Field label="Đến ngày" name="to" type="date" value={to} onChange={setTo} /></div>
+      <div className="trainer-calendar__list-heading"><div><h4>Danh sách buổi tập</h4><p>Thông tin và thao tác được sắp xếp riêng cho từng buổi.</p></div><span>{sessions.length} buổi</span></div>
+      <div className="trainer-calendar__list">{sessions.map((session) => {
         const window = sessionWindow(session);
         const insideTimeWindow = Boolean(window && nowMs >= window.start && nowMs < window.end);
         const afterTimeWindow = Boolean(window && nowMs >= window.end);
-        const canStart = session.status === "Scheduled" && session.session_type !== "Rest" && insideTimeWindow;
+        const canStart = Boolean(session.assigned_groom_id) && session.status === "Scheduled" && session.session_type !== "Rest" && insideTimeWindow;
         const canComplete = afterTimeWindow && (session.status === "InProgress" || (session.status === "Scheduled" && session.session_type === "Rest"));
         const isOpen = ["Scheduled", "Blocked", "InProgress"].includes(session.status);
-        return <article key={session.training_schedule_id} className="rounded-xl border border-equine-line p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <HorsePhoto id={session.horse_id} name={session.horse_name} image={session.image_url} />
-          <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-equine-navy">{session.horse_name}</h3><span className="rounded-full bg-equine-mist px-2 py-1 text-[10px] font-bold text-equine-navy">{sessionTypeLabel(session.session_type)}</span><span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">{scheduleStatusLabel(session.status)}</span></div><p className="mt-1 text-sm text-slate-600">{session.event_date} · {session.start_time ?? "Cả ngày"}{session.end_time ? `–${session.end_time}` : ""} · {session.track_surface || "Chưa chọn mặt sân"}</p><p className="mt-1 text-xs text-slate-500">Giáo án: {session.plan_stage_name ?? "Chưa gắn"} · Groom: {session.groom_name ?? "Chưa phân công"}</p>{(session.plan_target_distance_meters != null || session.plan_target_intensity) && <p className="mt-1 text-xs font-medium text-equine-navy">Chỉ tiêu giai đoạn: {session.plan_target_distance_meters != null ? `${session.plan_target_distance_meters} m` : ""}{session.plan_target_distance_meters != null && session.plan_target_intensity ? " · " : ""}{session.plan_target_intensity ? `Cường độ ${{ Low: "thấp", Medium: "vừa", High: "cao" }[session.plan_target_intensity]}` : ""}</p>}{session.plan_objective && <p className="mt-1 text-sm text-slate-600">Mục tiêu giáo án: {session.plan_objective}</p>}{session.notes && <p className="mt-1 text-sm text-slate-600">Ghi chú buổi tập: {session.notes}</p>}</div>
-          <div className="flex flex-wrap gap-2">
-            <select aria-label={`Phân công Groom cho ${session.horse_name}`} className="field-control min-w-40 px-2" value={session.assigned_groom_id ?? ""} disabled={session.status !== "Scheduled" || busy} onChange={(event) => event.target.value && onAssign(session.training_schedule_id, Number(event.target.value))}><option value="">Gán Groom…</option>{grooms.map((groom) => <option key={groom.user_id} value={groom.user_id}>{groom.full_name}</option>)}</select>
-            <button type="button" className="soft-button" disabled={session.status !== "Completed"} onClick={() => setShowMetricsFor(showMetricsFor === session.training_schedule_id ? null : session.training_schedule_id)}><HeartPulse size={14} /> Chỉ số</button>
-            {canStart && <button type="button" className="gold-button" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "InProgress")}><Play size={14} /> Bắt đầu tập</button>}
-            {session.status === "Scheduled" && session.session_type !== "Rest" && <span className="self-center text-xs text-slate-500">{window && nowMs < window.start ? `Bắt đầu lúc ${session.start_time?.slice(0, 5)}` : "Khung giờ bắt đầu đã qua"}</span>}
-            {session.status === "InProgress" && <button type="button" className="soft-button" disabled={busy || !canComplete} title={!canComplete ? `Có thể hoàn tất sau ${session.end_time?.slice(0, 5) ?? "giờ kết thúc"}` : undefined} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất</button>}
-            {session.status === "Scheduled" && session.session_type === "Rest" && canComplete && <button type="button" className="soft-button" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất nghỉ</button>}
-            {isOpen && <button type="button" className="soft-button text-rose-700" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Cancelled")}><X size={14} /> Hủy</button>}
+        return <article key={session.training_schedule_id} className="trainer-session-card" data-status={session.status}>
+          <div className="trainer-session-card__layout">
+            <div className="trainer-session-card__identity">
+              <HorsePhoto id={session.horse_id} name={session.horse_name} image={session.image_url} />
+              <div className="trainer-session-card__details">
+                <div className="trainer-session-card__title"><h3>{session.horse_name}</h3><span className="trainer-session-card__type">{sessionTypeLabel(session.session_type)}</span><span className="trainer-session-card__status" data-status={session.status}>{scheduleStatusLabel(session.status)}</span></div>
+                <p className="trainer-session-card__time"><strong>{new Date(`${session.event_date}T12:00:00`).toLocaleDateString("vi-VN", { day: "numeric", month: "long", year: "numeric" })}</strong><span>{session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? `–${session.end_time.slice(0, 5)}` : ""}</span><span>{session.track_surface || "Chưa chọn mặt sân"}</span></p>
+                <div className="trainer-session-card__meta">
+                  <p><span>Giáo án</span><strong>{session.plan_stage_name ?? "Chưa gắn"}</strong></p>
+                  <p><span>Groom</span><strong>{session.groom_name ?? "Chưa phân công"}</strong></p>
+                  {(session.plan_target_distance_meters != null || session.plan_target_intensity) && <p><span>Chỉ tiêu giai đoạn</span><strong>{session.plan_target_distance_meters != null ? `${session.plan_target_distance_meters.toLocaleString("vi-VN")} m` : ""}{session.plan_target_distance_meters != null && session.plan_target_intensity ? " · " : ""}{session.plan_target_intensity ? `Cường độ ${{ Low: "thấp", Medium: "vừa", High: "cao" }[session.plan_target_intensity]}` : ""}</strong></p>}
+                </div>
+                {(session.plan_objective || session.notes) && <div className="trainer-session-card__notes">
+                  {session.plan_objective && <p><span>Mục tiêu giáo án</span>{session.plan_objective}</p>}
+                  {session.notes && <p><span>Ghi chú buổi tập</span>{session.notes}</p>}
+                </div>}
+              </div>
+            </div>
+            <aside className="trainer-session-card__actions" aria-label={`Thao tác buổi tập của ${session.horse_name}`}>
+              <label><span>Groom phụ trách</span><select aria-label={`Phân công Groom cho ${session.horse_name}`} className="field-control" value={session.assigned_groom_id ?? ""} disabled={session.status !== "Scheduled" || busy} onChange={(event) => event.target.value && onAssign(session.training_schedule_id, Number(event.target.value))}><option value="">Chọn Groom</option>{grooms.map((groom) => <option key={groom.user_id} value={groom.user_id}>{groom.full_name}</option>)}</select></label>
+              <button type="button" className="soft-button" disabled={session.status !== "Completed"} onClick={() => setShowMetricsFor(showMetricsFor === session.training_schedule_id ? null : session.training_schedule_id)}><HeartPulse size={14} /> Chỉ số</button>
+              {canStart && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Play size={14} /> Bắt đầu tập</button>}
+              {session.status === "Scheduled" && session.session_type !== "Rest" && <p className="trainer-session-card__hint">{afterTimeWindow ? "Đã qua giờ kết thúc" : !session.assigned_groom_id ? "Cần phân công Groom" : insideTimeWindow ? "Đang trong khung giờ tập" : `Bắt đầu lúc ${session.start_time?.slice(0, 5)}`}</p>}
+              {session.status === "InProgress" && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Activity size={14} /> Mở lại giả lập</button>}
+              {session.status === "InProgress" && <button type="button" className="soft-button" disabled={busy || !canComplete} title={!canComplete ? `Có thể hoàn tất sau ${session.end_time?.slice(0, 5) ?? "giờ kết thúc"}` : undefined} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất</button>}
+              {session.status === "Scheduled" && session.session_type === "Rest" && canComplete && <button type="button" className="soft-button" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất nghỉ</button>}
+              {isOpen && <button type="button" className="soft-button trainer-session-card__cancel" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Cancelled")}><X size={14} /> Hủy buổi tập</button>}
+            </aside>
           </div>
-        </div>
+        {session.status === "Scheduled" && !afterTimeWindow && session.session_type !== "Rest" && <SessionTargetsEditor key={`${session.training_schedule_id}-${session.plan_target_distance_meters}-${session.plan_target_intensity}-${session.track_surface}`} session={session} onSaved={onTargetsSaved}/>}
         {showMetricsFor === session.training_schedule_id && <SessionMetrics session={session} onMetrics={onMetrics} onVideo={onVideo} busy={busy} />}
       </article>;
       })}{sessions.length === 0 && <Notice>Không có buổi tập trong khoảng ngày này.</Notice>}</div>
@@ -716,9 +1012,15 @@ function SessionMetrics({ session, onMetrics, onVideo, busy }: { session: Traini
 
 function sessionWindow(session: TrainingSession) {
   if (!session.start_time || !session.end_time) return null;
-  const start = new Date(`${session.event_date}T${session.start_time.slice(0, 5)}:00`).getTime();
-  const end = new Date(`${session.event_date}T${session.end_time.slice(0, 5)}:00`).getTime();
+  const start = new Date(`${session.event_date}T${session.start_time.slice(0, 5)}:00+07:00`).getTime();
+  const end = new Date(`${session.event_date}T${session.end_time.slice(0, 5)}:00+07:00`).getTime();
   return Number.isFinite(start) && Number.isFinite(end) ? { start, end } : null;
+}
+
+function formatSimulationDuration(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes > 0 ? `${minutes} phút ${remainingSeconds} giây` : `${remainingSeconds} giây`;
 }
 
 function RaceEntriesPanel({ selectedHorse, races, entries, onRegister, onRecordResult, busy }: {
@@ -760,83 +1062,84 @@ function RaceEntriesPanel({ selectedHorse, races, entries, onRegister, onRecordR
     </Section>
   </div>;
 }
-function SimulationPanel({ horses, selectedIds, setSelectedIds, sessions, simulation, ranking, progress, vitals, onStart, onRetryFinish, finishFailed, busy }: {
-  horses: Horse[]; selectedIds: string[]; setSelectedIds: (ids: string[]) => void; sessions: TrainingSession[];
-  simulation: Simulation | null; ranking: { rank: number; horse_id: string; horse_name: string; finish_time_seconds: number }[];
-  progress: number; vitals: Record<string, ReturnType<typeof simulatedVitals>>;
+function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simulation, readings, phase, ranking, progress, vitals, onStart, onRestartSimulation, onRetryFinish, finishFailed, busy }: {
+  sessions: TrainingSession[]; simulation: Simulation | null; readings: SensorReading[]; phase: string;
+  activeSimulations: Simulation[]; onSelectSimulation: (simulation: Simulation) => void;
+  onRestartSimulation: (simulation: Simulation) => void;
+  ranking: { rank: number; horse_id: string; horse_name: string; finish_time_seconds: number }[];
+  progress: number; vitals: Record<string, SensorVitals>;
   onStart: (event: FormEvent<HTMLFormElement>) => void; onRetryFinish: () => void;
   finishFailed: boolean; busy: boolean;
 }) {
-  const [distance, setDistance] = useState(1200);
-  const [duration, setDuration] = useState(60);
-  const selected = horses.filter((horse) => selectedIds.includes(horse.id));
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const eligible = sessions.filter(session => {
+    const window = sessionWindow(session);
+    return session.session_type !== "Rest" && session.assigned_groom_id && ["Scheduled", "InProgress"].includes(session.status)
+      && window && nowMs >= window.start && nowMs < window.end;
+  });
   return <div className="space-y-5">
-    <Section title="Tổ chức cuộc đua" description="Chọn từ 2 đến 5 ngựa; hệ thống sẽ lưu thành tích và thứ hạng vào lịch sử giải đấu." icon={Trophy}>
-      <form onSubmit={onStart} className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Field label="Cự ly (m)" name="distance_meters" type="number" min={400} max={3200} required value={distance} onChange={(value) => setDistance(Number(value))} /><Field label="Thời lượng cuộc đua (giây)" name="duration_seconds" type="number" min={60} max={300} required value={duration} onChange={(value) => setDuration(Number(value))} /><SelectField label="Liên kết buổi tập (tùy chọn)" name="training_schedule_id" options={[["", "Không liên kết"], ...sessions.filter((session) => selectedIds.includes(session.horse_id) && session.status === "Scheduled").map((session) => [session.training_schedule_id, `${session.horse_name} · ${session.event_date}`] as [string, string])]} /><p className="mt-6 text-xs text-slate-500">Kết quả được lưu vào chỉ số sức khỏe và lịch sử giải đấu của từng ngựa.</p></div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{horses.map((horse) => <label key={horse.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 ${selectedIds.includes(horse.id) ? "border-equine-gold bg-[#fffaf2]" : "border-equine-line bg-white"}`}><input type="checkbox" checked={selectedIds.includes(horse.id)} onChange={(event) => setSelectedIds(event.target.checked ? [...selectedIds, horse.id].slice(0, 5) : selectedIds.filter((id) => id !== horse.id))} /><HorsePhoto id={horse.id} name={horse.horse_name} image={horse.image_url} /><span className="min-w-0 flex-1 truncate text-sm font-semibold text-equine-navy">{horse.horse_name}</span><small className="text-slate-400">{horse.breed ?? ""}</small></label>)}</div>
-        <div className="flex flex-wrap items-center gap-3"><button className="gold-button" disabled={busy || selected.length < 2 || selected.length > 5 || Boolean(simulation && simulation.status !== "Completed")}><Play size={15} /> {simulation && simulation.status !== "Completed" ? "Cuộc đua đang chạy" : "Bắt đầu cuộc đua"}</button><p className="text-xs text-slate-500">Thời lượng: {duration}s · cự ly: {distance.toLocaleString("vi-VN")}m · {selected.length}/5 ngựa</p></div>
-      </form>
-    </Section>
-    {simulation && <Section title={simulation.status === "Completed" ? "Kết quả cuộc đua" : "Cuộc đua đang diễn ra"} description={`${simulation.distance_meters.toLocaleString("vi-VN")} m · ${simulation.duration_seconds}s hiển thị · ${Math.round(progress * 100)}%`} icon={simulation.status === "Completed" ? Trophy : Timer}>
-      <div className="mb-4 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-equine-gold transition-[width]" style={{ width: `${progress * 100}%` }} /></div>
-      {finishFailed && <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3"><p className="flex-1 text-sm text-rose-800">Chưa lưu được kết quả cuộc đua.</p><button type="button" className="soft-button" onClick={onRetryFinish} disabled={busy}>Thử lưu kết quả lần nữa</button></div>}
-      <div className="space-y-3">{(simulation?.horses ?? []).map((horse) => {
-        const current = vitals[horse.horse_id] ?? simulatedVitals(horse, progress);
-        const position = racePosition(horse, progress);
-        return <div key={horse.horse_id} className="overflow-hidden rounded-xl border border-equine-line p-3">
-          <div className="mb-2 flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-equine-navy text-xs font-bold text-white">{horse.lane}</span><HorsePhoto id={horse.horse_id} name={horse.horse_name} image={horse.image_url} /><span className="truncate font-semibold text-equine-navy">{horse.horse_name}</span></div><span className="text-xs text-slate-500">Tốc độ nền {horse.base_max_speed_kmh} km/h</span></div>
-          <div className="relative h-14 overflow-hidden rounded-lg border border-[#eadfcd] bg-[#f7f3ea]">
-            <span aria-hidden="true" className="absolute inset-x-0 top-1/2 h-px bg-white/70" />
-            <span aria-hidden="true" className="absolute inset-y-0 right-[7%] border-r-2 border-dashed border-equine-gold/70" />
-            <span className="absolute top-1/2 h-12 w-[76px] -translate-y-1/2 transition-[left] duration-100" style={{ left: `calc(${position * 100}% - ${position * 76}px)` }}>
-              <RacingHorseSprite />
-            </span>
-          </div>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-xs sm:grid-cols-4"><span><Gauge size={13} className="mr-1 inline" />{current.speed.toFixed(1)} km/h</span><span><HeartPulse size={13} className="mr-1 inline" />{current.heartRate} bpm</span><span>HA {current.systolic}/{current.diastolic}</span><span className="hidden sm:inline">Làn {horse.lane}</span></div>
-          {(current.heartRate > simulation.injury_alert_heart_rate || current.speed > simulation.injury_alert_speed_kmh) && <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800">Cảnh báo realtime: nhịp tim hoặc tốc độ đã vượt ngưỡng an toàn.</p>}
-        </div>;
-      })}</div>
-      {ranking.length > 0 && <div className="mt-5 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr className="border-b border-equine-line text-xs uppercase text-slate-500"><th className="py-2">Hạng</th><th>Ngựa</th><th>Thời gian</th></tr></thead><tbody>{ranking.map((item) => <tr key={item.horse_id} className="border-b border-equine-line/70"><td className="py-2 font-bold">{item.rank}</td><td>{item.horse_name}</td><td>{item.finish_time_seconds.toFixed(2)} giây</td></tr>)}</tbody></table><p className="mt-2 text-xs text-emerald-700">Thứ hạng đã được ghi vào lịch sử giải đấu.</p></div>}
+    {activeSimulations.length > 0 && <Section title="Buổi tập đang chạy" description="Chọn phiên để theo dõi; dữ liệu vẫn được ghi nhận khi bạn chuyển ngựa hoặc tải lại trang." icon={Activity}>
+      <div className="flex flex-wrap gap-2">{activeSimulations.map(item => <button key={item.simulation_id} type="button" className={item.simulation_id === simulation?.simulation_id ? "gold-button" : "soft-button"} disabled={busy} onClick={() => onSelectSimulation(item)}>
+        {item.horses[0]?.horse_name} · {Math.round(item.elapsed_seconds / item.duration_seconds * 100)}%
+      </button>)}</div>
     </Section>}
+    {simulation && <section className="training-live-card" aria-label="Theo dõi buổi tập">
+      <header className="training-live-card__header">
+        <div>
+          <div className="training-live-card__eyebrow"><span className={simulation.status === "Running" ? "training-live-dot" : "training-hero__dash"} />{{Running: "ĐANG TẬP", Completed: "ĐÃ HOÀN THÀNH", Interrupted: "ĐÃ DỪNG"}[simulation.status] ?? simulation.status}</div>
+          <h3>{simulation.horses[0]?.horse_name ?? "Buổi tập"}{simulation.horses.length > 1 ? ` + ${simulation.horses.length - 1} ngựa` : ""}</h3>
+          <p>{surfaceLabel(simulation.track_surface)} · Cường độ {simulation.target_intensity ?? "Medium"} · {formatSimulationDuration(simulation.elapsed_seconds)} đã trôi qua</p>
+        </div>
+        <div className="training-live-card__percent"><strong>{Math.round(progress * 100)}%</strong><span>thời lượng</span></div>
+      </header>
+      <div className="training-live-card__progress"><span style={{ width: `${progress * 100}%` }} /></div>
+      {simulation.model_version != null && simulation.model_version < 5 && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+        <p className="text-sm font-semibold text-amber-950">Phiên này được tạo bằng công thức vận tốc cũ.</p>
+        <p className="mt-1 text-xs text-amber-900">Có thể chạy lại ngay theo cường độ và vận tốc ngựa đua; dữ liệu phiên cũ vẫn được giữ trong lịch sử.</p>
+        {simulation.status === "Running" && simulation.training_schedule_id && <button type="button" className="gold-button mt-3" disabled={busy} onClick={() => onRestartSimulation(simulation)}><RefreshCw size={14}/> Chạy lại theo công thức mới</button>}
+      </div>}
+      {simulation.horses[0] && <RaceTrackVisualization horseName={simulation.horses[0].horse_name} readings={readings}
+        targetDistance={simulation.distance_meters} currentSpeed={vitals[simulation.horses[0].horse_id]?.speed ?? readings.at(-1)?.speed_kmh ?? 0}
+        surface={simulation.track_surface}/>}
+      <div className="training-vitals-grid">
+        {simulation.horses.map((horse) => {
+          const current = vitals[horse.horse_id];
+          return <article key={horse.horse_id} className="training-vitals-card">
+            <div className="training-vitals-card__horse"><HorsePhoto id={horse.horse_id} name={horse.horse_name} image={horse.image_url}/><strong>{horse.horse_name}</strong></div>
+            {current ? <div className="training-vitals-card__values">
+              <div><span>Tốc độ</span><strong>{Number(current.speed).toFixed(1)} <small>km/h</small></strong></div>
+              <div><span>Nhịp tim</span><strong>{current.heartRate} <small>bpm</small></strong></div>
+              <div><span>Huyết áp mô phỏng</span><strong>{current.systolic}/{current.diastolic}</strong></div>
+            </div> : <p className="text-sm text-slate-500">Đang tải chỉ số…</p>}
+            {current && (current.heartRate > simulation.injury_alert_heart_rate || current.speed > simulation.injury_alert_speed_kmh) && <Notice>Có chỉ số vượt ngưỡng theo dõi; cần xem xét buổi tập.</Notice>}
+          </article>;
+        })}
+      </div>
+      <div className="training-live-card__phase"><span>PHA TẬP</span><strong>{({Warmup:"Khởi động",Work:"Vận động chính",Cooldown:"Giảm cường độ",Recovery:"Hồi phục"} as Record<string,string>)[phase] ?? "Đang tải"}</strong>{simulation.distance_meters > 0 && <span>Đích đến {simulation.distance_meters.toLocaleString("vi-VN")} m</span>}</div>
+      {simulation.status === "Running" && <p className="mt-3 text-sm text-slate-500">Có thể tải lại trang để tiếp tục theo dõi. Hủy lịch tại tab Lịch tập sẽ dừng giả lập và giữ dữ liệu đã thu.</p>}
+      <details className="training-live-card__details"><summary>Biểu đồ cảm biến</summary><div className="pt-4"><SensorTimeline readings={readings}/></div></details>
+      {simulation.stop_reason && <Notice>Buổi tập đã dừng: {simulation.stop_reason}</Notice>}
+      {simulation.recovery_heart_rate != null && <p className="mt-3 text-sm">Nhịp tim cuối hồi phục: {simulation.recovery_heart_rate} bpm · Điểm hồi phục ước tính: {simulation.stamina_score ?? "—"}/10</p>}
+      {simulation.actual_distance_meters != null && <p className="mt-3">Cự ly thực hiện: {Number(simulation.actual_distance_meters).toFixed(1)} m</p>}
+      {finishFailed && <button type="button" className="soft-button mt-3" onClick={onRetryFinish} disabled={busy}>Thử lưu kết quả lại</button>}
+      {(ranking.length > 0 || simulation.status === "Completed") && <Notice>Đã hoàn tất buổi tập và lưu chỉ số vào biểu đồ phân tích.</Notice>}
+    </section>}
+    <Section title="Chuẩn bị buổi tập mô phỏng" description="Chọn tối đa 5 buổi đã có lịch, Groom và đang trong khung giờ tập để mô phỏng riêng hoặc theo nhóm." icon={Play}>
+      <form onSubmit={onStart} className="training-start-form">
+        <SelectField label="Tình huống mô phỏng" name="scenario" options={[["Normal", "Phản ứng vận động bình thường"], ["Fatigue", "Phản ứng tải cao, hồi phục chậm"]]} />
+        <fieldset className="training-session-options"><legend className="field-label">Buổi tập đang sẵn sàng</legend>{eligible.map(session => <label key={session.training_schedule_id} className="training-session-option">
+          <input type="checkbox" name="training_schedule_id" value={session.training_schedule_id} disabled={busy}/>
+          <span><strong>{session.horse_name}</strong><small>{session.event_date} · {session.start_time?.slice(0,5)}–{session.end_time?.slice(0,5)} · {surfaceLabel(session.track_surface)}</small></span>
+        </label>)}</fieldset>
+        <button className="gold-button" disabled={busy || eligible.length === 0}><Play size={15} /> Mở các buổi đã chọn</button>
+      </form>
+      {eligible.length === 0 && <Notice>Chưa có lịch tập phù hợp trong khung giờ hiện tại. Tạo lịch từ giáo án, phân công Groom và mở giả lập tại tab Lịch tập khi đến giờ.</Notice>}
+    </Section>
   </div>;
-}
-
-function RacingHorseSprite() {
-  return <svg aria-hidden="true" viewBox="0 0 120 72" className="racing-horse h-full w-full">
-    <ellipse cx="57" cy="65" rx="39" ry="3" fill="#75583b" opacity=".16" />
-    <g className="racing-horse__tail">
-      <path d="M31 29 C21 25 19 18 13 16 C16 24 12 28 8 34 C15 33 20 31 24 37" fill="none" stroke="#39241d" strokeWidth="4" strokeLinecap="round" />
-    </g>
-    <g className="racing-horse__leg racing-horse__leg--hind-a">
-      <path d="M38 37 C36 44 30 49 25 55 L20 60" fill="none" stroke="#60351f" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16 60 L22 60 L20 63 L15 63 Z" fill="#34251e" />
-    </g>
-    <g className="racing-horse__leg racing-horse__leg--hind-b">
-      <path d="M48 38 C48 45 52 50 57 55 L61 60" fill="none" stroke="#87502e" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M58 60 L64 60 L64 63 L59 63 Z" fill="#34251e" />
-    </g>
-    <g className="racing-horse__body">
-      <path d="M28 25 C34 18 45 17 57 19 C68 20 76 25 78 31 C79 36 72 40 63 41 L39 39 C31 37 25 31 28 25Z" fill="#99542f" />
-      <path d="M55 22 C62 20 70 23 76 28 L70 34 C64 31 58 31 51 32Z" fill="#b36a3b" opacity=".75" />
-      <path d="M64 30 C67 23 69 13 77 8 C82 5 88 7 93 10 L91 16 C86 15 83 18 82 23 L79 35 L71 39Z" fill="#8d4b2a" />
-      <path d="M76 11 C80 4 82 2 85 1 L86 10 C90 4 93 4 96 5 L94 13 L88 19 L82 21Z" fill="#38251e" />
-      <path d="M86 10 C91 5 98 6 103 9 L114 9 L109 14 L116 17 L109 21 L100 18 C96 22 91 21 86 18Z" fill="#99542f" />
-      <path d="M100 9 C102 12 102 15 100 18" fill="none" stroke="#f3e4cf" strokeWidth="2.3" strokeLinecap="round" />
-      <circle cx="105" cy="12" r="1.2" fill="#201a17" />
-      <path d="M113 16 L117 17" stroke="#38251e" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M56 22 C62 18 70 19 75 24 L69 29 L57 29Z" fill="#d19a4e" />
-      <path d="M59 21 L70 21" stroke="#f3d18d" strokeWidth="1.5" />
-    </g>
-    <g className="racing-horse__leg racing-horse__leg--fore-a">
-      <path d="M74 35 C75 42 82 47 88 52 L93 59" fill="none" stroke="#99542f" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M90 59 L97 59 L97 62 L92 62 Z" fill="#34251e" />
-    </g>
-    <g className="racing-horse__leg racing-horse__leg--fore-b">
-      <path d="M81 35 C85 42 82 49 77 55 L74 60" fill="none" stroke="#784329" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M71 60 L78 60 L77 63 L72 63 Z" fill="#34251e" />
-    </g>
-  </svg>;
 }
 
 function HorsePhoto({ id, name, image }: { id: string; name: string; image?: string | null }) {
@@ -859,10 +1162,10 @@ function Field({ label, name, type = "text", required = false, defaultValue, val
   return <label className="block"><span className="field-label">{label}{required && <span className="text-rose-600"> *</span>}</span><input name={name} type={type} required={required} maxLength={maxLength} min={min} max={max} step={step} pattern={pattern} inputMode={inputMode} title={title} value={value} defaultValue={value === undefined ? defaultValue ?? "" : undefined} onChange={onChange ? (event) => onChange(event.target.value) : undefined} placeholder={placeholder} className="field-control px-3" /></label>;
 }
 
-function SelectField({ label, name, options, value, defaultValue, onChange }: {
-  label: string; name: string; options: [string, string][]; value?: string; defaultValue?: string; onChange?: (value: string) => void;
+function SelectField({ label, name, options, value, defaultValue, onChange, required=false }: {
+  required?: boolean; label: string; name: string; options: [string, string][]; value?: string; defaultValue?: string; onChange?: (value: string) => void;
 }) {
-  return <label className="block"><span className="field-label">{label}</span><select name={name} value={value} defaultValue={value === undefined ? defaultValue : undefined} onChange={onChange ? (event) => onChange(event.target.value) : undefined} className="field-control px-3">{options.map(([optionValue, text]) => <option key={optionValue} value={optionValue}>{text}</option>)}</select></label>;
+  return <label className="block"><span className="field-label">{label}</span><select required={required} name={name} value={value} defaultValue={value === undefined ? defaultValue : undefined} onChange={onChange ? (event) => onChange(event.target.value) : undefined} className="field-control px-3">{options.map(([optionValue, text]) => <option key={optionValue} value={optionValue}>{text}</option>)}</select></label>;
 }
 
 function TextArea({ label, name, required = false, defaultValue, rows = 3 }: { label: string; name: string; required?: boolean; defaultValue?: string | null; rows?: number }) {

@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { CalendarDays, ChevronDown, LayoutDashboard, LogOut, Menu, Shield, X } from "lucide-react";
+import { Activity, Bell, BookOpen, Boxes, CalendarDays, ChevronDown, ClipboardList, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, X } from "lucide-react";
 import { Brand } from "@/shared/components/Brand";
 import { ApiRequestError, logout, validateSession } from "@/lib/api";
-import { clearSession, getRefreshToken, getUser } from "@/lib/session";
+import { clearSession, getLogoutRefreshToken, getUser } from "@/lib/session";
 import { roleLabels, routeForRole } from "@/lib/roles";
 import type { AuthUser } from "@/lib/types";
+import { workspaceNavigation } from "@/lib/workspace-navigation";
 import { Notice } from "./HorseUI";
 
 const UserContext = createContext<AuthUser | null>(null);
@@ -19,16 +20,45 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [open, setOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [todayLabel, setTodayLabel] = useState("");
+  const [activeTab, setActiveTab] = useState("overview");
   const profileRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
+    const sync = () => {
+      setActiveTab(new URLSearchParams(window.location.search).get("tab") ?? "overview");
+      setOpen(false);
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        document.querySelector(".horse-main")?.animate(
+          [{ opacity: 0.55, transform: "translateY(5px)" }, { opacity: 1, transform: "translateY(0)" }],
+          { duration: 220, easing: "ease-out" },
+        );
+      }
+    };
+    sync();
+    window.addEventListener("popstate", sync);
+    window.addEventListener("workspace-tab-change", sync);
+    return () => {
+      window.removeEventListener("popstate", sync);
+      window.removeEventListener("workspace-tab-change", sync);
+    };
+  }, [pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", close);
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener("keydown", close); };
+  }, [open]);
+  useEffect(() => {
     setTodayLabel(new Intl.DateTimeFormat("vi-VN", {
-      weekday: "long", day: "2-digit", month: "long", year: "numeric",
+      day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Ho_Chi_Minh",
     }).format(new Date()));
   }, []);
   useEffect(() => {
@@ -85,38 +115,57 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     return () => { active = false; };
   }, [router, attempt]);
 
-  async function signOut() {
-    try {
-      const token = getRefreshToken();
-      if (token) await logout(token);
-    } finally {
-      clearSession();
-      router.replace("/login");
-    }
+  function signOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    const token = getLogoutRefreshToken();
+    clearSession();
+    router.replace("/login");
+    if (token) void logout(token).catch(() => {});
   }
 
   if (!user) return <main className="horse-access">{error ? <><Notice error>{error}</Notice><button className="navy-button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button><Link href="/dashboard">Về bảng điều khiển</Link></> : <p role="status">Đang xác thực quyền truy cập…</p>}</main>;
 
-  return <UserContext.Provider value={user}><div className="horse-app">
+  const icons: Record<string, typeof Activity> = { overview: LayoutDashboard, plans: BookOpen, calendar: CalendarDays, simulation: Activity, analysis: Activity, races: Trophy, incidents: Shield, care: ClipboardList, inventory: Boxes, finance: Wallet, audit: History, exams: Stethoscope, medical: HeartPulse, diet: Utensils, injuries: HeartPulse, notifications: Bell, horses: BookOpen, health: HeartPulse, training: CalendarDays };
+  const dashboardRoute = routeForRole(user.roleName);
+  const isDashboard = pathname === dashboardRoute;
+  const navigation = workspaceNavigation[user.roleName];
+  const currentLabel = isDashboard ? navigation.find(item => item.id === activeTab)?.label ?? navigation[0].label : pathname.startsWith("/horses") ? "Hồ sơ ngựa" : "Quản lý tài khoản";
+
+  return <UserContext.Provider value={user}><div className="horse-app" data-role={user.roleName}>
+    <a className="skip-link" href="#workspace-content">Đến nội dung chính</a>
     {open && <button className="horse-nav-overlay" aria-label="Đóng menu" onClick={() => setOpen(false)} />}
     <aside className={`horse-sidebar ${open ? "is-open" : ""}`}>
       <Link href="/" className="horse-brand"><Brand compact /></Link>
       <button className="horse-mobile-close horse-icon-button" aria-label="Đóng menu" onClick={() => setOpen(false)}><X /></button>
-      <p className="horse-nav-label">TỔNG QUAN</p>
+      <div className="workspace-role"><span>KHÔNG GIAN LÀM VIỆC</span><strong>{roleLabels[user.roleName]}</strong></div>
+      <p className="horse-nav-label">CÔNG VIỆC</p>
       <nav aria-label="Điều hướng quản lý">
-        <Link href={routeForRole(user.roleName)} className={pathname.startsWith("/dashboard") ? "active" : ""} aria-current={pathname.startsWith("/dashboard") ? "page" : undefined}><LayoutDashboard size={19} />Bảng điều khiển</Link>
-        <Link href="/horses" className={pathname.startsWith("/horses") ? "active" : ""} aria-current={pathname.startsWith("/horses") ? "page" : undefined}><Shield size={19} />Quản lý ngựa</Link>
-        {user.roleName === "CLUB_MANAGER" && <Link href="/club-manager/users" className={pathname.startsWith("/club-manager") ? "active" : ""} aria-current={pathname.startsWith("/club-manager") ? "page" : undefined}><Shield size={19} />Quản lý tài khoản</Link>}
+        {navigation.map(item => {
+          const Icon = icons[item.id] ?? LayoutDashboard;
+          const selected = isDashboard && (navigation.some(entry => entry.id === activeTab) ? activeTab : "overview") === item.id;
+          const href = `${dashboardRoute}${item.id === "overview" ? "" : `?tab=${item.id}`}`;
+          return <Link key={item.id} href={href} className={selected ? "active" : ""} aria-current={selected ? "page" : undefined} onClick={event => {
+            if (!isDashboard || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+            event.preventDefault();
+            if (window.location.pathname + window.location.search !== href) window.history.pushState(null, "", href);
+            window.dispatchEvent(new Event("workspace-tab-change"));
+          }}><Icon size={18} /><span>{item.label}</span></Link>;
+        })}
       </nav>
-      <div className="horse-sidebar-note"><Shield size={25} /><p>Mỗi hồ sơ.<br />Một hành trình.</p><small>Quản lý lý lịch và phả hệ ngựa tại câu lạc bộ.</small></div>
-      <div className="horse-account"><span className="horse-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span><div><strong>{user.fullName}</strong><small>{roleLabels[user.roleName]}</small></div><button aria-label="Đăng xuất" title="Đăng xuất" onClick={() => void signOut().catch(() => {})}><LogOut size={18} /></button></div>
+      <p className="horse-nav-label">QUẢN LÝ CHUNG</p>
+      <nav aria-label="Hồ sơ và hệ thống">
+        <Link href="/horses" className={pathname.startsWith("/horses") ? "active" : ""} aria-current={pathname.startsWith("/horses") ? "page" : undefined}><BookOpen size={18} />Hồ sơ ngựa</Link>
+        {user.roleName === "CLUB_MANAGER" && <Link href="/club-manager/users" className={pathname.startsWith("/club-manager") ? "active" : ""} aria-current={pathname.startsWith("/club-manager") ? "page" : undefined}><Users size={18} />Quản lý tài khoản</Link>}
+        <Link href="/"><House size={18} />Trang chủ</Link>
+      </nav>
+      <div className="horse-account"><span className="horse-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span><div><strong>{user.fullName}</strong><small>{roleLabels[user.roleName]}</small></div><button aria-label={signingOut ? "Đang đăng xuất" : "Đăng xuất"} title={signingOut ? "Đang đăng xuất" : "Đăng xuất"} disabled={signingOut} onClick={signOut}><LogOut size={18} /></button></div>
     </aside>
     <div className="horse-workspace">
       <header className="horse-topbar">
         <div className="horse-topbar-welcome">
           <button className="horse-mobile-menu horse-icon-button" aria-label="Mở menu" aria-expanded={open} onClick={() => setOpen(true)}><Menu /></button>
-          <span className="horse-greeting-mark" aria-hidden="true">👋</span>
-          <div className="horse-greeting-copy"><h1>Xin chào, {user.fullName}</h1><p>Chào mừng trở lại! Cùng quản lý và chăm sóc những chú ngựa của bạn.</p></div>
+          <div className="horse-greeting-copy"><p>{roleLabels[user.roleName]}</p><h1>{currentLabel}</h1></div>
         </div>
         <div className="horse-topbar-actions">
           <span className="horse-date-pill"><CalendarDays size={16} /><span>{todayLabel || "Hôm nay"}</span></span>
@@ -126,12 +175,12 @@ export default function HorseShell({ children }: { children: ReactNode }) {
               <span className="horse-profile-copy"><strong>{user.fullName}</strong><small>{roleLabels[user.roleName]}</small></span>
               <ChevronDown size={16} />
             </button>
-            {profileOpen && <div id="horse-profile-panel" className="horse-profile-popover"><strong>{user.fullName}</strong><span>{user.email}</span><button type="button" onClick={() => { setProfileOpen(false); void signOut().catch(() => {}); }}><LogOut size={15} />Đăng xuất</button></div>}
+            {profileOpen && <div id="horse-profile-panel" className="horse-profile-popover"><strong>{user.fullName}</strong><span>{user.email}</span><button type="button" disabled={signingOut} onClick={signOut}><LogOut size={15} />{signingOut ? "Đang đăng xuất…" : "Đăng xuất"}</button></div>}
           </div>
         </div>
       </header>
-      <main className="horse-main">{children}</main>
-      <footer className="horse-footer">EQUINE SOVEREIGN <span>Hồ sơ & lịch ngựa</span></footer>
+      <main id="workspace-content" className="horse-main" key={pathname}>{children}</main>
+      <footer className="horse-footer">Equine <span>Chăm sóc tận tâm. Vươn xa trên đường đua.</span></footer>
     </div>
   </div></UserContext.Provider>;
 }

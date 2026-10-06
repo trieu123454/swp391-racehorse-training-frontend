@@ -21,6 +21,7 @@ export type GroomCalendarEvent =
       end_time: string | null;
       status: string;
       session_type: string;
+      sensor_running?: boolean;
       horse: GroomCalendarHorse;
       note: string | null;
     }

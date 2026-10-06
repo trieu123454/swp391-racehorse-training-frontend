@@ -109,7 +109,7 @@ export function GoogleAuthButton({
   if (!configured)
     return (
       <button
-        className="h-12 w-full rounded-md bg-equine-mist text-sm font-semibold text-equine-ink"
+        className="auth-google-fallback w-full text-sm font-semibold"
         onClick={() =>
           onError(
             "Đăng nhập Google hiện chưa khả dụng. Vui lòng dùng email hoặc thử lại sau.",
@@ -123,7 +123,7 @@ export function GoogleAuthButton({
   return (
     <div
       aria-label="Đăng nhập bằng Google"
-      className="flex min-h-12 w-full items-center justify-center overflow-hidden rounded-md bg-equine-mist"
+      className="auth-google-button flex w-full items-center justify-center overflow-hidden"
       ref={buttonRef}
     />
   );

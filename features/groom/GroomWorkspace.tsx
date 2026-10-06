@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { Activity, AlertTriangle, CalendarDays, Check, ClipboardCheck, Package, Plus, RefreshCw, Utensils } from "lucide-react";
 import { Notice } from "@/features/horses/HorseUI";
 import IncidentPhoto from "@/features/groom/IncidentPhoto";
+import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import NotificationCenter from "@/shared/components/NotificationCenter";
 import {
   completeGroomTrainingSession,
@@ -30,7 +31,10 @@ function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+const groomTabs = ["overview", "horses", "diet", "inventory", "incidents"] as const;
+
 export default function GroomWorkspace() {
+  const [tab] = useDashboardTab(groomTabs, "overview");
   const [date, setDate] = useState(dateKey(new Date()));
   const [horses, setHorses] = useState<GroomHorse[]>([]);
   const [calendar, setCalendar] = useState<GroomCalendar | null>(null);
@@ -170,10 +174,8 @@ export default function GroomWorkspace() {
     </div>
     {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
     <NotificationCenter />
-    <nav aria-label="Các mục Groom" className="flex gap-2 overflow-x-auto rounded-2xl border border-equine-line bg-white p-2 shadow-sm">
-      {[["groom-horses", "Ngựa được giao"], ["care-tasks", "Việc chăm sóc"], ["training-support", "Buổi tập"], ["incident-report", "Báo sự cố"], ["diet-records", "Khẩu phần"], ["inventory", "Vật tư"], ["reported-incidents", "Lịch sử sự cố"]].map(([id, label]) => <a key={id} href={`#${id}`} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${id.includes("incident") ? "bg-rose-50 text-rose-800 hover:bg-rose-100" : "text-slate-600 hover:bg-equine-mist hover:text-equine-navy"}`}>{label}{id === "reported-incidents" && activeIncidentCount > 0 && <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold text-rose-700">{activeIncidentCount}</span>}</a>)}
-    </nav>
-    <section id="groom-horses" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
+<div className="workspace-stats"><div><span>Ngựa được giao</span><strong>{horses.length}</strong></div><div><span>Việc chăm sóc</span><strong>{careTasks.length}</strong></div><div><span>Buổi tập hỗ trợ</span><strong>{trainingEvents.length}</strong></div><div><span>Sự cố đang xử lý</span><strong>{activeIncidentCount}</strong></div></div>
+    <section hidden={tab !== "horses"} id="groom-horses" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
       <h3 className="mb-3 font-sans text-lg font-semibold text-equine-navy">Vị trí chuồng ngựa được phân công</h3>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{horses.map((horse) => <article key={horse.id} className="rounded-xl border border-equine-line bg-slate-50 p-3">
         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{horse.stable_box ? `Khu ${horse.stable_box.section ?? "—"} · Chuồng ${horse.stable_box.box_code}` : "Chưa xếp chuồng"}</p>
@@ -181,7 +183,7 @@ export default function GroomWorkspace() {
         <p className="mt-1 text-xs text-slate-600">{horse.current_status}{horse.is_training_locked ? " · Đang khóa huấn luyện" : ""}</p>
       </article>)}{!horses.length && <p className="text-sm text-slate-500">Chưa có ngựa được phân công trong phạm vi lịch hiện tại.</p>}</div>
     </section>
-    <div className="grid gap-5 xl:grid-cols-2">
+    <div hidden={tab !== "overview"} className="grid gap-5 xl:grid-cols-2">
       <section id="care-tasks" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
         <h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><ClipboardCheck size={18} /> Việc chăm sóc · {date}</h3>
         <div className="space-y-3">
@@ -206,16 +208,17 @@ export default function GroomWorkspace() {
             <p className="font-semibold text-equine-navy">{event.horse.horse_name}</p>
             <p className="mt-1 text-xs text-slate-500">{event.start_time ?? "Chưa đặt giờ"}{event.end_time ? `–${event.end_time}` : ""} · {event.status}{horseById.get(event.horse.id)?.stable_box?.box_code ? ` · Chuồng ${horseById.get(event.horse.id)?.stable_box?.box_code}` : ""}</p>
             {event.note && <p className="mt-2 text-sm text-slate-600">{event.note}</p>}
+            {event.sensor_running && <p className="mt-3 text-xs text-equine-navy">Đang thu chỉ số. Kết quả được lưu trước khi xác nhận hoàn thành buổi tập.</p>}
             {event.status === "Completed" ? <p className="mt-3 text-xs font-semibold text-emerald-700">Buổi tập đã được xác nhận.</p>
-              : ["Scheduled", "InProgress"].includes(event.status)
-                && new Date(`${event.event_date}T${event.end_time ?? "00:00"}:00`) <= new Date()
+              : !event.sensor_running && (event.status === "InProgress" || (event.session_type === "Rest" && event.status === "Scheduled"))
+                && new Date(`${event.event_date}T${event.end_time ?? "00:00"}:00+07:00`) <= new Date()
                 && <button type="button" className="soft-button mt-3" disabled={busy} onClick={() => void markTrainingComplete(event.training_schedule_id)}><Check size={14} /> Xác nhận đã tập</button>}
           </article>)}
           {!trainingEvents.length && <p className="rounded-xl bg-slate-50 p-5 text-center text-sm text-slate-500">Không có buổi tập được phân công trong ngày này.</p>}
         </div>
       </section>
     </div>
-    <section id="incident-report" className="scroll-mt-24 rounded-2xl border border-amber-200 bg-white p-4 shadow-sm sm:p-5">
+    <section hidden={tab !== "incidents"} id="incident-report" className="scroll-mt-24 rounded-2xl border border-amber-200 bg-white p-4 shadow-sm sm:p-5">
       <h3 className="mb-3 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><AlertTriangle size={18} /> Báo cáo sự cố</h3>
       {horses.length === 0 ? <p className="text-sm text-slate-500">Chỉ có thể báo cáo sự cố cho ngựa được phân công.</p> : <form onSubmit={incident} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 sm:items-end">
         <label className="block"><span className="field-label">Ngựa được phân công</span><select className="field-control px-3" name="horse_id" required>{horses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}</option>)}</select></label>
@@ -225,8 +228,8 @@ export default function GroomWorkspace() {
         <button className="gold-button" disabled={busy}><Activity size={15} /> Gửi báo cáo</button>
       </form>}
     </section>
-    <div className="grid gap-5 xl:grid-cols-2">
-      <section id="diet-records" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
+    <div hidden={tab !== "diet" && tab !== "inventory"} className="space-y-5">
+      <section hidden={tab !== "diet"} id="diet-records" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
         <h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Utensils size={18} /> Khẩu phần đang áp dụng · {date}</h3>
         <div className="space-y-2">{diets.map((diet) => <article key={diet.id} className="rounded-xl border border-equine-line p-3">
           <div className="flex flex-wrap justify-between gap-2"><p className="font-semibold text-equine-navy">{diet.horse_name}{diet.box_code ? ` · Chuồng ${diet.box_code}` : ""}</p><span className="text-xs text-slate-500">{diet.effective_date ?? "—"} → {diet.end_date ?? "Đang áp dụng"}</span></div>
@@ -234,7 +237,7 @@ export default function GroomWorkspace() {
           {diet.special_instructions && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{diet.special_instructions}</p>}
         </article>)}{!diets.length && <p className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Không có khẩu phần được duyệt áp dụng cho ngày này.</p>}</div>
       </section>
-      <section id="inventory" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
+      <section hidden={tab !== "inventory"} id="inventory" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
         <h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Package size={18} /> Vật tư khu vực</h3>
         <div className="mb-4 space-y-2">{inventory.map((item) => <article key={item.id} className={`flex flex-wrap justify-between gap-2 rounded-lg border p-3 text-sm ${item.is_low_stock ? "border-amber-200 bg-amber-50" : "border-equine-line"}`}>
           <span className="font-medium text-equine-navy">{item.item_name} · {item.category ?? "Khác"}</span><span>{item.quantity_in_stock} {item.unit ?? "đơn vị"}{item.is_low_stock ? " · Sắp hết" : ""}</span>
@@ -248,7 +251,7 @@ export default function GroomWorkspace() {
         <div className="mt-4 space-y-2">{supplyRequests.slice(0, 5).map((request) => <p key={request.id} className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">{request.item_name} · {request.quantity_requested} · {request.status}</p>)}</div>
       </section>
     </div>
-    <section id="reported-incidents" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
+    <section hidden={tab !== "incidents"} id="reported-incidents" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
       <h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><AlertTriangle size={18} /> Sự cố đã báo cáo / được giao</h3>
       <div className="grid gap-3 sm:grid-cols-2">{incidents.map((item) => <article key={item.id} className="rounded-xl border border-equine-line p-3">
         <div className="flex justify-between gap-2"><p className="font-semibold text-equine-navy">{item.horse_name}</p><span className="text-xs text-slate-500">{item.status}</span></div>

@@ -7,6 +7,7 @@ const REFRESH_TOKEN_KEY = "racehorse.refreshToken";
 const USER_KEY = "racehorse.user";
 const REMEMBER_KEY = "racehorse.remember";
 const LEGACY_SESSION_CLEARED_KEY = "racehorse.legacySessionCleared";
+let transientLogoutToken: string | null = null;
 
 function tabStorage(): Storage | null {
   if (typeof window === "undefined") return null;
@@ -29,7 +30,10 @@ export function saveSession(auth: AuthResponse, remember = true) {
   if (!storage) return;
   storage.setItem(ACCESS_TOKEN_KEY, auth.accessToken);
   if (remember) storage.setItem(REFRESH_TOKEN_KEY, auth.refreshToken);
-  else storage.removeItem(REFRESH_TOKEN_KEY);
+  else {
+    storage.removeItem(REFRESH_TOKEN_KEY);
+    transientLogoutToken = auth.refreshToken;
+  }
   storage.setItem(USER_KEY, JSON.stringify(auth.user));
   storage.setItem(REMEMBER_KEY, String(remember));
 }
@@ -57,11 +61,16 @@ export function getRefreshToken() {
   return read(REFRESH_TOKEN_KEY);
 }
 
+export function getLogoutRefreshToken() {
+  return read(REFRESH_TOKEN_KEY) ?? transientLogoutToken;
+}
+
 export function getAccessToken() {
   return read(ACCESS_TOKEN_KEY);
 }
 
 export function clearSession() {
+  transientLogoutToken = null;
   const storage = tabStorage();
   if (!storage) return;
   storage.removeItem(ACCESS_TOKEN_KEY);

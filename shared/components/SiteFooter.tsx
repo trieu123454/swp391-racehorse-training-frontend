@@ -60,7 +60,7 @@ export function SiteFooter() {
         </div>
       </div>
       <div className="mx-auto mt-7 flex max-w-[1360px] flex-col gap-3 text-[10px] sm:flex-row sm:justify-between">
-        <p>© 2026 Equine Sovereign. Bảo lưu mọi quyền.</p>
+        <p>© 2026 Equine. Bảo lưu mọi quyền.</p>
         <p>Hồ sơ ngựa · Chăm sóc · Huấn luyện · Thi đấu</p>
       </div>
     </footer>

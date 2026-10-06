@@ -98,6 +98,7 @@ export default function RegisterPage() {
         />
         <input
           className="field-control"
+          autoComplete={key === "fullName" ? "name" : key === "email" ? "email" : key === "phone" ? "tel" : "new-password"}
           minLength={type === "password" ? 8 : undefined}
           onChange={(event) => update(key)(event.target.value)}
           placeholder={placeholder}
@@ -110,31 +111,27 @@ export default function RegisterPage() {
   );
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-equine-paper px-4 py-6 sm:px-8">
-      <div className="mx-auto mb-6 flex max-w-[1440px] items-center justify-between gap-4">
+    <main className="auth-page auth-page--standard overflow-x-hidden">
+      <div className="auth-topbar">
         <Link
-          className="flex shrink-0 items-center gap-2 text-[10px] font-bold uppercase text-slate-600 hover:text-equine-navy sm:text-xs"
+          className="auth-back"
           href="/"
         >
           <ArrowLeft size={17} /> Về trang chủ
         </Link>
-        <div className="min-w-0 flex-1 sm:flex-none">
-          <Brand compact />
-        </div>
       </div>
-      <div className="auth-card mx-auto grid min-w-0 max-w-[1440px] grid-cols-[minmax(0,1fr)] overflow-hidden rounded-[28px] border border-equine-line/70 bg-white shadow-[0_30px_80px_-40px_rgba(11,25,44,0.5)] lg:grid-cols-[0.88fr_1.12fr]">
-        <AuthVisual mode="register" />
-        <section className="flex min-w-0 max-w-full items-center overflow-hidden px-5 py-10 sm:px-12 lg:px-16">
-          <div className="mx-auto w-full min-w-0 max-w-[720px]">
-            <Brand />
-            <h1 className="mt-5 font-sans text-3xl font-semibold text-equine-navy sm:text-5xl">
+      <div className="auth-layout auth-layout--register">
+        <AuthVisual />
+        <section className="auth-form-panel">
+          <div className="auth-form-content">
+            <div className="auth-form-brand"><Brand /></div>
+            <h1 className="auth-title">
               Đăng ký tài khoản mới
             </h1>
-            <p className="mt-2 text-sm text-slate-600">
-              Gia nhập hệ sinh thái quản lý và huấn luyện ngựa đua Equine
-              Sovereign.
+            <p className="auth-subtitle">
+              Tạo tài khoản Chủ ngựa để bắt đầu.
             </p>
-            <form className="mt-7 space-y-4" onSubmit={handleSubmit}>
+            <form className="auth-form" onSubmit={handleSubmit}>
               {input(
                 "Họ và tên",
                 "fullName",
@@ -142,7 +139,7 @@ export default function RegisterPage() {
                 "text",
                 "Nguyễn Văn Tuấn",
               )}
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="auth-form-grid">
                 {input(
                   "Email",
                   "email",
@@ -158,7 +155,7 @@ export default function RegisterPage() {
                   "+84 912 345 678",
                 )}
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="auth-form-grid">
                 <label className="block">
                   <span className="field-label">Mật khẩu</span>
                   <span className="relative block">
@@ -195,54 +192,52 @@ export default function RegisterPage() {
                   "Nhập lại mật khẩu",
                 )}
               </div>
-              <div className="flex gap-3 rounded-md bg-[#fff7e9] p-4 text-xs leading-5 text-[#674b12]">
+              <div className="auth-register-notice">
                 <AlertTriangle className="shrink-0" size={19} />
                 <p>
                   Tài khoản đăng ký tại đây là tài khoản Chủ ngựa. Các vai trò
                   nhân sự khác do Club Manager cấp tài khoản.
                 </p>
               </div>
-              <label className="flex cursor-pointer items-start gap-3 text-xs leading-5 text-slate-600">
+              <label className="auth-legal cursor-pointer">
                 <input
                   checked={accepted}
-                  className="mt-1 h-4 w-4 accent-[#285f7e]"
+                  className="mt-1 h-4 w-4"
                   onChange={(event) => setAccepted(event.target.checked)}
                   required
                   type="checkbox"
                 />
                 <span>
                   Tôi đồng ý với{" "}
-                  <strong className="text-equine-gold">
+                  <strong className="font-semibold text-[#a03b00]">
                     Điều khoản sử dụng
                   </strong>{" "}
                   và Chính sách bảo mật câu lạc bộ.
                 </span>
               </label>
               {message ? (
-                <p className="rounded-md bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                <p className="auth-feedback auth-feedback--success">
                   {message}
                 </p>
               ) : null}
               {error ? (
                 <p
-                  className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700"
+                  className="auth-feedback auth-feedback--error"
                   role="alert"
                 >
                   {error}
                 </p>
               ) : null}
               <button
-                className="gold-button w-full"
+                className="gold-button auth-submit w-full"
                 disabled={loading || !accepted}
                 type="submit"
               >
                 {loading ? "Đang gửi đăng ký..." : "Đăng ký tài khoản"}
               </button>
             </form>
-            <div className="my-5 flex items-center gap-4 text-[10px] font-bold uppercase text-slate-500">
-              <span className="h-px flex-1 bg-equine-line" />
+            <div className="auth-divider">
               Hoặc đăng ký bằng
-              <span className="h-px flex-1 bg-equine-line" />
             </div>
             <GoogleAuthButton
               label="signup_with"
@@ -250,7 +245,7 @@ export default function RegisterPage() {
               onSuccess={googleSuccess}
               roleName="HORSE_OWNER"
             />
-            <p className="mt-6 text-center text-sm text-slate-600">
+            <p className="auth-footer">
               Đã có tài khoản thành viên?{" "}
               <Link
                 className="font-bold uppercase text-equine-gold hover:underline"
@@ -262,9 +257,6 @@ export default function RegisterPage() {
           </div>
         </section>
       </div>
-      <p className="py-8 text-center text-[10px] text-slate-500">
-        © 2026 Equine Sovereign Syndicate · Nền Tảng Quản Trị Đua Ngựa Quý Tộc
-      </p>
     </main>
   );
 }

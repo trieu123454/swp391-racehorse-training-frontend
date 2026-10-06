@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* ============================================================
-   EQUINE SOVEREIGN — DESIGN TOKENS
+   EQUINE — DESIGN TOKENS
    Bright sky blue canvas, clean white surfaces, honey amber accents.
    Serif display type
    paired with a geometric, Vietnamese-first UI sans.
@@ -13,21 +13,21 @@
   color-scheme: light;
 
   /* Surfaces */
-  --es-canvas: #f3f9fc;
+  --es-canvas: #faf9f7;
   --es-surface: #ffffff;
-  --es-surface-recessed: #eaf4f8;
-  --es-hairline: #d8e7ee;
-  --es-hairline-strong: #bdd5e2;
+  --es-surface-recessed: #f3f1ed;
+  --es-hairline: #e8e4de;
+  --es-hairline-strong: #d4cec5;
 
   /* Brand */
-  --es-navy: #285f7e;
-  --es-navy-soft: #367795;
-  --es-navy-deep: #1d4e6b;
-  --es-blue: #3b83a3;
-  --es-gold: #a8602c;
-  --es-gold-bright: #e29b5d;
-  --es-champagne: #fff0d9;
-  --es-ink: #334654;
+  --es-navy: #292724;
+  --es-navy-soft: #48433e;
+  --es-navy-deep: #292724;
+  --es-blue: #b84b14;
+  --es-gold: #bf5018;
+  --es-gold-bright: #dd7139;
+  --es-champagne: #fff2e9;
+  --es-ink: #34312e;
 
   /* Motion */
   --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -78,7 +78,7 @@ select {
 
 ::selection {
   background: #ffe3c3;
-  color: #1d4e6b;
+  color: #292724;
 }
 
 * {
@@ -184,7 +184,7 @@ select {
       background-color var(--dur-fast) var(--ease-soft);
   }
   .field-control::placeholder {
-    color: #778d9a;
+    color: #807972;
   }
   .field-control:hover {
     border-color: var(--es-hairline-strong);
@@ -214,7 +214,7 @@ select {
     background-size: 160% 160%;
     background-position: 0% 50%;
     border: 1px solid #edc393;
-    color: #1d4e6b;
+    color: #292724;
     box-shadow: 0 6px 18px -8px rgba(168, 96, 44, 0.3);
     transition:
       transform var(--dur-base) var(--ease-seal),
@@ -373,7 +373,7 @@ select {
     color: var(--es-ink);
     background:
       radial-gradient(900px circle at 12% -10%, rgba(226, 155, 93, 0.16), transparent 58%),
-      linear-gradient(155deg, #eaf4f8 0%, #dceef5 100%);
+      linear-gradient(155deg, #f3f1ed 0%, #fff0e6 100%);
   }
 
   .hairline-top {
@@ -384,7 +384,7 @@ select {
   .media-frame {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(135deg, #f3f9fc, #deeff5);
+    background: linear-gradient(135deg, #faf9f7, #eeeae4);
   }
   .media-zoom {
     transition: transform var(--dur-cinematic) var(--ease-expo);
@@ -397,7 +397,7 @@ select {
     padding: 10px;
     border-radius: 16px;
     object-fit: contain;
-    background: linear-gradient(135deg, #f3f9fc, #deeff5);
+    background: linear-gradient(135deg, #faf9f7, #eeeae4);
   }
   .horse-placeholder {
     height: 100%;
@@ -409,7 +409,7 @@ select {
     color: var(--es-navy);
     background:
       radial-gradient(circle at 50% 20%, rgba(226, 155, 93, 0.14), transparent 65%),
-      linear-gradient(135deg, #f3f9fc, #deeff5);
+      linear-gradient(135deg, #faf9f7, #eeeae4);
   }
   .horse-placeholder span,
   .horse-placeholder small {
@@ -636,6 +636,11 @@ select {
   animation: racing-horse-bob 220ms ease-in-out infinite alternate;
 }
 
+.racing-horse.race-track-sprite {
+  filter: drop-shadow(0 0 3px rgb(255 255 255 / 95%)) drop-shadow(0 2px 2px rgb(30 25 20 / 55%));
+  pointer-events: none;
+}
+
 .racing-horse__tail {
   transform-box: fill-box;
   transform-origin: 100% 35%;
@@ -686,5 +691,564 @@ select {
   .racing-horse__tail,
   .racing-horse__leg {
     animation: none !important;
+  }
+}
+
+/* Head trainer: cinematic track hero and live-session workspace */
+.head-trainer-workspace {
+  --trainer-ink: #253b35;
+  --trainer-muted: #74817b;
+  --trainer-line: #e3e9e5;
+}
+
+.training-hero {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 310px);
+  align-items: end;
+  gap: 28px;
+  min-height: 320px;
+  overflow: hidden;
+  padding: clamp(24px, 4vw, 48px);
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 28px;
+  background-color: #24483a;
+  background-position: center 53%;
+  background-size: cover;
+  color: #fff;
+  box-shadow: 0 22px 60px -36px rgb(22 52 39 / 75%);
+}
+
+.training-hero__veil {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgb(11 35 31 / 88%) 0%, rgb(15 43 34 / 72%) 39%, rgb(16 43 35 / 28%) 74%, rgb(17 39 34 / 25%) 100%),
+    linear-gradient(0deg, rgb(12 34 29 / 52%), transparent 62%);
+  pointer-events: none;
+}
+
+.training-hero__copy {
+  max-width: 650px;
+}
+
+.training-hero__eyebrow,
+.training-live-card__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #f3c58e;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .17em;
+}
+
+.training-hero__dash {
+  width: 18px;
+  height: 2px;
+  border-radius: 99px;
+  background: #e9b879;
+}
+
+.training-live-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #75e1a0;
+  box-shadow: 0 0 0 4px rgb(117 225 160 / 18%);
+}
+
+.training-hero__copy h3 {
+  max-width: 620px;
+  margin-top: 15px;
+  color: white;
+  font-family: "Playfair Display", "Be Vietnam Pro", Georgia, serif;
+  font-size: clamp(2rem, 4vw, 3.45rem);
+  font-weight: 600;
+  letter-spacing: -.035em;
+  line-height: 1.05;
+}
+
+.training-hero__copy > p:not(.training-hero__eyebrow) {
+  max-width: 510px;
+  margin-top: 14px;
+  color: rgb(255 255 255 / 82%);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.training-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.training-hero__primary,
+.training-hero__secondary {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-radius: 999px;
+  padding: 0 18px;
+  font-size: 13px;
+  font-weight: 750;
+  transition: transform 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.training-hero__primary {
+  border: 1px solid #f0cf9d;
+  background: #f2c98e;
+  color: #263c32;
+  box-shadow: 0 8px 22px rgb(8 28 21 / 24%);
+}
+
+.training-hero__secondary {
+  border: 1px solid rgb(255 255 255 / 34%);
+  background: rgb(255 255 255 / 10%);
+  color: #fff;
+  backdrop-filter: blur(12px);
+}
+
+.training-hero__primary:hover,
+.training-hero__secondary:hover {
+  transform: translateY(-2px);
+}
+
+.training-hero__primary:hover {
+  background: #ffdfa9;
+}
+
+.training-hero__secondary:hover {
+  background: rgb(255 255 255 / 20%);
+}
+
+.training-hero__summary {
+  align-self: end;
+  border: 1px solid rgb(255 255 255 / 27%);
+  border-radius: 18px;
+  padding: 17px 18px;
+  background: rgb(13 36 30 / 46%);
+  box-shadow: 0 18px 42px rgb(0 0 0 / 14%);
+  backdrop-filter: blur(18px);
+}
+
+.training-hero__summary-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #d4dfd8;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.training-hero__summary strong {
+  display: block;
+  margin-top: 14px;
+  color: #fff;
+  font-family: "Playfair Display", "Be Vietnam Pro", Georgia, serif;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.training-hero__summary p {
+  margin-top: 7px;
+  color: rgb(255 255 255 / 77%);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.training-hero__progress {
+  height: 4px;
+  margin-top: 17px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgb(255 255 255 / 23%);
+}
+
+.training-hero__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #f2c98e;
+  transition: width 600ms ease;
+}
+
+.training-surface-swatches {
+  display: flex;
+  gap: 7px;
+  margin-top: 17px;
+}
+
+.training-surface-swatches i {
+  width: 27px;
+  height: 5px;
+  border-radius: 99px;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 35%);
+}
+
+.training-surface-swatches .grass { background: #66ad44; }
+.training-surface-swatches .dirt { background: #a66e42; }
+.training-surface-swatches .synthetic { background: #88929c; }
+
+.trainer-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 9px;
+  scrollbar-width: thin;
+}
+
+.trainer-tab {
+  display: inline-flex;
+  min-height: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 15px;
+  background: #fff;
+  color: #64736c;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px -10px rgb(30 55 43 / 35%);
+}
+
+.trainer-tab:hover {
+  border-color: #d4e2d8;
+  background: #f9fcfa;
+  color: #345648;
+}
+
+.trainer-tab.is-active {
+  border-color: #294e3b;
+  background: #294e3b;
+  color: #fff;
+  box-shadow: 0 8px 18px -10px rgb(25 62 42 / 60%);
+}
+
+.trainer-tab.is-alert:not(.is-active) {
+  border-color: #f4d6d1;
+  background: #fff8f7;
+  color: #a1443a;
+}
+
+.trainer-tab__count,
+.trainer-tab__live {
+  display: inline-flex;
+  min-width: 21px;
+  height: 21px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 6px;
+  background: rgb(255 255 255 / 18%);
+  font-size: 9px;
+  font-weight: 850;
+}
+
+.trainer-tab__live {
+  color: #bff3d0;
+  letter-spacing: .06em;
+}
+
+.trainer-live-card {
+  overflow: hidden;
+  border: 1px solid var(--trainer-line, #e3e9e5);
+  border-radius: 24px;
+  padding: clamp(14px, 2.5vw, 26px);
+  background: #fff;
+  box-shadow: 0 20px 50px -36px rgb(30 53 40 / 40%);
+}
+
+.training-live-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 2px 2px 18px;
+}
+
+.training-live-card__eyebrow {
+  color: #9b6537;
+  letter-spacing: .13em;
+}
+
+.training-live-card__eyebrow .training-live-dot {
+  background: #18a75a;
+  box-shadow: 0 0 0 4px rgb(24 167 90 / 13%);
+}
+
+.training-live-card__header h3 {
+  margin-top: 8px;
+  color: #294e3b;
+  font-family: "Playfair Display", "Be Vietnam Pro", Georgia, serif;
+  font-size: clamp(1.55rem, 3vw, 2.25rem);
+  font-weight: 600;
+  letter-spacing: -.025em;
+  line-height: 1.12;
+}
+
+.training-live-card__header p {
+  margin-top: 7px;
+  color: #728078;
+  font-size: 12px;
+}
+
+.training-live-card__percent {
+  display: grid;
+  min-width: 80px;
+  place-items: end;
+  color: #294e3b;
+}
+
+.training-live-card__percent strong {
+  font-size: 27px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.training-live-card__percent span {
+  margin-top: 5px;
+  color: #829087;
+  font-size: 10px;
+}
+
+.training-live-card__progress {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #edf1ee;
+}
+
+.training-live-card__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #bf5018, #e6ae71);
+  transition: width 500ms ease;
+}
+
+.training-track-visualization {
+  margin-top: 20px;
+  border-color: #dbe4dd;
+  border-radius: 20px;
+  box-shadow: 0 12px 28px -24px rgb(31 55 41 / 45%);
+}
+
+.training-track-visualization > div:nth-child(2) {
+  padding: clamp(5px, 1.5vw, 12px);
+}
+
+.training-track-visualization svg {
+  display: block;
+  max-height: 540px;
+  object-fit: cover;
+}
+
+.training-vitals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.training-vitals-card {
+  min-width: 0;
+  border: 1px solid #e6ebe7;
+  border-radius: 16px;
+  padding: 14px;
+  background: linear-gradient(145deg, #fff, #fbfcfb);
+}
+
+.training-vitals-card__horse {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #294e3b;
+  font-size: 13px;
+}
+
+.training-vitals-card__values {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 13px;
+}
+
+.training-vitals-card__values > div {
+  min-width: 0;
+}
+
+.training-vitals-card__values span,
+.training-vitals-card__values strong {
+  display: block;
+}
+
+.training-vitals-card__values span {
+  color: #7a8780;
+  font-size: 10px;
+}
+
+.training-vitals-card__values strong {
+  margin-top: 4px;
+  color: #334b3f;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.training-vitals-card__values small {
+  color: #77847c;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.training-live-card__phase {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 15px;
+  border-radius: 12px;
+  padding: 11px 13px;
+  background: #f4f7f4;
+  color: #627168;
+  font-size: 11px;
+}
+
+.training-live-card__phase span:first-child {
+  color: #849087;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+
+.training-live-card__phase strong {
+  color: #315640;
+  font-size: 12px;
+}
+
+.training-live-card__phase span:last-child {
+  margin-left: auto;
+}
+
+.training-live-card__details {
+  margin-top: 16px;
+  border-top: 1px solid #e8ede9;
+  padding-top: 13px;
+}
+
+.training-live-card__details summary {
+  color: #42614d;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.training-start-form {
+  display: grid;
+  grid-template-columns: minmax(190px, .7fr) minmax(0, 1.3fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.training-session-options {
+  min-width: 0;
+}
+
+.training-session-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+  border: 1px solid #e2e9e3;
+  border-radius: 12px;
+  padding: 11px 12px;
+  background: #fbfcfb;
+  cursor: pointer;
+}
+
+.training-session-option input {
+  margin-top: 4px;
+  accent-color: #315c42;
+}
+
+.training-session-option span,
+.training-session-option strong,
+.training-session-option small {
+  display: block;
+}
+
+.training-session-option strong {
+  color: #334b3f;
+  font-size: 12px;
+}
+
+.training-session-option small {
+  margin-top: 3px;
+  color: #77847c;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.training-start-form > button {
+  justify-self: start;
+}
+
+@media (max-width: 760px) {
+  .training-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    min-height: 0;
+    padding: 24px 20px;
+    background-position: 58% center;
+  }
+
+  .training-hero__veil {
+    background:
+      linear-gradient(90deg, rgb(11 35 31 / 78%), rgb(15 43 34 / 54%)),
+      linear-gradient(0deg, rgb(12 34 29 / 62%), transparent 78%);
+  }
+
+  .training-hero__summary {
+    width: min(100%, 380px);
+    margin-top: 4px;
+  }
+
+  .training-start-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .training-hero__copy h3 { font-size: 2rem; }
+  .training-hero__actions > button { flex: 1 1 auto; }
+  .training-live-card__header { align-items: flex-start; }
+  .training-live-card__percent { min-width: 58px; }
+  .training-live-card__percent strong { font-size: 23px; }
+  .training-vitals-card__values { gap: 7px; }
+  .training-vitals-card__values span { font-size: 9px; }
+  .training-vitals-card__values strong { font-size: 15px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .training-hero,
+  .training-hero__primary,
+  .training-hero__secondary,
+  .training-hero__progress span,
+  .training-live-card__progress span {
+    animation: none !important;
+    transition: none !important;
   }
 }
