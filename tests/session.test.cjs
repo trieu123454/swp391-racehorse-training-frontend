@@ -14,10 +14,11 @@ function setup(fetch, sharedLocalStorage) {
   const context = vm.createContext({ window: { localStorage, sessionStorage }, fetch, process: { env: {} } });
   function load(name) {
     if (cache[name]) return cache[name];
-    const source = fs.readFileSync(path.join(__dirname, "../lib", name + ".ts"), "utf8");
+    const file = name === "api" ? "../api/client.ts" : `../lib/${name}.ts`;
+    const source = fs.readFileSync(path.join(__dirname, file), "utf8");
     const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
     const module = { exports: {} };
-    vm.runInContext(`(function(require,module,exports){${compiled}\n})`, context)(ref => load(ref.replace("./", "")), module, module.exports);
+    vm.runInContext(`(function(require,module,exports){${compiled}\n})`, context)(ref => load(ref.split("/").at(-1)), module, module.exports);
     return cache[name] = module.exports;
   }
   return { session: load("session"), api: load("api"), localStorage, sessionStorage };

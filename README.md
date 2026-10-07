@@ -28,9 +28,11 @@ http://localhost:8080
 
 ## Code layout
 
-- `app/` contains Next.js routes, route layouts, and global styles.
-- `features/<actor>/` keeps each actor workspace beside its API client (`api.ts`). Actor folders are `club-manager`, `groom`, `head-trainer`, `horse-owner`, and `veterinarian`.
-- `features/horses/` contains horse pages' shared UI, owner selection, and horse API client.
-- `features/auth/` contains sign-in and registration UI.
-- `shared/components/` and `shared/hooks/` contain UI and hooks used by multiple features.
-- `lib/` contains app-wide authentication, session, role, and API infrastructure.
+- `app/` contains the required Next.js App Router entry files and layouts. Each `page.tsx` re-exports a page from `page/` so the browser URLs stay the same.
+- `page/` contains page implementations.
+- `components/` contains shared UI and components grouped by feature.
+- `api/` contains the shared HTTP client and feature API clients. The backend endpoint paths are unchanged.
+- `public/img/` contains images served from `/img/`; `public/models/` contains 3D assets.
+- `styles/` contains global CSS loaded by `app/layout.tsx`.
+- `routes/Routes.ts` is the source of browser page links; Next.js still handles routing through `app/`.
+- `shared/hooks/` and `lib/` contain reusable hooks, session state, types, and role helpers.

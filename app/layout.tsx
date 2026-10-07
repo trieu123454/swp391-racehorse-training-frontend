@@ -4,9 +4,9 @@ import "@fontsource/be-vietnam-pro/500.css";
 import "@fontsource/be-vietnam-pro/600.css";
 import "@fontsource/be-vietnam-pro/700.css";
 
-import "./globals.css";
-import "./horses/horses.css";
-import "./design.css";
+import "@/styles/globals.css";
+import "@/styles/horses.css";
+import "@/styles/design.css";
 
 export const metadata: Metadata = {
   title: "Equine | Racehorse System",

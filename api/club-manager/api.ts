@@ -1,0 +1,103 @@
+import { ApiRequestError, authenticatedRequest } from "@/api/client";
+import type { RoleName } from "@/lib/types";
+
+export type AssignableRoleName = Exclude<RoleName, "CLUB_MANAGER">;
+export type CreatableRoleName = Exclude<RoleName, "HORSE_OWNER">;
+
+export type PendingUser = {
+  id: number;
+  full_name: string;
+  email: string;
+  phone: string | null;
+  role_name: RoleName;
+  status: "PENDING" | "APPROVED" | "LOCKED" | "REJECTED";
+  created_at: string;
+};
+
+export type PendingUserPage = {
+  data: PendingUser[];
+  total: number;
+  page: number;
+  limit: number;
+};
+
+export type RoleChangeRequest = {
+  id: string;
+  user_id: number;
+  full_name: string;
+  email: string;
+  current_role: string | null;
+  requested_role: string;
+  reason: string | null;
+  status: "Pending" | "Approved" | "Rejected";
+  created_at: string;
+  reviewed_by: number | null;
+  reviewed_at: string | null;
+};
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  return authenticatedRequest<T>(`/api/club-manager${path}`, options);
+}
+
+export function listPendingUsers(role?: string, page = 1, limit = 10) {
+  const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (role && role !== "ALL") query.set("role", role);
+  return request<PendingUserPage>(`/users/pending?${query.toString()}`);
+}
+
+export function listUsers(status = "APPROVED", role?: string) {
+  const query = new URLSearchParams({ status });
+  if (role && role !== "ALL") query.set("role", role);
+  return request<PendingUser[]>(`/users?${query.toString()}`);
+}
+
+export function approveUser(id: number) {
+  return request(`/users/${id}/approve`, { method: "PATCH" });
+}
+
+export function rejectUser(id: number, reason: string) {
+  return request(`/users/${id}/reject`, { method: "PATCH", body: JSON.stringify({ reason: reason || null }) });
+}
+
+export function lockUser(id: number, reason: string) {
+  return request(`/users/${id}/lock`, { method: "PATCH", body: JSON.stringify({ reason: reason || null }) });
+}
+
+export function unlockUser(id: number) {
+  return request(`/users/${id}/unlock`, { method: "PATCH" });
+}
+
+export function createStaffAccount(input: {
+  fullName: string;
+  email: string;
+  phone?: string;
+  password: string;
+  roleName: CreatableRoleName;
+}) {
+  return request<{ id: number; email: string; role_name: string; status: string; must_change_password: boolean }>(
+    "/users",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export function updateUserRole(id: number, roleName: AssignableRoleName) {
+  return request<{ id: number; previous_role: RoleName; role_name: AssignableRoleName }>(
+    `/users/${id}/role`,
+    { method: "PATCH", body: JSON.stringify({ roleName }) },
+  );
+}
+
+export function listRoleChangeRequests(status = "Pending") {
+  return request<RoleChangeRequest[]>(`/role-change-requests?status=${encodeURIComponent(status)}`);
+}
+
+export function handleRoleChange(id: string, action: "approve" | "reject") {
+  return request(`/role-change-requests/${id}`, { method: "PATCH", body: JSON.stringify({ action }) });
+}
+
+export const clubManagerError = (error: unknown) => {
+  if (error instanceof ApiRequestError && error.status === 401) {
+    return "Phiên đăng nhập không còn hợp lệ. Vui lòng đăng xuất rồi đăng nhập lại.";
+  }
+  return error instanceof Error ? error.message : "Có lỗi xảy ra. Vui lòng thử lại.";
+};

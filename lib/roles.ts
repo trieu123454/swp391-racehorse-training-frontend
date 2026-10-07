@@ -1,11 +1,12 @@
 import type { RoleName } from "./types";
+import { Routes } from "@/routes/Routes";
 
 export const roleRoutes: Record<RoleName, string> = {
-  HEAD_TRAINER: "/dashboard/head-trainer",
-  VETERINARIAN: "/dashboard/veterinarian",
-  GROOM: "/dashboard/groom",
-  HORSE_OWNER: "/dashboard/horse-owner",
-  CLUB_MANAGER: "/dashboard/club-manager",
+  HEAD_TRAINER: Routes.dashboardRole("head-trainer"),
+  VETERINARIAN: Routes.dashboardRole("veterinarian"),
+  GROOM: Routes.dashboardRole("groom"),
+  HORSE_OWNER: Routes.dashboardRole("horse-owner"),
+  CLUB_MANAGER: Routes.dashboardRole("club-manager"),
 };
 
 export const roleLabels: Record<RoleName, string> = {
