@@ -16,6 +16,16 @@ export class ApiRequestError extends Error {
   }
 }
 
+export const SESSION_EXPIRED_EVENT = "racehorse:session-expired";
+
+function expiredSession(): ApiRequestError {
+  clearSession();
+  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+    window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
+  return new ApiRequestError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", 401);
+}
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
 
@@ -73,7 +83,7 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
     accessToken = getAccessToken();
   }
   if (!accessToken) {
-    throw new ApiRequestError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", 401);
+    throw expiredSession();
   }
   const withToken = (token: string) => ({
     ...options,
@@ -83,10 +93,23 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
     return await request<T>(path, withToken(accessToken));
   } catch (error) {
     if (!(error instanceof ApiRequestError) || error.status !== 401) throw error;
-    await validateSession(true);
+    try {
+      await validateSession(true);
+    } catch (refreshError) {
+      if (refreshError instanceof ApiRequestError && [400, 401, 403].includes(refreshError.status)) {
+        throw expiredSession();
+      }
+      throw refreshError;
+    }
     const refreshed = getAccessToken();
-    if (!refreshed || refreshed === accessToken) throw error;
-    return request<T>(path, withToken(refreshed));
+    if (!refreshed) throw expiredSession();
+    if (refreshed === accessToken) throw error;
+    try {
+      return await request<T>(path, withToken(refreshed));
+    } catch (retryError) {
+      if (retryError instanceof ApiRequestError && retryError.status === 401) throw expiredSession();
+      throw retryError;
+    }
   }
 }
 

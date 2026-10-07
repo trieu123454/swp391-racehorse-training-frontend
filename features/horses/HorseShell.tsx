@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Activity, Bell, BookOpen, Boxes, CalendarDays, ChevronDown, ClipboardList, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, X } from "lucide-react";
 import { Brand } from "@/shared/components/Brand";
-import { ApiRequestError, logout, validateSession } from "@/lib/api";
+import { ApiRequestError, SESSION_EXPIRED_EVENT, logout, validateSession } from "@/lib/api";
 import { clearSession, getLogoutRefreshToken, getUser } from "@/lib/session";
 import { roleLabels, routeForRole } from "@/lib/roles";
 import type { AuthUser } from "@/lib/types";
@@ -29,6 +29,14 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   useEffect(() => setOpen(false), [pathname]);
+  useEffect(() => {
+    const handleExpiredSession = () => {
+      setUser(null);
+      router.replace("/login");
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleExpiredSession);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpiredSession);
+  }, [router]);
   useEffect(() => {
     const sync = () => {
       setActiveTab(new URLSearchParams(window.location.search).get("tab") ?? "overview");

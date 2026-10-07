@@ -63,6 +63,31 @@ test("expired token is refreshed once for concurrent remembered callers", async 
   assert.equal(app.localStorage.getItem("racehorse.accessToken"), null);
 });
 
+test("protected request retries with a refreshed access token", async () => {
+  const sent = [];
+  const app = setup(async (url, options = {}) => {
+    if (url.endsWith("/api/training-plans")) {
+      sent.push(options.headers.Authorization);
+      return sent.length === 1 ? reply(401, { message: "Authentication required" }) : reply(201, { id: "plan" });
+    }
+    if (url.endsWith("/api/auth/me")) return reply(401, { message: "Authentication required" });
+    if (url.endsWith("/api/auth/refresh")) return reply(200, { ...auth, accessToken: "new-access" });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  app.session.saveSession(auth);
+  assert.equal((await app.api.authenticatedRequest("/api/training-plans", { method: "POST" })).id, "plan");
+  assert.deepEqual(sent, ["Bearer access", "Bearer new-access"]);
+});
+
+test("unrecoverable protected request clears expired credentials", async () => {
+  const app = setup(async url => reply(url.endsWith("/api/auth/refresh") ? 400 : 401,
+    { message: "Authentication required" }));
+  app.session.saveSession(auth);
+  await assert.rejects(app.api.authenticatedRequest("/api/training-plans", { method: "POST" }),
+    error => error.status === 401 && error.message.includes("đăng nhập lại"));
+  assert.equal(app.session.getAccessToken(), null);
+});
+
 test("an expired nonremembered session requires login without attempting refresh", async () => {
   let calls = 0;
   const app = setup(async url => {

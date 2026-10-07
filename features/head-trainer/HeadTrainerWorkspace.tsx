@@ -99,6 +99,7 @@ export default function HeadTrainerWorkspace() {
   const [progress, setProgress] = useState(0);
   const [vitals, setVitals] = useState<Record<string, SensorVitals>>({});
   const [activeOnly, setActiveOnly] = useState(false);
+  const [plansRevision, setPlansRevision] = useState(0);
   const [analysisRevision, setAnalysisRevision] = useState(0);
   const [includeSimulated, setIncludeSimulated] = useState(true);
   const [from, setFrom] = useState(() => plusDays(today(), -30));
@@ -214,7 +215,7 @@ export default function HeadTrainerWorkspace() {
     }
     if (tab === "calendar" || tab === "simulation") loadCalendar().catch((reason) => { if (active) setError(headTrainerError(reason)); });
     return () => { active = false; };
-  }, [tab, loadHorseData, loadCalendar]);
+  }, [tab, loadHorseData, loadCalendar, plansRevision]);
 
   useEffect(() => {
     if (tab !== "overview" || !compareIds.length) { setCompare([]); return; }
@@ -325,7 +326,12 @@ export default function HeadTrainerWorkspace() {
       target_track_surface: data.get("target_track_surface") || null,
       target_intensity: data.get("target_intensity"), update_deadline_hours: Number(data.get("update_deadline_hours") ?? 24),
     }), "Đã tạo giáo án.");
-    if (result) { form.reset(); await refresh(); }
+    if (result) {
+      form.reset();
+      setHorseId(horseIds[0]);
+      setActiveOnly(false);
+      setPlansRevision((current) => current + 1);
+    }
   }
 
   async function updatePlan(event: FormEvent<HTMLFormElement>, planId: string) {
@@ -788,7 +794,7 @@ function PlansPanel({ horse, horses, plans, activeOnly, setActiveOnly, editingPl
       </form>
       <p className="mt-3 text-xs leading-5 text-slate-500">Giáo án được dùng chung cho các ngựa đã chọn. Để bắt đầu thực hiện, chọn giáo án ở danh sách bên cạnh rồi lên lịch từng buổi tập với ngày, giờ và Groom.</p>
     </Section>
-    <Section title="Giáo án của ngựa" description="Giáo án mô tả mục tiêu giai đoạn; lên lịch từng buổi để thực hiện. Có thể sửa trước hạn của buổi tập gần nhất." icon={ClipboardList} action={<label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} />Chỉ đang hoạt động</label>}>
+    <Section title={horse ? `Giáo án của ${horse.horse_name}` : "Giáo án của ngựa"} description="Giáo án mô tả mục tiêu giai đoạn; lên lịch từng buổi để thực hiện. Có thể sửa trước hạn của buổi tập gần nhất." icon={ClipboardList} action={<label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} />Chỉ đang hoạt động</label>}>
       <div className="space-y-3">{plans.map((plan) => <article key={plan.id} className="rounded-xl border border-equine-line p-4">
         {editingPlan === plan.id ? <form onSubmit={(event) => onUpdate(event, plan.id)} className="grid gap-2 sm:grid-cols-2">
           <Field label="Tên giai đoạn" name="stage_name" required defaultValue={plan.stage_name} />
