@@ -7,6 +7,7 @@ import SessionTargetsEditor from "./SessionTargetsEditor";
 import TrainingAnalysisPanel from "./TrainingAnalysisPanel";
 import SensorTimeline from "./SensorTimeline";
 import RaceTrackVisualization from "./RaceTrackVisualization";
+import RaceTrackScene3D, { type RaceTrackRunner } from "./RaceTrackScene3D";
 import NotificationCenter from "@/components/shared/NotificationCenter";
 import { listHorses, type Horse } from "@/api/horses/api";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
@@ -499,7 +500,7 @@ export default function HeadTrainerWorkspace() {
         {tab === "analysis" && <TrainingAnalysisPanel horseId={horseId} from={from} to={to} setFrom={setFrom} setTo={setTo} revision={analysisRevision}/>}
         {tab === "plans" && <PlansPanel horse={selectedHorse} horses={horses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} busy={busy} />}
         {tab === "calendar" && <CalendarPanel onTargetsSaved={refresh} horses={horses} sessions={sessions} grooms={grooms} from={calendarFrom} setFrom={setCalendarFrom} to={calendarTo} setTo={setCalendarTo} scheduleDraft={scheduleDraft} onDraftUsed={() => setScheduleDraft(null)} onCreate={createSchedule} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onMetrics={recordMetrics} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} />}
-        {tab === "races" && <RaceEntriesPanel selectedHorse={selectedHorse} races={races} entries={raceEntries} onRecordResult={async (entryId,input) => { const result=await run(()=>headTrainerApi.recordRaceResult(entryId,input),"Race result saved."); if(result) await refresh(); }} onRegister={async (raceId) => { if (!horseId) return; const result = await run(() => headTrainerApi.registerRace(horseId, raceId), "Đã đăng ký ngựa vào giải."); if (result) await refresh(); }} busy={busy} />}
+        {tab === "races" && <RaceEntriesPanel selectedHorse={selectedHorse} horses={horses} races={races} entries={raceEntries} onRecordResult={async (entryId,input) => { const result=await run(()=>headTrainerApi.recordRaceResult(entryId,input),"Race result saved."); if(result) await refresh(); }} onRegister={async (raceId) => { if (!horseId) return; const result = await run(() => headTrainerApi.registerRace(horseId, raceId), "Đã đăng ký ngựa vào giải."); if (result) await refresh(); }} busy={busy} />}
         {tab === "simulation" && <SimulationPanel sessions={sessions} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} />}
       </>}
     </div>
@@ -1029,13 +1030,40 @@ function formatSimulationDuration(seconds: number) {
   return minutes > 0 ? `${minutes} phút ${remainingSeconds} giây` : `${remainingSeconds} giây`;
 }
 
-function RaceEntriesPanel({ selectedHorse, races, entries, onRegister, onRecordResult, busy }: {
-  selectedHorse: Horse | null; races: RaceOption[]; entries: Record<string, unknown>[];
+function racePreviewSpeed(horseId: string) {
+  let hash = 0;
+  for (let index = 0; index < horseId.length; index += 1) hash = (hash * 31 + horseId.charCodeAt(index)) >>> 0;
+  return 53 + (hash % 90) / 10;
+}
+
+function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, onRecordResult, busy }: {
+  selectedHorse: Horse | null; horses: Horse[]; races: RaceOption[]; entries: Record<string, unknown>[];
   onRegister: (id: string) => void;
   onRecordResult: (id: string, input: { result_position: number; prize_amount: number }) => void;
   busy: boolean;
 }) {
   const [raceId, setRaceId] = useState("");
+  const [trackSurface, setTrackSurface] = useState("Turf");
+  const [competitorIds, setCompetitorIds] = useState<string[]>(() => selectedHorse ? [selectedHorse.id] : []);
+  const [runStartTime, setRunStartTime] = useState<number | null>(null);
+  useEffect(() => {
+    if (!selectedHorse) return;
+    setCompetitorIds((current) => current.includes(selectedHorse.id) || current.length >= 5 ? current : [selectedHorse.id, ...current]);
+  }, [selectedHorse?.id]);
+
+  const horsePool = selectedHorse && !horses.some((horse) => horse.id === selectedHorse.id) ? [selectedHorse, ...horses] : horses;
+  const availableHorses = horsePool.filter((horse) => !horse.deleted_at);
+  const competitors = competitorIds.map((id) => availableHorses.find((horse) => horse.id === id)).filter((horse): horse is Horse => Boolean(horse));
+  const raceRunners: RaceTrackRunner[] = competitors.slice(0, 5).map((horse, index) => ({
+    id: horse.id,
+    name: horse.horse_name,
+    lane: index + 1,
+    progress: 0,
+    speedKmh: racePreviewSpeed(horse.id),
+  }));
+  const selectedRace = races.find((race) => race.id === raceId);
+  const targetDistance = selectedRace?.distance_meters ?? 1600;
+
   function submitResult(event: FormEvent<HTMLFormElement>, entry: Record<string, unknown>) {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
@@ -1045,27 +1073,66 @@ function RaceEntriesPanel({ selectedHorse, races, entries, onRegister, onRecordR
     });
   }
   const isReady = selectedHorse?.readiness_status === "Ready";
-  return <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
-    <Section title="Đăng ký vào giải" description={selectedHorse ? selectedHorse.horse_name + " · chỉ giải từ hôm nay trở đi" : "Chọn ngựa"} icon={Flag}>
-      {selectedHorse?.is_training_locked && <Notice error>Ngựa đang khóa huấn luyện và chưa thể đăng ký.</Notice>}
-      {selectedHorse && !isReady && <Notice error>Vet cần đánh giá ngựa sẵn sàng thi đấu trước khi đăng ký giải.</Notice>}
-      <label className="block"><span className="field-label">Giải đấu</span><select className="field-control px-3" value={raceId} onChange={(event) => setRaceId(event.target.value)}><option value="">Chọn giải…</option>{races.map((race) => <option key={race.id} value={race.id}>{race.race_name} · {race.race_date} · {race.distance_meters ?? "?"} m</option>)}</select></label>
-      <button type="button" className="gold-button mt-3" disabled={busy || !raceId || !selectedHorse || selectedHorse.is_training_locked || !isReady} onClick={() => onRegister(raceId)}><Plus size={15} /> Đăng ký ngựa</button>
-      <p className="mt-2 text-xs text-slate-500">Hệ thống từ chối nếu ngựa đã có hoạt động khác cùng ngày.</p>
+  return <div className="space-y-5">
+    <Section title="Mô phỏng thi đấu 3D" description="Dùng nguyên mô hình sân bạn gửi; chọn tối đa năm ngựa để chạy trong năm làn." icon={Flag}>
+      <div className="race-competition-layout">
+        <div className="min-w-0">
+          <RaceTrackScene3D surface={trackSurface} runners={raceRunners} targetDistanceMeters={targetDistance} isRunning={runStartTime != null} runStartTime={runStartTime} />
+          <div className="race-lane-legend">
+            {raceRunners.map((runner) => <span key={runner.id}><b>{runner.lane}</b>{runner.name}</span>)}
+            {!raceRunners.length && <span>Chọn ngựa để đưa vào các làn.</span>}
+          </div>
+        </div>
+        <div className="space-y-4">
+          <label className="block"><span className="field-label">Giải đấu</span><select className="field-control px-3" value={raceId} onChange={(event) => { setRaceId(event.target.value); setRunStartTime(null); }}><option value="">Chọn giải…</option>{races.map((race) => <option key={race.id} value={race.id}>{race.race_name} · {race.race_date} · {race.distance_meters ?? "?"} m</option>)}</select></label>
+          <SelectField label="Mặt sân 3D" name="preview_track_surface" value={trackSurface} onChange={(value) => { setTrackSurface(value); setRunStartTime(null); }} options={[["Turf", "Cỏ · Turf"], ["Dirt", "Đất · Dirt"], ["Synthetic", "Nhân tạo · Synthetic"]]} />
+          <fieldset className="race-competitor-picker">
+            <legend className="field-label">Ngựa thi đấu · {competitors.length}/5</legend>
+            <div className="race-competitor-picker__list">
+              {availableHorses.map((horse) => {
+                const checked = competitorIds.includes(horse.id);
+                const disabled = !checked && competitorIds.length >= 5;
+                return <label key={horse.id} className={`race-competitor-option ${disabled ? "is-disabled" : ""}`}>
+                  <input type="checkbox" checked={checked} disabled={disabled} onChange={() => {
+                    setRunStartTime(null);
+                    setCompetitorIds((current) => checked ? current.filter((id) => id !== horse.id) : current.length < 5 ? [...current, horse.id] : current);
+                  }} />
+                  <span>{horse.horse_name}</span>
+                </label>;
+              })}
+              {!availableHorses.length && <p className="text-sm text-slate-500">Chưa có ngựa trong danh sách.</p>}
+            </div>
+          </fieldset>
+          <button type="button" className="gold-button w-full justify-center" disabled={!raceRunners.length} onClick={() => setRunStartTime(Date.now())}>
+            <Play size={15} />{runStartTime == null ? "Chạy mô phỏng 3D" : "Chạy lại mô phỏng"}
+          </button>
+          <p className="text-xs leading-5 text-slate-500">Mô phỏng hiển thị trong mô hình 3D; việc đăng ký giải và lưu kết quả vẫn dùng biểu mẫu bên dưới.</p>
+        </div>
+      </div>
     </Section>
-    <Section title="Lịch sử giải đấu" description={entries.length + " thành tích"} icon={Medal}>
-      <div className="space-y-3">{entries.map((entry, index) => {
-        const pendingResult = entry.status === "Registered" && String(entry.race_date ?? "") <= today();
-        return <article key={String(entry.id ?? index)} className="rounded-lg border border-equine-line p-3">
-          <div className="flex items-center justify-between gap-3"><div><p className="font-semibold text-equine-navy">{String(entry.race_name ?? "Giải đấu")}</p><p className="text-xs text-slate-500">{String(entry.race_date ?? "")} · {String(entry.location ?? "")}</p></div><span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">{entry.result_position == null ? String(entry.status ?? "Registered") : "Hạng " + String(entry.result_position)}</span></div>
-          {pendingResult && <form onSubmit={(event) => submitResult(event, entry)} className="mt-3 grid gap-2 border-t border-equine-line pt-3 sm:grid-cols-3">
-            <Field label="Vị trí" name="result_position" type="number" min={1} step="1" required />
-            <Field label="Tiền thưởng" name="prize_amount" type="number" min={0} step="0.01" required defaultValue="0" />
-            <div className="flex items-end"><button className="soft-button" disabled={busy}><Medal size={14} /> Lưu kết quả</button></div>
-          </form>}
-        </article>;
-      })}{!entries.length && <Notice>Ngựa này chưa được đăng ký vào giải nào.</Notice>}</div>
-    </Section>
+
+    <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
+      <Section title="Đăng ký vào giải" description={selectedHorse ? selectedHorse.horse_name + " · chỉ giải từ hôm nay trở đi" : "Chọn ngựa"} icon={Flag}>
+        {selectedHorse?.is_training_locked && <Notice error>Ngựa đang khóa huấn luyện và chưa thể đăng ký.</Notice>}
+        {selectedHorse && !isReady && <Notice error>Vet cần đánh giá ngựa sẵn sàng thi đấu trước khi đăng ký giải.</Notice>}
+        <p className="text-sm text-slate-600">Giải được chọn: <strong className="text-equine-navy">{selectedRace?.race_name ?? "Chưa chọn"}</strong></p>
+        <button type="button" className="gold-button mt-3" disabled={busy || !raceId || !selectedHorse || selectedHorse.is_training_locked || !isReady} onClick={() => onRegister(raceId)}><Plus size={15} /> Đăng ký ngựa</button>
+        <p className="mt-2 text-xs text-slate-500">Hệ thống từ chối nếu ngựa đã có hoạt động khác cùng ngày.</p>
+      </Section>
+      <Section title="Lịch sử giải đấu" description={entries.length + " thành tích"} icon={Medal}>
+        <div className="space-y-3">{entries.map((entry, index) => {
+          const pendingResult = entry.status === "Registered" && String(entry.race_date ?? "") <= today();
+          return <article key={String(entry.id ?? index)} className="rounded-lg border border-equine-line p-3">
+            <div className="flex items-center justify-between gap-3"><div><p className="font-semibold text-equine-navy">{String(entry.race_name ?? "Giải đấu")}</p><p className="text-xs text-slate-500">{String(entry.race_date ?? "")} · {String(entry.location ?? "")}</p></div><span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">{entry.result_position == null ? String(entry.status ?? "Registered") : "Hạng " + String(entry.result_position)}</span></div>
+            {pendingResult && <form onSubmit={(event) => submitResult(event, entry)} className="mt-3 grid gap-2 border-t border-equine-line pt-3 sm:grid-cols-3">
+              <Field label="Vị trí" name="result_position" type="number" min={1} step="1" required />
+              <Field label="Tiền thưởng" name="prize_amount" type="number" min={0} step="0.01" required defaultValue="0" />
+              <div className="flex items-end"><button className="soft-button" disabled={busy}><Medal size={14} /> Lưu kết quả</button></div>
+            </form>}
+          </article>;
+        })}{!entries.length && <Notice>Ngựa này chưa được đăng ký vào giải nào.</Notice>}</div>
+      </Section>
+    </div>
   </div>;
 }
 function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simulation, readings, phase, ranking, progress, vitals, onStart, onRestartSimulation, onRetryFinish, finishFailed, busy }: {
@@ -1108,9 +1175,9 @@ function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simu
         <p className="mt-1 text-xs text-amber-900">Có thể chạy lại ngay theo cường độ và vận tốc ngựa đua; dữ liệu phiên cũ vẫn được giữ trong lịch sử.</p>
         {simulation.status === "Running" && simulation.training_schedule_id && <button type="button" className="gold-button mt-3" disabled={busy} onClick={() => onRestartSimulation(simulation)}><RefreshCw size={14}/> Chạy lại theo công thức mới</button>}
       </div>}
-      {simulation.horses[0] && <RaceTrackVisualization horseName={simulation.horses[0].horse_name} readings={readings}
+      {simulation.horses[0] && <RaceTrackVisualization horseName={simulation.horses[0].horse_name} horseId={simulation.horses[0].horse_id} readings={readings}
         targetDistance={simulation.distance_meters} currentSpeed={vitals[simulation.horses[0].horse_id]?.speed ?? readings.at(-1)?.speed_kmh ?? 0}
-        surface={simulation.track_surface}/>}
+        surface={simulation.track_surface} isRunning={simulation.status === "Running"}/>}
       <div className="training-vitals-grid">
         {simulation.horses.map((horse) => {
           const current = vitals[horse.horse_id];

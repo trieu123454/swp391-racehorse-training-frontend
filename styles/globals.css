@@ -630,68 +630,107 @@ select {
   }
 }
 
-.racing-horse {
-  filter: drop-shadow(0 2px 1px rgb(75 49 31 / 18%));
-  transform-origin: center bottom;
-  animation: racing-horse-bob 220ms ease-in-out infinite alternate;
+.race-track-scene {
+  position: relative;
+  width: 100%;
+  height: clamp(360px, 56vh, 660px);
+  min-height: 360px;
+  overflow: hidden;
+  border: 1px solid #d8e2dd;
+  border-radius: 15px;
+  background: #dce6e2;
+  touch-action: none;
 }
 
-.racing-horse.race-track-sprite {
-  filter: drop-shadow(0 0 3px rgb(255 255 255 / 95%)) drop-shadow(0 2px 2px rgb(30 25 20 / 55%));
-  pointer-events: none;
+.race-track-scene__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
-.racing-horse__tail {
-  transform-box: fill-box;
-  transform-origin: 100% 35%;
-  animation: racing-horse-tail 420ms ease-in-out infinite alternate;
+.race-track-scene__status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #40544b;
+  font-size: 14px;
+  text-align: center;
+  background: rgb(236 242 238 / 86%);
 }
 
-.racing-horse__leg {
-  transform-box: view-box;
+.race-track-scene__status--error {
+  color: #922d31;
 }
 
-.racing-horse__leg--hind-a {
-  transform-origin: 38px 37px;
-  animation: racing-horse-gallop 260ms ease-in-out infinite alternate;
+.race-competition-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+  align-items: start;
+  gap: 16px;
 }
 
-.racing-horse__leg--hind-b {
-  transform-origin: 48px 38px;
-  animation: racing-horse-gallop 260ms ease-in-out -130ms infinite alternate-reverse;
+.race-lane-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 
-.racing-horse__leg--fore-a {
-  transform-origin: 74px 35px;
-  animation: racing-horse-gallop 260ms ease-in-out -65ms infinite alternate-reverse;
+.race-lane-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e2e9e4;
+  border-radius: 999px;
+  padding: 5px 10px 5px 5px;
+  color: #4c5c54;
+  font-size: 11px;
 }
 
-.racing-horse__leg--fore-b {
-  transform-origin: 81px 35px;
-  animation: racing-horse-gallop 260ms ease-in-out -195ms infinite alternate;
+.race-lane-legend b {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  background: #314e40;
+  color: white;
+  font-size: 10px;
 }
 
-@keyframes racing-horse-bob {
-  from { transform: translateY(1px); }
-  to { transform: translateY(-2px); }
+.race-competitor-picker {
+  min-width: 0;
+  border: 1px solid #e2e9e4;
+  border-radius: 12px;
+  padding: 10px;
 }
 
-@keyframes racing-horse-gallop {
-  from { transform: rotate(-22deg); }
-  to { transform: rotate(24deg); }
+.race-competitor-picker__list {
+  display: grid;
+  max-height: 245px;
+  gap: 6px;
+  overflow-y: auto;
 }
 
-@keyframes racing-horse-tail {
-  from { transform: rotate(-8deg); }
-  to { transform: rotate(9deg); }
+.race-competitor-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: 8px;
+  padding: 7px 8px;
+  color: #3e5148;
+  font-size: 12px;
+  cursor: pointer;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .racing-horse,
-  .racing-horse__tail,
-  .racing-horse__leg {
-    animation: none !important;
-  }
+.race-competitor-option:hover { background: #f4f7f4; }
+.race-competitor-option.is-disabled { opacity: .48; cursor: not-allowed; }
+.race-competitor-option input { accent-color: #35664f; }
+
+@media (max-width: 900px) {
+  .race-competition-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Head trainer: cinematic track hero and live-session workspace */
@@ -1052,8 +1091,6 @@ select {
 
 .training-track-visualization svg {
   display: block;
-  max-height: 540px;
-  object-fit: cover;
 }
 
 .training-vitals-grid {
