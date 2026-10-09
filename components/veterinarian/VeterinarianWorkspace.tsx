@@ -631,9 +631,28 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
         setError("Cần nhập cả tọa độ X và Y để lưu vị trí trên mô hình.");
         return;
       }
-      const result = await veterinarianApi.createInjury(horse.id, values);
-      setCreating(false); setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); setSuggestLock(Boolean(result.training_locked)); await load();
-      onChanged(result.training_locked ? "Đã lưu đánh giá. Ngựa được chuyển sang Chấn thương và khóa lịch huấn luyện." : "Đã lưu đánh giá chấn thương.");
+      await veterinarianApi.createInjury(horse.id, values);
+      setCreating(false); setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); await load();
+      if (values.recovery_status !== "Recovered") {
+        const lockReason = `Chấn thương ${String(values.body_part)}: ${String(values.description || values.severity)}`.slice(0, 255);
+        try {
+          const status = await veterinarianApi.updateHealthStatus(horse.id, "Injured", "NotReady", lockReason);
+          if (!status.is_training_locked) {
+            await veterinarianApi.lockTraining(horse.id, {
+              lock_level: values.severity === "Severe" ? "Critical" : "Warning",
+              lock_reason: lockReason,
+            });
+          }
+        } catch (reason) {
+          setError(`Đã lưu chấn thương nhưng không thể tự động cập nhật trạng thái và khóa huấn luyện: ${veterinarianError(reason)}`);
+          onChanged("Đã lưu chấn thương; cần kiểm tra lại trạng thái và khóa huấn luyện.");
+          return;
+        }
+        setSuggestLock(true);
+        onChanged("Đã lưu chấn thương. Ngựa đã chuyển sang Chấn thương, chưa sẵn sàng và khóa huấn luyện.");
+      } else {
+        onChanged("Đã lưu đánh giá phục hồi.");
+      }
     } catch (reason) { setError(veterinarianError(reason)); }
     finally { setBusy(false); }
   }

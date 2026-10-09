@@ -6,25 +6,69 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinnedModel } from "three/addons/utils/SkeletonUtils.js";
 import type { InjuryMarker } from "@/api/veterinarian/api";
+import MuscleAnatomyPanel from "./MuscleAnatomyPanel";
+import OrganAnatomyPanel from "./OrganAnatomyPanel";
+import SkeletonAnatomyPanel from "./SkeletonAnatomyPanel";
+import { buildEquineSkeletonLayer, type SkeletonRecord } from "./skeleton-builder";
+import {
+  buildEquineMuscleLayer,
+  equineMuscles,
+  type EquineMuscleRecord,
+  type MuscleFilters,
+} from "./muscle-builder";
+import {
+  buildEquineOrganLayer,
+  type OrganRecord,
+  type OrganSystems,
+} from "./organ-builder";
 
 type Coordinates = { coordinate_x: number | null; coordinate_y: number | null; coordinate_z: number | null };
 type CoordinateInput = { coordinate_x: number | string | null; coordinate_y: number | string | null; coordinate_z: number | string | null };
 type Axis = "x" | "z";
 type ModelAxes = { longAxis: Axis; sideAxis: Axis; headDirection: 1 | -1; halfLength: number; halfHeight: number; halfWidth: number };
-type ViewerSide = "near" | "far";
+type ViewerView = "left" | "right" | "top" | "front" | "back";
 type AnatomyLayer = "skin" | "muscle" | "skeleton" | "organs";
-const anatomyLayers: { id: AnatomyLayer; label: string }[] = [
-  { id: "skin", label: "Da / lông" },
-  { id: "muscle", label: "Hệ cơ" },
-  { id: "skeleton", label: "Hệ xương" },
-  { id: "organs", label: "Nội tạng" },
+type AnatomyVisibility = Record<AnatomyLayer, boolean>;
+const viewPresetLabels: Record<ViewerView, string> = {
+  left: "Bên trái",
+  right: "Bên phải",
+  front: "Trước",
+  back: "Sau",
+  top: "Trên",
+};
+const anatomyLayers: { id: AnatomyLayer; label: string; description: string }[] = [
+  { id: "skin", label: "Da", description: "Lớp da/lông mờ để định hướng vị trí xương." },
+  { id: "skeleton", label: "Xương", description: "Cột sống, sọ, 18 đôi xương sườn, xương chậu và xương chi." },
+  { id: "organs", label: "Nội tạng", description: "Phổi, tim, cơ hoành, gan, dạ dày, ruột, thận, bàng quang và hệ thần kinh." },
+  { id: "muscle", label: "Cơ", description: "Hệ cơ ngựa, cân, gân và dây chằng; điểm bám trên rig được ước lượng khi thiếu node chuyên biệt." },
 ];
 type InteractionState = {
   markers: InjuryMarker[];
   placementMode: boolean;
   selectedCoordinates: Coordinates | null;
   selectedId: string | null;
+  selectedMuscleId: string | null;
+  hoveredMuscleId: string | null;
+  selectedOrganId: string | null;
+  hoveredOrganId: string | null;
+  selectedSkeletonId: string | null;
+  hoveredSkeletonId: string | null;
+  muscleFilters: MuscleFilters;
+  organSystems: OrganSystems;
+  explodeView: boolean;
   onSelectLocation?: (coordinates: Coordinates) => void;
+};
+type HoveredMuscle = string | null;
+type HoveredOrgan = string | null;
+type HoveredSkeleton = string | null;
+type HoveredMarker = { id: string; x: number; y: number } | null;
+type ViewerActions = {
+  setView: (view: ViewerView) => void;
+  zoom: (factor: number) => void;
+  reset: () => void;
+  focusMuscle: (id: string) => void;
+  focusOrgan: (id: string) => void;
+  focusSkeleton: (id: string) => void;
 };
 
 let horseModelPromise: Promise<THREE.Group> | null = null;
@@ -104,35 +148,88 @@ export default function InjuryModel3D({
   onSelectLocation?: (coordinates: Coordinates) => void;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const actionsRef = useRef<{ setSide: (side: ViewerSide) => void; zoom: (factor: number) => void; reset: () => void }>({ setSide: () => {}, zoom: () => {}, reset: () => {} });
-  const interactionRef = useRef<InteractionState>({ markers, placementMode, selectedCoordinates, selectedId: null, onSelectLocation });
-  const [side, setSide] = useState<ViewerSide>("near");
-  const [anatomyLayer, setAnatomyLayer] = useState<AnatomyLayer>("skin");
-  const anatomyLayerRef = useRef<AnatomyLayer>("skin");
+  const actionsRef = useRef<ViewerActions>({ setView: () => {}, zoom: () => {}, reset: () => {}, focusMuscle: () => {}, focusOrgan: () => {}, focusSkeleton: () => {} });
+  const interactionRef = useRef<InteractionState>({
+    markers,
+    placementMode,
+    selectedCoordinates,
+    selectedId: null,
+    selectedMuscleId: null,
+    hoveredMuscleId: null,
+    selectedOrganId: null,
+    hoveredOrganId: null,
+    selectedSkeletonId: null,
+    hoveredSkeletonId: null,
+    muscleFilters: { group: "all", superficial: true, deep: true, search: "" },
+    organSystems: { respiratory: true, circulatory: true, digestive: true, urinary: true, nervous: true },
+    explodeView: false,
+    onSelectLocation,
+  });
+  const [view, setViewState] = useState<ViewerView>("left");
+  const [anatomyVisibility, setAnatomyVisibility] = useState<AnatomyVisibility>({ skin: true, skeleton: false, organs: false, muscle: false });
+  const anatomyVisibilityRef = useRef<AnatomyVisibility>(anatomyVisibility);
+  const [muscleFilters, setMuscleFilters] = useState<MuscleFilters>({ group: "all", superficial: true, deep: true, search: "" });
+  const [selectedMuscleId, setSelectedMuscleId] = useState<string | null>(null);
+  const [hoveredMuscle, setHoveredMuscle] = useState<HoveredMuscle>(null);
+  const [organSystems, setOrganSystems] = useState<OrganSystems>({ respiratory: true, circulatory: true, digestive: true, urinary: true, nervous: true });
+  const [organRecords, setOrganRecords] = useState<OrganRecord[]>([]);
+  const [selectedOrganId, setSelectedOrganId] = useState<string | null>(null);
+  const [hoveredOrgan, setHoveredOrgan] = useState<HoveredOrgan>(null);
+  const [skeletonRecords, setSkeletonRecords] = useState<SkeletonRecord[]>([]);
+  const [selectedSkeletonId, setSelectedSkeletonId] = useState<string | null>(null);
+  const [hoveredSkeleton, setHoveredSkeleton] = useState<HoveredSkeleton>(null);
+  const [explodeView, setExplodeView] = useState(false);
+  const [hoveredMarker, setHoveredMarker] = useState<HoveredMarker>(null);
+  const [inspectorTab, setInspectorTab] = useState<"muscle" | "organs" | "skeleton">("muscle");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  interactionRef.current = { markers, placementMode, selectedCoordinates, selectedId, onSelectLocation };
+  interactionRef.current = {
+    markers, placementMode, selectedCoordinates, selectedId, selectedMuscleId,
+    hoveredMuscleId: hoveredMuscle, selectedOrganId, hoveredOrganId: hoveredOrgan,
+    selectedSkeletonId, hoveredSkeletonId: hoveredSkeleton,
+    muscleFilters, organSystems, explodeView, onSelectLocation,
+  };
+  anatomyVisibilityRef.current = anatomyVisibility;
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
 
     let disposed = false;
+    let horseRoot: THREE.Group | null = null;
     let modelAxes: ModelAxes | null = null;
+    let boneNodes = new Map<string, THREE.Bone>();
     let modelMeshes: THREE.Object3D[] = [];
     let layerMeshes: { mesh: THREE.Mesh; skinMaterial: THREE.Material | THREE.Material[]; ghostMaterial: THREE.MeshStandardMaterial }[] = [];
     let anatomyGroups: THREE.Group[] = [];
     let muscleLayer: THREE.Group | null = null;
     let skeletonLayer: THREE.Group | null = null;
     let organLayer: THREE.Group | null = null;
-    let activeAnatomyLayer: AnatomyLayer | null = null;
+    let nerveLayer: THREE.Group | null = null;
+    let builtSkeletonRecords: SkeletonRecord[] = [];
+    let skeletonDisplayMaterials: {
+      dimBone: THREE.MeshStandardMaterial;
+      dimCartilage: THREE.MeshStandardMaterial;
+      focusBone: Record<string, THREE.MeshStandardMaterial>;
+    } | null = null;
+    let builtOrganRecords: OrganRecord[] = [];
+    const accessoryMeshes: THREE.Mesh[] = [];
+    let activeAnatomySignature = "";
+    let activeMuscleDisplaySignature = "";
+    let activeOrganDisplaySignature = "";
+    let activeSkeletonDisplaySignature = "";
+    let activeExplodeState = false;
     let markerGroup: THREE.Group | null = null;
-    let floorSurface: THREE.Mesh | null = null;
     let lastMarkerSignature = "";
     let lastDraftSignature = "";
     let frameId = 0;
+    let fittedDistance = 6.3;
+    let modelRadius = 0;
+    let contactShadow: THREE.Mesh | null = null;
+    let currentView: ViewerView = "left";
+    let cameraReady = false;
     let startPoint: { x: number; y: number } | null = null;
     const markerObjects = new Map<string, THREE.Group>();
     const scene = new THREE.Scene();
@@ -156,7 +253,7 @@ export default function InjuryModel3D({
     const handleContextLost = () => {
       disposed = true;
       window.cancelAnimationFrame(frameId);
-      actionsRef.current = { setSide: () => {}, zoom: () => {}, reset: () => {} };
+      actionsRef.current = { setView: () => {}, zoom: () => {}, reset: () => {}, focusMuscle: () => {}, focusOrgan: () => {}, focusSkeleton: () => {} };
       setLoadError("WebGL đã bị trình duyệt dừng. Hãy tải lại trang để mở lại mô hình 3D.");
       setLoading(false);
     };
@@ -171,15 +268,17 @@ export default function InjuryModel3D({
     const fillLight = new THREE.DirectionalLight(0xdceeff, 1.15);
     fillLight.position.set(5, 2, -5);
     scene.add(fillLight);
-
+    const rimLight = new THREE.DirectionalLight(0xf5dfc6, 1.55);
+    rimLight.position.set(0, 4, -7);
+    scene.add(rimLight);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.075;
     controls.enablePan = false;
-    controls.minDistance = 2.4;
-    controls.maxDistance = 11;
-    controls.minPolarAngle = 0.16;
-    controls.maxPolarAngle = Math.PI * 0.49;
+    controls.minDistance = 0.55;
+    controls.maxDistance = 18;
+    controls.minPolarAngle = 0.005;
+    controls.maxPolarAngle = Math.PI - 0.005;
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -190,19 +289,126 @@ export default function InjuryModel3D({
     const draftMarker = pin("#d74d4d", draftHaloGeometry, draftCoreGeometry);
     draftMarker.visible = false;
 
-    function syncAnatomyLayer() {
+    function syncAnatomyLayers() {
       if (!layerMeshes.length) return;
-      const nextLayer = anatomyLayerRef.current;
-      if (activeAnatomyLayer === nextLayer) return;
+      const nextLayers = anatomyVisibilityRef.current;
+      const signature = `${Number(nextLayers.skin)}${Number(nextLayers.skeleton)}${Number(nextLayers.organs)}${Number(nextLayers.muscle)}`;
+      if (activeAnatomySignature === signature) return;
+      const showAnatomy = nextLayers.skeleton || nextLayers.organs || nextLayers.muscle;
+      if (horseRoot) horseRoot.visible = nextLayers.skin;
       for (const entry of layerMeshes) {
-        entry.mesh.material = nextLayer === "skin" ? entry.skinMaterial : entry.ghostMaterial;
-        entry.mesh.renderOrder = nextLayer === "skin" ? 0 : 1;
-        entry.ghostMaterial.opacity = nextLayer === "skeleton" ? 0.07 : 0.2;
+        const showGhost = nextLayers.skin && showAnatomy;
+        entry.mesh.material = showGhost ? entry.ghostMaterial : entry.skinMaterial;
+        entry.mesh.renderOrder = showGhost ? 1 : 0;
+        entry.ghostMaterial.opacity = nextLayers.skeleton ? 0.1 : 0.14;
       }
-      if (muscleLayer) muscleLayer.visible = nextLayer === "muscle";
-      if (skeletonLayer) skeletonLayer.visible = nextLayer === "skeleton";
-      if (organLayer) organLayer.visible = nextLayer === "organs";
-      activeAnatomyLayer = nextLayer;
+      accessoryMeshes.forEach((mesh) => { mesh.visible = !showAnatomy; });
+      if (muscleLayer) muscleLayer.visible = nextLayers.muscle;
+      if (skeletonLayer) skeletonLayer.visible = nextLayers.skeleton;
+      if (organLayer) organLayer.visible = nextLayers.organs;
+      if (nerveLayer) nerveLayer.visible = nextLayers.organs && interactionRef.current.organSystems.nervous;
+      activeAnatomySignature = signature;
+    }
+
+    function syncMuscleDisplay() {
+      if (!muscleLayer) return;
+      const current = interactionRef.current;
+      const { group, superficial, deep, search } = current.muscleFilters;
+      const normalizedSearch = search.trim().toLocaleLowerCase("vi");
+      const signature = `${group}|${Number(superficial)}${Number(deep)}|${normalizedSearch}|${current.selectedMuscleId ?? ""}|${current.hoveredMuscleId ?? ""}`;
+      if (signature === activeMuscleDisplaySignature) return;
+
+      for (const muscleRoot of muscleLayer.children) {
+        const record = muscleRoot.userData.muscleInfo as EquineMuscleRecord | undefined;
+        if (!record) continue;
+        const searchable = `${record.vi} ${record.latin} ${record.origin.label} ${record.insertion.label}`.toLocaleLowerCase("vi");
+        const matches = (group === "all" || record.group === group)
+          && (record.layer === "superficial" ? superficial : deep)
+          && (!normalizedSearch || searchable.includes(normalizedSearch));
+        muscleRoot.visible = matches;
+        const highlighted = record.id === current.selectedMuscleId || record.id === current.hoveredMuscleId;
+        const selected = record.id === current.selectedMuscleId;
+        muscleRoot.traverse((object) => {
+          if (!(object instanceof THREE.Mesh)) return;
+          const materials = Array.isArray(object.material) ? object.material : [object.material];
+          materials.forEach((material) => {
+            if (!(material instanceof THREE.MeshStandardMaterial)) return;
+            material.emissive.setHex(highlighted ? 0x5a2520 : Number(material.userData.baseEmissive ?? 0));
+            material.emissiveIntensity = selected ? 0.7 : highlighted ? 0.38 : 0;
+          });
+        });
+      }
+      activeMuscleDisplaySignature = signature;
+    }
+
+    function syncOrganDisplay() {
+      if (!organLayer) return;
+      const current = interactionRef.current;
+      const focusId = current.hoveredOrganId ?? current.selectedOrganId;
+      const signature = `${Number(current.organSystems.respiratory)}${Number(current.organSystems.circulatory)}${Number(current.organSystems.digestive)}${Number(current.organSystems.urinary)}${Number(current.organSystems.nervous)}|${focusId ?? ""}`;
+      if (signature !== activeOrganDisplaySignature) {
+        for (const record of builtOrganRecords) {
+          const visible = current.organSystems[record.system];
+          record.object.visible = visible;
+          const dimFactor = focusId && focusId !== record.id ? 0.22 : 1;
+          record.object.traverse((object) => {
+            if (!(object instanceof THREE.Mesh)) return;
+            const materials = Array.isArray(object.material) ? object.material : [object.material];
+            materials.forEach((material) => {
+              if (!(material instanceof THREE.MeshStandardMaterial)) return;
+              const baseOpacity = Number(material.userData.baseOpacity ?? 0.94);
+              material.opacity = baseOpacity * dimFactor;
+              material.emissive.setHex(focusId === record.id ? 0x412326 : Number(material.userData.baseEmissive ?? 0));
+              material.emissiveIntensity = focusId === record.id ? 0.42 : 0;
+            });
+          });
+        }
+        if (nerveLayer) nerveLayer.visible = anatomyVisibilityRef.current.organs && current.organSystems.nervous;
+        activeOrganDisplaySignature = signature;
+      }
+
+    }
+
+    function syncSkeletonDisplay() {
+      if (!skeletonLayer) return;
+      const current = interactionRef.current;
+      const focusId = current.hoveredSkeletonId ?? current.selectedSkeletonId;
+      const signature = `${focusId ?? ""}|${Number(current.explodeView)}`;
+      if (signature !== activeSkeletonDisplaySignature) {
+        if (current.explodeView !== activeExplodeState) {
+          const sideAxis = modelAxes?.sideAxis === "x" ? "x" : "z";
+          const longAxis = modelAxes?.longAxis === "x" ? "x" : "z";
+          for (const category of skeletonLayer.children) {
+            const kind = category.userData.skeletonGroup as string;
+            category.position.set(0, 0, 0);
+            if (current.explodeView) {
+              if (kind === "axial") category.position.y = 0.024;
+              if (kind === "forelimb") category.position.setComponent(sideAxis === "x" ? 0 : 2, 0.035);
+              if (kind === "hindlimb") category.position.setComponent(sideAxis === "x" ? 0 : 2, -0.035);
+              if (kind === "head") category.position.setComponent(longAxis === "x" ? 0 : 2, (modelAxes?.headDirection ?? 1) * 0.025);
+            }
+          }
+          activeExplodeState = current.explodeView;
+        }
+        for (const record of builtSkeletonRecords) {
+          const highlighted = focusId === record.id;
+          const dimmed = Boolean(focusId && !highlighted);
+          record.object.traverse((object) => {
+            if (!(object instanceof THREE.Mesh)) return;
+            const isCartilage = Boolean(object.userData.isCartilage);
+            if (dimmed) object.material = isCartilage ? skeletonDisplayMaterials?.dimCartilage ?? object.material : skeletonDisplayMaterials?.dimBone ?? object.material;
+            else if (highlighted && skeletonDisplayMaterials) object.material = isCartilage
+              ? (skeletonLayer?.userData.skeletonMaterials as { cartilage: THREE.MeshStandardMaterial } | undefined)?.cartilage ?? object.material
+              : skeletonDisplayMaterials.focusBone[record.group] ?? object.material;
+            else {
+              const materials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.MeshStandardMaterial; cartilage: THREE.MeshStandardMaterial } | undefined;
+              if (materials) object.material = isCartilage ? materials.cartilage : materials.bone;
+            }
+          });
+        }
+        activeSkeletonDisplaySignature = signature;
+      }
+
     }
 
     function resize() {
@@ -212,35 +418,104 @@ export default function InjuryModel3D({
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
+      if (cameraReady) cameraForView(currentView);
     }
 
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(mount);
     resize();
 
-    function cameraForSide(nextSide: ViewerSide) {
+    function cameraForView(nextView: ViewerView) {
       if (!modelAxes) return;
-      const referenceSide = modelAxes.longAxis === "x" ? -modelAxes.headDirection : modelAxes.headDirection;
-      const sign = nextSide === "near" ? referenceSide : -referenceSide;
-      const distance = 6.3;
-      const position = new THREE.Vector3();
-      position.setComponent(modelAxes.sideAxis === "x" ? 0 : 2, sign * distance);
-      position.setComponent(modelAxes.longAxis === "x" ? 0 : 2, modelAxes.headDirection * distance * 0.12);
-      position.y = distance * 0.19;
+      const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+      const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
+      const limitingFov = Math.min(verticalFov, horizontalFov);
+      fittedDistance = Math.max(2.4, modelRadius / Math.sin(limitingFov / 2) * 1.08);
+      controls.minDistance = Math.max(0.55, Math.min(1.25, modelRadius * 0.38));
+      controls.maxDistance = Math.max(11, fittedDistance * 2.2);
+      const direction = new THREE.Vector3();
+      camera.up.set(0, 1, 0);
+      if (nextView === "top") {
+        direction.y = 1;
+        camera.up.setComponent(modelAxes.longAxis === "x" ? 0 : 2, modelAxes.headDirection);
+      } else if (nextView === "left" || nextView === "right") {
+        const sideIndex = modelAxes.sideAxis === "x" ? 0 : 2;
+        const leftPosition = boneNodes.get("clavicle_l_0203")?.getWorldPosition(new THREE.Vector3());
+        const leftSign = leftPosition ? Math.sign(leftPosition.getComponent(sideIndex)) || -1 : -1;
+        direction.setComponent(sideIndex, nextView === "left" ? leftSign : -leftSign);
+        direction.addScaledVector(new THREE.Vector3().setComponent(modelAxes.longAxis === "x" ? 0 : 2, modelAxes.headDirection), 0.06);
+        direction.y = 0.08;
+      } else {
+        direction.setComponent(modelAxes.longAxis === "x" ? 0 : 2, modelAxes.headDirection * (nextView === "front" ? 1 : -1));
+        direction.y = 0.08;
+      }
+      direction.normalize();
       controls.target.set(0, 0, 0);
-      camera.position.copy(position);
+      camera.position.copy(controls.target).addScaledVector(direction, fittedDistance);
       camera.lookAt(controls.target);
       controls.update();
     }
 
+    const focusMuscle = (id: string) => {
+      const target = muscleLayer?.children.find((child) => child.userData.muscleId === id);
+      if (!target) return;
+      const bounds = new THREE.Box3().setFromObject(target);
+      const center = bounds.getCenter(new THREE.Vector3());
+      const offset = camera.position.clone().sub(controls.target);
+      if (offset.lengthSq() < 0.001) offset.set(1, 0.25, 1);
+      const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+      const distance = clamp(Math.max(sphere.radius * 3.6, 2.6), 2.6, 5.5);
+      controls.target.copy(center);
+      camera.position.copy(center).add(offset.normalize().multiplyScalar(distance));
+      camera.lookAt(center);
+      controls.update();
+    };
+
+    const focusOrgan = (id: string) => {
+      const target = builtOrganRecords.find((record) => record.id === id)?.object;
+      if (!target) return;
+      const bounds = new THREE.Box3().setFromObject(target);
+      const center = bounds.getCenter(new THREE.Vector3());
+      const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+      const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+      const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
+      const distance = clamp(sphere.radius / Math.sin(Math.min(verticalFov, horizontalFov) / 2) * 1.8, 0.85, 3.8);
+      const offset = camera.position.clone().sub(controls.target);
+      if (offset.lengthSq() < 0.001) offset.set(1, 0.25, 1);
+      controls.target.copy(center);
+      camera.position.copy(center).add(offset.normalize().multiplyScalar(distance));
+      camera.lookAt(center);
+      controls.update();
+    };
+
+    const focusSkeleton = (id: string) => {
+      const target = builtSkeletonRecords.find((record) => record.id === id)?.object;
+      if (!target) return;
+      const bounds = new THREE.Box3().setFromObject(target);
+      const center = bounds.getCenter(new THREE.Vector3());
+      const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+      const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+      const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
+      const distance = clamp(sphere.radius / Math.sin(Math.min(verticalFov, horizontalFov) / 2) * 2.1, 0.8, 4.8);
+      const offset = camera.position.clone().sub(controls.target);
+      if (offset.lengthSq() < 0.001) offset.set(1, 0.25, 1);
+      controls.target.copy(center);
+      camera.position.copy(center).add(offset.normalize().multiplyScalar(distance));
+      camera.lookAt(center);
+      controls.update();
+    };
+
     actionsRef.current = {
-      setSide: (nextSide) => cameraForSide(nextSide),
+      setView: (nextView) => { currentView = nextView; setViewState(nextView); cameraForView(nextView); },
       zoom: (factor) => {
         const offset = camera.position.clone().sub(controls.target).multiplyScalar(factor);
         camera.position.copy(controls.target).add(offset);
         controls.update();
       },
-      reset: () => cameraForSide("near"),
+      reset: () => { currentView = "left"; setViewState("left"); cameraForView("left"); },
+      focusMuscle,
+      focusOrgan,
+      focusSkeleton,
     };
 
     function syncPins() {
@@ -289,6 +564,92 @@ export default function InjuryModel3D({
       startPoint = { x: event.clientX, y: event.clientY };
     }
 
+    function muscleHitAt(event: PointerEvent | MouseEvent) {
+      if (!muscleLayer?.visible) return null;
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      return raycaster.intersectObjects(muscleLayer.children, true)[0] ?? null;
+    }
+
+    function organHitAt(event: PointerEvent | MouseEvent) {
+      if (!organLayer?.visible) return null;
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const roots = builtOrganRecords
+        .filter((record) => interactionRef.current.organSystems[record.system]
+          && (record.system !== "nervous" || Boolean(nerveLayer?.visible)))
+        .map((record) => record.object);
+      return raycaster.intersectObjects(roots, true).find((hit) => hit.object.userData.organId) ?? null;
+    }
+
+    function skeletonHitAt(event: PointerEvent | MouseEvent) {
+      if (!skeletonLayer?.visible) return null;
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      return raycaster.intersectObjects(skeletonLayer.children, true).find((hit) => hit.object.userData.boneId) ?? null;
+    }
+
+    function handlePointerMove(event: PointerEvent) {
+      const current = interactionRef.current;
+      if (current.placementMode) {
+        if (current.hoveredMuscleId) setHoveredMuscle(null);
+        if (current.hoveredOrganId) setHoveredOrgan(null);
+        if (current.hoveredSkeletonId) setHoveredSkeleton(null);
+        setHoveredMarker(null);
+        renderer.domElement.style.cursor = "crosshair";
+        return;
+      }
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const markerHit = raycaster.intersectObjects([...markerObjects.values()], true)[0];
+      const markerId = markerHit?.object.userData.markerId as string | undefined;
+      if (markerId) {
+        setHoveredMarker({ id: markerId, x: clamp(event.clientX - rect.left + 12, 8, Math.max(8, rect.width - 180)), y: clamp(event.clientY - rect.top + 12, 8, Math.max(8, rect.height - 70)) });
+        setHoveredOrgan(null);
+        setHoveredSkeleton(null);
+        setHoveredMuscle(null);
+        renderer.domElement.style.cursor = "pointer";
+        return;
+      }
+      setHoveredMarker(null);
+      const organHit = organHitAt(event);
+      const organId = organHit?.object.userData.organId as string | undefined;
+      if (organId) {
+        setHoveredSkeleton(null);
+        setHoveredOrgan(organId);
+        setHoveredMuscle(null);
+        renderer.domElement.style.cursor = "pointer";
+        return;
+      }
+      setHoveredOrgan(null);
+      const skeletonHit = skeletonHitAt(event);
+      const skeletonId = skeletonHit?.object.userData.boneId as string | undefined;
+      if (skeletonId) {
+        setHoveredSkeleton((previous) => previous === skeletonId ? previous : skeletonId);
+        setHoveredMuscle(null);
+        renderer.domElement.style.cursor = "pointer";
+        return;
+      }
+      setHoveredSkeleton(null);
+      const hit = muscleHitAt(event);
+      const id = hit?.object.userData.muscleId as string | undefined;
+      if (id) {
+        setHoveredMuscle((previous) => previous === id ? previous : id);
+        renderer.domElement.style.cursor = "pointer";
+      } else {
+        setHoveredMuscle(null);
+        renderer.domElement.style.cursor = startPoint ? "grabbing" : "grab";
+      }
+    }
+
     function handlePointerUp(event: PointerEvent) {
       if (!startPoint || Math.hypot(event.clientX - startPoint.x, event.clientY - startPoint.y) > 6) {
         startPoint = null;
@@ -305,23 +666,101 @@ export default function InjuryModel3D({
       const markerId = markerHit?.object.userData.markerId as string | undefined;
       if (!current.placementMode && markerId) {
         setSelectedId(markerId);
+        setSelectedOrganId(null);
+        setSelectedMuscleId(null);
+        setSelectedSkeletonId(null);
         return;
+      }
+      if (!current.placementMode) {
+        const organHit = organHitAt(event);
+        const organId = organHit?.object.userData.organId as string | undefined;
+        if (organId) {
+          setSelectedOrganId(organId);
+          setSelectedMuscleId(null);
+          setSelectedSkeletonId(null);
+          setSelectedId(null);
+          setInspectorTab("organs");
+          return;
+        }
+        const skeletonHit = skeletonHitAt(event);
+        const skeletonId = skeletonHit?.object.userData.boneId as string | undefined;
+        if (skeletonId) {
+          setSelectedSkeletonId(skeletonId);
+          setSelectedOrganId(null);
+          setSelectedMuscleId(null);
+          setSelectedId(null);
+          setInspectorTab("skeleton");
+          setAnatomyVisibility((currentLayers) => ({ ...currentLayers, skeleton: true }));
+          focusSkeleton(skeletonId);
+          return;
+        }
+        const muscleHit = muscleHitAt(event);
+        const muscleId = muscleHit?.object.userData.muscleId as string | undefined;
+        if (muscleId) {
+          setSelectedMuscleId(muscleId);
+          setSelectedOrganId(null);
+          setSelectedSkeletonId(null);
+          setSelectedId(null);
+          setInspectorTab("muscle");
+          return;
+        }
       }
       if (current.placementMode && current.onSelectLocation && modelAxes) {
         const hit = raycaster.intersectObjects(modelMeshes, true)[0];
         if (hit) current.onSelectLocation(pointToCoordinates(hit.point, modelAxes));
         return;
       }
-      if (!current.placementMode) setSelectedId(null);
+      if (!current.placementMode) {
+        setSelectedId(null);
+        setSelectedOrganId(null);
+        setSelectedMuscleId(null);
+        setSelectedSkeletonId(null);
+      }
+    }
+
+    function handleDoubleClick(event: MouseEvent) {
+      if (interactionRef.current.placementMode) return;
+      const organHit = organHitAt(event);
+      const organId = organHit?.object.userData.organId as string | undefined;
+      if (organId) {
+        setSelectedOrganId(organId);
+        setSelectedMuscleId(null);
+        setSelectedSkeletonId(null);
+        setInspectorTab("organs");
+        focusOrgan(organId);
+        return;
+      }
+      const skeletonHit = skeletonHitAt(event);
+      const skeletonId = skeletonHit?.object.userData.boneId as string | undefined;
+      if (skeletonId) {
+        setSelectedSkeletonId(skeletonId);
+        setSelectedOrganId(null);
+        setInspectorTab("skeleton");
+        focusSkeleton(skeletonId);
+        return;
+      }
+      const hit = muscleHitAt(event);
+      const muscleId = hit?.object.userData.muscleId as string | undefined;
+      if (!muscleId) return;
+      setSelectedMuscleId(muscleId);
+      setSelectedOrganId(null);
+      setSelectedSkeletonId(null);
+      setInspectorTab("muscle");
+      focusMuscle(muscleId);
     }
 
     renderer.domElement.addEventListener("pointerdown", handlePointerDown);
     renderer.domElement.addEventListener("pointerup", handlePointerUp);
+    renderer.domElement.addEventListener("pointermove", handlePointerMove);
+    renderer.domElement.addEventListener("dblclick", handleDoubleClick);
 
     function render() {
       if (disposed) return;
       frameId = window.requestAnimationFrame(render);
-      syncAnatomyLayer();
+      syncAnatomyLayers();
+      syncMuscleDisplay();
+      syncOrganDisplay();
+      syncSkeletonDisplay();
       syncPins();
       controls.update();
       renderer.render(scene, camera);
@@ -330,9 +769,17 @@ export default function InjuryModel3D({
 
     void loadHorseModel().then((horse) => {
       if (disposed) return;
+      horseRoot = horse;
       horse.updateMatrixWorld(true);
       horse.traverse((object) => {
-        if (object instanceof THREE.Mesh && /saddle|tack/i.test(`${object.name} ${object.geometry.name}`)) object.visible = false;
+        if (!(object instanceof THREE.Mesh)) return;
+        let ancestor: THREE.Object3D | null = object;
+        let belongsToAccessory = /saddle|tack|bridle|reins|halter|mane|forelock/i.test(object.geometry.name);
+        while (ancestor && ancestor !== horse && !belongsToAccessory) {
+          belongsToAccessory = /saddle|tack|bridle|reins|halter|mane|forelock/i.test(ancestor.name);
+          ancestor = ancestor.parent;
+        }
+        if (belongsToAccessory) accessoryMeshes.push(object);
       });
       const bounds = new THREE.Box3().setFromObject(horse);
       const center = bounds.getCenter(new THREE.Vector3());
@@ -342,13 +789,39 @@ export default function InjuryModel3D({
       const head = horse.getObjectByName("head_019");
       const headPosition = head?.getWorldPosition(new THREE.Vector3());
       const headDirection: 1 | -1 = headPosition && headPosition.getComponent(longAxis === "x" ? 0 : 2) < center.getComponent(longAxis === "x" ? 0 : 2) ? -1 : 1;
-      const scale = 3.35 / Math.max(rawSize.x, rawSize.y, rawSize.z);
+      const withersPosition = horse.getObjectByName("spine_04_012")?.getWorldPosition(new THREE.Vector3());
+      const hoofPosition = horse.getObjectByName("foot_l_0407")?.getWorldPosition(new THREE.Vector3());
+      const measuredWithersHeight = withersPosition && hoofPosition ? Math.abs(withersPosition.y - hoofPosition.y) : 0;
+      const estimatedWithersHeight = rawSize.y * 0.72;
+      const scale = 1.6 / Math.max(0.01, measuredWithersHeight || estimatedWithersHeight);
       horse.scale.setScalar(scale);
       horse.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
       horse.updateMatrixWorld(true);
 
       const normalizedBounds = new THREE.Box3().setFromObject(horse);
       const size = normalizedBounds.getSize(new THREE.Vector3());
+      const shadowCanvas = document.createElement("canvas");
+      shadowCanvas.width = 128;
+      shadowCanvas.height = 128;
+      const shadowContext = shadowCanvas.getContext("2d");
+      if (shadowContext) {
+        const gradient = shadowContext.createRadialGradient(64, 64, 6, 64, 64, 62);
+        gradient.addColorStop(0, "rgba(40,52,54,0.24)");
+        gradient.addColorStop(0.45, "rgba(40,52,54,0.12)");
+        gradient.addColorStop(1, "rgba(40,52,54,0)");
+        shadowContext.fillStyle = gradient;
+        shadowContext.fillRect(0, 0, 128, 128);
+      }
+      const shadowTexture = new THREE.CanvasTexture(shadowCanvas);
+      const shadowGeometry = new THREE.PlaneGeometry(size.x * 0.84, size.z * 0.84);
+      const shadowMaterial = new THREE.MeshBasicMaterial({ map: shadowTexture, transparent: true, opacity: 0.42, depthWrite: false, toneMapped: false });
+      contactShadow = new THREE.Mesh(shadowGeometry, shadowMaterial);
+      contactShadow.name = "Soft contact shadow";
+      contactShadow.rotation.x = -Math.PI / 2;
+      contactShadow.position.y = normalizedBounds.min.y + 0.003;
+      contactShadow.renderOrder = 0;
+      scene.add(contactShadow);
+      modelRadius = normalizedBounds.getBoundingSphere(new THREE.Sphere()).radius;
       modelAxes = {
         longAxis,
         sideAxis,
@@ -367,316 +840,82 @@ export default function InjuryModel3D({
       });
       layerMeshes = modelMeshes.map((object) => {
         const mesh = object as THREE.Mesh;
+        const ghostMaterial = new THREE.MeshStandardMaterial({
+          color: "#aab3b4",
+          transparent: true,
+          opacity: 0.16,
+          depthWrite: false,
+          roughness: 0.92,
+          side: THREE.DoubleSide,
+        });
+        ghostMaterial.onBeforeCompile = (shader) => {
+          shader.fragmentShader = shader.fragmentShader.replace(
+            "#include <output_fragment>",
+            `#include <output_fragment>
+            float horseSkinFresnel = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 2.0);
+            gl_FragColor.a *= mix(0.55, 1.0, horseSkinFresnel);`,
+          );
+        };
+        ghostMaterial.customProgramCacheKey = () => "horse-translucent-skin-fresnel-v1";
         return {
           mesh,
           skinMaterial: mesh.material,
-          ghostMaterial: new THREE.MeshStandardMaterial({
-            color: "#aab3b4",
-            transparent: true,
-            opacity: 0.2,
-            depthWrite: false,
-            roughness: 0.92,
-            side: THREE.DoubleSide,
-          }),
+          ghostMaterial,
         };
       });
 
       const axes = modelAxes;
       if (!axes) throw new Error("Could not determine horse model axes.");
-      const boneNodes = new Map<string, THREE.Bone>();
+      boneNodes = new Map<string, THREE.Bone>();
       horse.traverse((object) => {
         if (object instanceof THREE.Bone) boneNodes.set(object.name, object);
       });
-      const bonePosition = (name: string) => boneNodes.get(name)?.getWorldPosition(new THREE.Vector3()) ?? null;
-      const muscleGroup = new THREE.Group();
-      muscleGroup.name = "Equine muscle layer";
-      const skeletonGroup = new THREE.Group();
-      skeletonGroup.name = "Equine skeleton layer";
-      const organGroup = new THREE.Group();
-      organGroup.name = "Equine organ layer";
+      const muscleGroup = buildEquineMuscleLayer(boneNodes, axes);
+      const skeletonAnatomy = buildEquineSkeletonLayer(boneNodes, axes);
+      const skeletonGroup = skeletonAnatomy.group;
+      builtSkeletonRecords = skeletonAnatomy.records;
+      setSkeletonRecords(skeletonAnatomy.records);
+      const dimBone = skeletonAnatomy.materials.bone.clone();
+      dimBone.transparent = true;
+      dimBone.opacity = 0.17;
+      dimBone.depthWrite = false;
+      const dimCartilage = skeletonAnatomy.materials.cartilage.clone();
+      dimCartilage.opacity = 0.12;
+      dimCartilage.depthWrite = false;
+      const focusBone: Record<string, THREE.MeshStandardMaterial> = {};
+      const groupFocusColors: Record<string, string> = { axial: "#78a9a0", forelimb: "#d29450", hindlimb: "#a57493", head: "#6688a5" };
+      Object.entries(groupFocusColors).forEach(([key, color]) => {
+        const material = skeletonAnatomy.materials.bone.clone();
+        material.color.set(color);
+        material.emissive.set(color);
+        material.emissiveIntensity = 0.16;
+        focusBone[key] = material;
+      });
+      skeletonDisplayMaterials = { dimBone, dimCartilage, focusBone };
+      skeletonGroup.userData.displayMaterials = [dimBone, dimCartilage, ...Object.values(focusBone)];
       muscleLayer = muscleGroup;
       skeletonLayer = skeletonGroup;
-      organLayer = organGroup;
-      anatomyGroups = [muscleGroup, skeletonGroup, organGroup];
-
-      const boneMaterial = new THREE.MeshStandardMaterial({ color: "#e8dfcf", roughness: 0.78, metalness: 0.02 });
-      const boneCylinder = new THREE.CylinderGeometry(0.72, 1, 1, 14, 1);
-      const boneSphere = new THREE.SphereGeometry(1, 18, 14);
-      const up = new THREE.Vector3(0, 1, 0);
-      const addBoneSegment = (start: THREE.Vector3, end: THREE.Vector3, radius: number) => {
-        const direction = end.clone().sub(start);
-        const length = direction.length();
-        if (length < 0.012) return;
-        const segment = new THREE.Mesh(boneCylinder, boneMaterial);
-        segment.position.copy(start).add(end).multiplyScalar(0.5);
-        segment.scale.set(radius, length, radius);
-        segment.quaternion.setFromUnitVectors(up, direction.normalize());
-        segment.renderOrder = 3;
-        skeletonGroup.add(segment);
-      };
-      const addBoneJoint = (point: THREE.Vector3, radius: number, verticalScale = 1.1) => {
-        const joint = new THREE.Mesh(boneSphere, boneMaterial);
-        joint.position.copy(point);
-        joint.scale.set(radius * 1.35, radius * verticalScale, radius * 1.35);
-        joint.renderOrder = 3;
-        skeletonGroup.add(joint);
-      };
-      const addEllipsoidBone = (point: THREE.Vector3, longitudinal: number, vertical: number, lateral: number) => {
-        const bone = new THREE.Mesh(boneSphere, boneMaterial);
-        bone.position.copy(point);
-        bone.scale.setComponent(axes.longAxis === "x" ? 0 : 2, longitudinal);
-        bone.scale.y = vertical;
-        bone.scale.setComponent(axes.sideAxis === "x" ? 0 : 2, lateral);
-        bone.renderOrder = 3;
-        skeletonGroup.add(bone);
-      };
-      const addOrientedEllipsoid = (start: THREE.Vector3, end: THREE.Vector3, width: number, depth: number) => {
-        const direction = end.clone().sub(start);
-        const length = direction.length();
-        if (length < 0.025) return;
-        const bone = new THREE.Mesh(boneSphere, boneMaterial);
-        bone.position.copy(start).add(end).multiplyScalar(0.5);
-        bone.scale.set(width, length * 0.56, depth);
-        bone.quaternion.setFromUnitVectors(up, direction.normalize());
-        bone.renderOrder = 3;
-        skeletonGroup.add(bone);
-      };
-      const sideVector = new THREE.Vector3();
-      sideVector.setComponent(axes.sideAxis === "x" ? 0 : 2, 1);
-      const longitudinalVector = new THREE.Vector3();
-      longitudinalVector.setComponent(axes.longAxis === "x" ? 0 : 2, -axes.headDirection);
-      const heightVector = new THREE.Vector3(0, 1, 0);
-
-      const boneChains: { names: string[]; radii: number[] }[] = [
-        {
-          names: ["pelvis_08", "spine_01_09", "spine_02_010", "spine_03_011", "spine_04_012", "neck_01_014", "neck_02_015", "neck_03_016", "neck_04_017", "neck_05_018", "head_019"],
-          radii: [0.052, 0.044, 0.042, 0.04, 0.038, 0.035, 0.032, 0.03, 0.028, 0.027],
-        },
-        { names: ["clavicle_l_0203", "upperarm_l_0204", "lowerarm_l_0205", "hand_l_0206"], radii: [0.05, 0.043, 0.034] },
-        { names: ["clavicle_r_0269", "upperarm_r_0270", "lowerarm_r_0271", "hand_r_0272"], radii: [0.05, 0.043, 0.034] },
-        { names: ["hips_0366", "upperleg_l_0405", "lowerleg_l_0406", "foot_l_0407", "toes_01_l_0408", "toes_02_l_0409"], radii: [0.055, 0.052, 0.038, 0.03, 0.02] },
-        { names: ["hips_0366", "upperleg_r_0474", "lowerleg_r_0475", "foot_r_0476", "toes_01_r_0477", "toes_02_r_0478"], radii: [0.055, 0.052, 0.038, 0.03, 0.02] },
-        { names: ["tail_01_0367", "tail_02_0368", "tail_03_0369", "tail_04_0370", "tail_05_0371"], radii: [0.025, 0.022, 0.018, 0.014] },
-      ];
-      for (const chain of boneChains) {
-        for (let index = 0; index < chain.names.length - 1; index += 1) {
-          const start = bonePosition(chain.names[index]);
-          const end = bonePosition(chain.names[index + 1]);
-          if (!start || !end) continue;
-          const radius = chain.radii[index] ?? 0.025;
-          addBoneSegment(start, end, radius);
-          addBoneJoint(start, radius, index < 2 ? 1.25 : 1.05);
-        }
-        const tip = bonePosition(chain.names[chain.names.length - 1]);
-        const tipRadius = chain.radii[chain.radii.length - 1] ?? 0.025;
-        if (tip) addBoneJoint(tip, tipRadius * 0.82, 1.05);
-      }
-
-      const thoracicPoints = ["spine_01_09", "spine_02_010", "spine_03_011", "spine_04_012"]
-        .map(bonePosition)
-        .filter((point): point is THREE.Vector3 => Boolean(point));
-      const vertebraeAlong = (anchors: THREE.Vector3[], count: number) => {
-        if (anchors.length < 2) return [] as THREE.Vector3[];
-        const curve = new THREE.CatmullRomCurve3(anchors);
-        return Array.from({ length: count }, (_, index) => curve.getPoint((index + 0.35) / (count + 0.7)));
-      };
-      const addVertebralRow = (points: THREE.Vector3[], width: number, processHeight: number) => {
-        for (const point of points) {
-          addEllipsoidBone(point, width * 0.68, width * 0.72, width * 0.82);
-          const spinousTip = point.clone().addScaledVector(heightVector, processHeight);
-          addBoneSegment(point, spinousTip, width * 0.2);
-          for (const sign of [-1, 1]) {
-            const transverseTip = point.clone().addScaledVector(sideVector, sign * axes.halfWidth * 0.055);
-            addBoneSegment(point, transverseTip, width * 0.16);
-          }
-        }
-      };
-
-      const thoracicVertebrae = vertebraeAlong(thoracicPoints, 18);
-      addVertebralRow(thoracicVertebrae, 0.042, axes.halfHeight * 0.13);
-      const lumbarStart = bonePosition("pelvis_08");
-      const lumbarEnd = bonePosition("spine_01_09");
-      if (lumbarStart && lumbarEnd) addVertebralRow(vertebraeAlong([lumbarStart, lumbarEnd], 6), 0.047, axes.halfHeight * 0.11);
-      const cervicalPoints = ["neck_01_014", "neck_02_015", "neck_03_016", "neck_04_017", "neck_05_018"]
-        .map(bonePosition)
-        .filter((point): point is THREE.Vector3 => Boolean(point));
-      addVertebralRow(vertebraeAlong(cervicalPoints, 7), 0.035, axes.halfHeight * 0.075);
-
-      if (thoracicVertebrae.length > 1) {
-        const sternalPoints: THREE.Vector3[] = [];
-        const ribCount = 18;
-        for (let rib = 0; rib < ribCount; rib += 1) {
-          const root = thoracicVertebrae[rib];
-          const progress = rib / (ribCount - 1);
-          const ribWidth = axes.halfWidth * (0.56 + Math.sin(progress * Math.PI) * 0.1);
-          const caudalOffset = axes.halfLength * (0.018 + progress * 0.022);
-          const sternum = root.clone()
-            .addScaledVector(longitudinalVector, caudalOffset)
-            .addScaledVector(heightVector, -axes.halfHeight * (0.36 + Math.sin(progress * Math.PI) * 0.055));
-          sternalPoints.push(sternum);
-          for (const sign of [-1, 1]) {
-            const curve = new THREE.CatmullRomCurve3([
-              root.clone().addScaledVector(heightVector, -axes.halfHeight * 0.012),
-              root.clone().addScaledVector(longitudinalVector, caudalOffset * 0.25).addScaledVector(sideVector, sign * ribWidth * 0.3).addScaledVector(heightVector, -axes.halfHeight * 0.09),
-              root.clone().addScaledVector(longitudinalVector, caudalOffset * 0.7).addScaledVector(sideVector, sign * ribWidth * 0.68).addScaledVector(heightVector, -axes.halfHeight * 0.24),
-              sternum.clone().addScaledVector(sideVector, sign * axes.halfWidth * 0.025),
-            ]);
-            const ribBone = new THREE.Mesh(new THREE.TubeGeometry(curve, 20, 0.013, 8, false), boneMaterial);
-            ribBone.renderOrder = 3;
-            skeletonGroup.add(ribBone);
-          }
-        }
-        const sternumCurve = new THREE.CatmullRomCurve3(sternalPoints);
-        const sternumBone = new THREE.Mesh(new THREE.TubeGeometry(sternumCurve, 36, 0.023, 10, false), boneMaterial);
-        sternumBone.renderOrder = 3;
-        skeletonGroup.add(sternumBone);
-      }
-
-      const pelvisPoint = bonePosition("hips_0366") ?? bonePosition("pelvis_08");
-      if (pelvisPoint) {
-        addEllipsoidBone(pelvisPoint, axes.halfLength * 0.105, axes.halfHeight * 0.09, axes.halfWidth * 0.16);
-        for (const name of ["upperleg_l_0405", "upperleg_r_0474"]) {
-          const legRoot = bonePosition(name);
-          if (legRoot) addOrientedEllipsoid(pelvisPoint, legRoot, axes.halfWidth * 0.13, axes.halfWidth * 0.075);
-        }
-      }
-      for (const name of ["clavicle_l_0203", "clavicle_r_0269"]) {
-        const scapula = bonePosition(name);
-        const shoulder = bonePosition(name.includes("_l_") ? "upperarm_l_0204" : "upperarm_r_0270");
-        if (scapula && shoulder) addOrientedEllipsoid(scapula, shoulder, axes.halfWidth * 0.15, axes.halfWidth * 0.065);
-      }
-
-      const headPoint = bonePosition("head_019");
-      const jawPoint = bonePosition("jaw_020");
-      const muzzlePoint = bonePosition("jaw_end_021");
-      if (headPoint) {
-        addEllipsoidBone(headPoint, 0.085, 0.09, 0.065);
-        if (muzzlePoint) {
-          addOrientedEllipsoid(headPoint, muzzlePoint, 0.052, 0.047);
-          if (jawPoint) addOrientedEllipsoid(jawPoint, muzzlePoint, 0.026, 0.03);
-        } else if (jawPoint) {
-          addBoneSegment(headPoint.clone().addScaledVector(heightVector, -0.035), jawPoint, 0.019);
-        }
-        if (jawPoint) addBoneJoint(jawPoint, 0.021);
-      }
-
-      const tailAnchors = ["tail_01_0367", "tail_02_0368", "tail_03_0369", "tail_04_0370", "tail_05_0371"]
-        .map(bonePosition)
-        .filter((point): point is THREE.Vector3 => Boolean(point));
-      if (tailAnchors.length > 1) {
-        addVertebralRow(vertebraeAlong(tailAnchors, 15), 0.022, axes.halfHeight * 0.025);
-      }
-
-      const muscleGeometry = new THREE.SphereGeometry(1, 20, 14);
-      const muscleColors = ["#a9434f", "#c75a55", "#9e3b49", "#d27a63"];
-      let muscleIndex = 0;
-      const addMuscle = (from: string, to: string, width: number, sideOffset = 0, heightOffset = 0) => {
-        const start = bonePosition(from);
-        const end = bonePosition(to);
-        if (!start || !end) return;
-        start.addScaledVector(sideVector, sideOffset * axes.halfWidth);
-        end.addScaledVector(sideVector, sideOffset * axes.halfWidth);
-        start.y += heightOffset * axes.halfHeight;
-        end.y += heightOffset * axes.halfHeight;
-        const direction = end.clone().sub(start);
-        const length = direction.length();
-        if (length < 0.025) return;
-        const radius = Math.max(axes.halfWidth * width, 0.035);
-        const muscle = new THREE.Mesh(
-          muscleGeometry,
-          new THREE.MeshStandardMaterial({ color: muscleColors[muscleIndex++ % muscleColors.length], roughness: 0.68 }),
-        );
-        muscle.position.copy(start).add(end).multiplyScalar(0.5);
-        muscle.scale.set(radius, length * 0.62 + radius * 0.3, radius * 0.86);
-        muscle.quaternion.setFromUnitVectors(up, direction.normalize());
-        muscle.renderOrder = 3;
-        muscleGroup.add(muscle);
-      };
-      for (const sign of [-1, 1]) {
-        addMuscle("spine_01_09", "spine_02_010", 0.18, sign * 0.28, 0.05);
-        addMuscle("spine_02_010", "spine_03_011", 0.2, sign * 0.28, 0.05);
-        addMuscle("spine_03_011", "spine_04_012", 0.18, sign * 0.28, 0.05);
-        addMuscle("neck_01_014", "neck_03_016", 0.13, sign * 0.2, 0.01);
-        addMuscle("neck_03_016", "neck_05_018", 0.1, sign * 0.18, -0.035);
-      }
-      for (const [shoulder, upper, lower, foot] of [
-        ["clavicle_l_0203", "upperarm_l_0204", "lowerarm_l_0205", "hand_l_0206"],
-        ["clavicle_r_0269", "upperarm_r_0270", "lowerarm_r_0271", "hand_r_0272"],
-        ["hips_0366", "upperleg_l_0405", "lowerleg_l_0406", "foot_l_0407"],
-        ["hips_0366", "upperleg_r_0474", "lowerleg_r_0475", "foot_r_0476"],
-      ]) {
-        addMuscle(shoulder, upper, 0.2);
-        addMuscle(upper, lower, 0.15);
-        addMuscle(lower, foot, 0.1);
-      }
-
-      const bodyPoint = (longitudinal: number, height: number, lateral: number) => {
-        const point = new THREE.Vector3();
-        point.setComponent(axes.longAxis === "x" ? 0 : 2, longitudinal * axes.halfLength * axes.headDirection);
-        point.y = height * axes.halfHeight;
-        point.setComponent(axes.sideAxis === "x" ? 0 : 2, lateral * axes.halfWidth);
-        return point;
-      };
-      const addOrgan = (
-        name: string,
-        color: string,
-        location: [number, number, number],
-        proportions: [number, number, number],
-        rotation = 0,
-      ) => {
-        const organ = new THREE.Mesh(
-          new THREE.SphereGeometry(1, 24, 18),
-          new THREE.MeshStandardMaterial({ color, roughness: 0.72, transparent: true, opacity: 0.92, depthWrite: false, depthTest: false }),
-        );
-        organ.name = name;
-        organ.position.copy(bodyPoint(...location));
-        organ.scale.setComponent(axes.longAxis === "x" ? 0 : 2, axes.halfLength * proportions[0]);
-        organ.scale.y = axes.halfHeight * proportions[1];
-        organ.scale.setComponent(axes.sideAxis === "x" ? 0 : 2, axes.halfWidth * proportions[2]);
-        organ.rotation.y = rotation;
-        organ.renderOrder = 4;
-        organGroup.add(organ);
-      };
-      addOrgan("Lung left", "#ba6470", [0.13, 0.02, -0.31], [0.27, 0.2, 0.29], -0.12);
-      addOrgan("Lung right", "#a94e60", [0.13, 0.02, 0.31], [0.27, 0.2, 0.29], 0.12);
-      addOrgan("Heart", "#a72e43", [0.08, -0.12, 0.04], [0.12, 0.15, 0.14]);
-      addOrgan("Liver", "#87503d", [-0.08, -0.01, -0.09], [0.18, 0.15, 0.23], -0.18);
-      addOrgan("Stomach", "#d08b70", [-0.2, -0.13, 0.16], [0.16, 0.13, 0.2], 0.24);
-      addOrgan("Kidney left", "#8f4651", [-0.23, 0.05, -0.24], [0.075, 0.08, 0.08], -0.24);
-      addOrgan("Kidney right", "#9f4f58", [-0.23, 0.05, 0.24], [0.075, 0.08, 0.08], 0.24);
-      for (let loop = 0; loop < 4; loop += 1) {
-        const points = Array.from({ length: 9 }, (_, index) => {
-          const t = index / 8;
-          const wave = Math.sin(t * Math.PI * 2 + loop * 0.78);
-          return bodyPoint(-0.13 - t * 0.25, -0.25 + wave * 0.035, wave * 0.22);
-        });
-        const intestine = new THREE.Mesh(
-          new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points), 28, axes.halfWidth * 0.045, 8, false),
-          new THREE.MeshStandardMaterial({ color: loop % 2 ? "#d99b78" : "#e5ac85", roughness: 0.75, transparent: true, opacity: 0.92, depthWrite: false, depthTest: false }),
-        );
-        intestine.name = "Intestinal loop";
-        intestine.renderOrder = 4;
-        organGroup.add(intestine);
-      }
-
+      const organAnatomy = buildEquineOrganLayer(boneNodes, axes);
+      organLayer = organAnatomy.organGroup;
+      nerveLayer = organAnatomy.nerveGroup;
+      builtOrganRecords = organAnatomy.records;
+      setOrganRecords(organAnatomy.records);
+      skeletonLayer = skeletonGroup;
+      anatomyGroups = [muscleGroup, skeletonGroup, organAnatomy.organGroup, organAnatomy.nerveGroup];
       scene.add(horse);
-      scene.add(muscleGroup, skeletonGroup, organGroup);
+      scene.add(muscleGroup, skeletonGroup, organAnatomy.organGroup, organAnatomy.nerveGroup);
       markerGroup = new THREE.Group();
       scene.add(markerGroup);
       markerGroup.add(draftMarker);
 
-      floorSurface = new THREE.Mesh(
-        new THREE.CircleGeometry(Math.max(size.x, size.z) * 0.42, 64),
-        new THREE.MeshBasicMaterial({ color: "#dde5e2", transparent: true, opacity: 0.26, depthWrite: false }),
-      );
-      floorSurface.rotation.x = -Math.PI / 2;
-      floorSurface.position.y = normalizedBounds.min.y - 0.035;
-      floorSurface.scale.set(1.5, 0.72, 1);
-      scene.add(floorSurface);
-
-      cameraForSide("near");
-      activeAnatomyLayer = null;
-      syncAnatomyLayer();
+      cameraReady = true;
+      cameraForView(currentView);
+      activeAnatomySignature = "";
+      activeOrganDisplaySignature = "";
+      activeSkeletonDisplaySignature = "";
+      syncAnatomyLayers();
+      syncOrganDisplay();
+      syncSkeletonDisplay();
       syncPins();
       setLoading(false);
     }).catch((reason: unknown) => {
@@ -691,6 +930,8 @@ export default function InjuryModel3D({
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       renderer.domElement.removeEventListener("pointerup", handlePointerUp);
+      renderer.domElement.removeEventListener("pointermove", handlePointerMove);
+      renderer.domElement.removeEventListener("dblclick", handleDoubleClick);
       renderer.domElement.removeEventListener("webglcontextlost", handleContextLost);
       controls.dispose();
       renderer.forceContextLoss();
@@ -699,14 +940,14 @@ export default function InjuryModel3D({
       coreGeometry.dispose();
       draftHaloGeometry.dispose();
       draftCoreGeometry.dispose();
+      contactShadow?.geometry.dispose();
+      if (contactShadow?.material instanceof THREE.MeshBasicMaterial) {
+        contactShadow.material.map?.dispose();
+        contactShadow.material.dispose();
+      }
       draftMarker.traverse((child) => {
         if (child instanceof THREE.Mesh && child.material instanceof THREE.Material) child.material.dispose();
       });
-      if (floorSurface) {
-        floorSurface.geometry.dispose();
-        if (Array.isArray(floorSurface.material)) floorSurface.material.forEach((material) => material.dispose());
-        else floorSurface.material.dispose();
-      }
       markerObjects.forEach((markerPin) => markerPin.traverse((child) => {
         if (child instanceof THREE.Mesh && child.material instanceof THREE.Material) child.material.dispose();
       }));
@@ -726,13 +967,32 @@ export default function InjuryModel3D({
         });
       }));
       layerMeshes.forEach((entry) => entry.ghostMaterial.dispose());
-      actionsRef.current = { setSide: () => {}, zoom: () => {}, reset: () => {} };
+      const skeletonDisplayAssets = skeletonLayer?.userData.displayMaterials as THREE.Material[] | undefined;
+      skeletonDisplayAssets?.forEach((material) => material.dispose());
+      const skeletonBaseMaterials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.Material; cartilage: THREE.Material } | undefined;
+      skeletonBaseMaterials && Object.values(skeletonBaseMaterials).forEach((material) => material.dispose());
+      const skeletonTextures = skeletonLayer?.userData.ownedTextures as THREE.Texture[] | undefined;
+      skeletonTextures?.forEach((texture) => texture.dispose());
+      const muscleTextures = muscleLayer?.userData.ownedTextures as THREE.Texture[] | undefined;
+      muscleTextures?.forEach((texture) => texture.dispose());
+      actionsRef.current = { setView: () => {}, zoom: () => {}, reset: () => {}, focusMuscle: () => {}, focusOrgan: () => {}, focusSkeleton: () => {} };
       renderer.domElement.remove();
     };
   }, []);
 
   const selectedMarker = markers.find((marker) => marker.id === selectedId);
+  const selectedMuscle = equineMuscles.find((muscle) => muscle.id === selectedMuscleId);
+  const hoveredMarkerRecord = hoveredMarker ? markers.find((marker) => marker.id === hoveredMarker.id) : undefined;
+  const normalizedMuscleSearch = muscleFilters.search.trim().toLocaleLowerCase("vi");
+  const filteredMuscles = equineMuscles.filter((muscle) => {
+    const matchesGroup = muscleFilters.group === "all" || muscle.group === muscleFilters.group;
+    const matchesLayer = muscle.layer === "superficial" ? muscleFilters.superficial : muscleFilters.deep;
+    const searchable = `${muscle.vi} ${muscle.latin} ${muscle.origin.label} ${muscle.insertion.label}`.toLocaleLowerCase("vi");
+    return matchesGroup && matchesLayer && (!normalizedMuscleSearch || searchable.includes(normalizedMuscleSearch));
+  });
   const locatedCount = markers.filter(hasCoordinates).length;
+  const enabledAnatomyLayers = anatomyLayers.filter((layer) => layer.id !== "skin" && anatomyVisibility[layer.id]);
+  const allAnatomyVisible = enabledAnatomyLayers.length === anatomyLayers.length - 1;
 
   return (
     <section className="overflow-hidden rounded-2xl border border-[#dce6eb] bg-[linear-gradient(145deg,#fbfcfc,#f0f5f5_58%,#f7f8f5)] p-3 shadow-sm sm:p-5" aria-label="Mô hình 3D theo dõi chấn thương ngựa">
@@ -746,44 +1006,122 @@ export default function InjuryModel3D({
           <p className="mt-1 text-xs text-slate-500">Kéo để xoay, cuộn để phóng to. Chọn mặt gần hoặc mặt xa để xem vị trí chấn thương.</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <button type="button" aria-pressed={side === "near"} className={`rounded-lg px-2.5 py-1.5 text-xs ${side === "near" ? "bg-[#e8eff1] font-semibold text-[#35596b]" : "text-slate-500"}`} onClick={() => { setSide("near"); actionsRef.current.setSide("near"); }}>Mặt gần</button>
-          <button type="button" aria-pressed={side === "far"} className={`rounded-lg px-2.5 py-1.5 text-xs ${side === "far" ? "bg-[#e8eff1] font-semibold text-[#35596b]" : "text-slate-500"}`} onClick={() => { setSide("far"); actionsRef.current.setSide("far"); }}>Mặt xa</button>
+          {(["left", "right", "front", "back", "top"] as const).map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              aria-pressed={view === preset}
+              aria-label={`Góc nhìn ${viewPresetLabels[preset]}`}
+              title={`Góc nhìn ${viewPresetLabels[preset]}`}
+              className={`rounded-lg px-2.5 py-1.5 text-xs ${view === preset ? "bg-[#e8eff1] font-semibold text-[#35596b]" : "text-slate-500"}`}
+              onClick={() => actionsRef.current.setView(preset)}
+            >
+              {viewPresetLabels[preset]}
+            </button>
+          ))}
           <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" />
           <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-lg text-slate-700 shadow-sm" aria-label="Thu nhỏ mô hình" onClick={() => actionsRef.current.zoom(1.12)}>−</button>
           <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-lg text-slate-700 shadow-sm" aria-label="Phóng to mô hình" onClick={() => actionsRef.current.zoom(0.88)}>+</button>
-          <button type="button" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 shadow-sm" onClick={() => { setSide("near"); actionsRef.current.reset(); }}>Đặt lại góc</button>
+          <button type="button" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 shadow-sm" onClick={() => actionsRef.current.reset()}>Đặt lại góc</button>
         </div>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5" role="group" aria-label="Chọn lớp giải phẫu">
-        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Lớp giải phẫu</span>
+        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Lớp giải phẫu · bật nhiều lớp</span>
+        <button
+          type="button"
+          aria-pressed={allAnatomyVisible}
+          title="Bật hoặc tắt đồng thời xương, cơ và nội tạng"
+          onClick={() => {
+            const visible = !allAnatomyVisible;
+            setAnatomyVisibility((current) => ({ ...current, skeleton: visible, organs: visible, muscle: visible }));
+          }}
+          className={`rounded-lg border px-3 py-1.5 text-xs transition ${allAnatomyVisible ? "border-[#36566a] bg-[#36566a] font-semibold text-white shadow-sm" : "border-[#b9cecf] bg-[#edf4f3] font-semibold text-[#36566a] hover:border-[#789a9d]"}`}
+        >
+          Tổng thể
+        </button>
         {anatomyLayers.map((layer) => (
           <button
             key={layer.id}
             type="button"
-            aria-pressed={anatomyLayer === layer.id}
-            onClick={() => { anatomyLayerRef.current = layer.id; setAnatomyLayer(layer.id); }}
-            className={`rounded-lg border px-3 py-1.5 text-xs transition ${anatomyLayer === layer.id ? "border-[#446b72] bg-[#446b72] font-semibold text-white shadow-sm" : "border-slate-200 bg-white/85 text-slate-600 hover:border-[#9eb8b8] hover:text-[#36566a]"}`}
+            aria-pressed={anatomyVisibility[layer.id]}
+            onClick={() => {
+              const nextVisible = !anatomyVisibility[layer.id];
+              setAnatomyVisibility((current) => ({ ...current, [layer.id]: nextVisible }));
+              if (nextVisible && layer.id === "organs") setInspectorTab("organs");
+              if (nextVisible && layer.id === "muscle") setInspectorTab("muscle");
+              if (nextVisible && layer.id === "skeleton") setInspectorTab("skeleton");
+            }}
+            className={`rounded-lg border px-3 py-1.5 text-xs transition ${anatomyVisibility[layer.id] ? "border-[#446b72] bg-[#446b72] font-semibold text-white shadow-sm" : "border-slate-200 bg-white/85 text-slate-600 hover:border-[#9eb8b8] hover:text-[#36566a]"}`}
           >
             {layer.label}
           </button>
         ))}
       </div>
-      {anatomyLayer !== "skin" && (
-        <p className="mt-1 text-[10px] text-slate-500">
-          {anatomyLayer === "muscle"
-            ? "Lớp cơ mô phỏng theo rig: cổ, lưng, vai và các chi."
-            : anatomyLayer === "skeleton"
-              ? "Lớp xương bám theo rig 3D, gồm đốt sống, 18 đôi xương sườn và các xương chi; đây là mô phỏng tham khảo."
-              : "Lớp nội tạng hiển thị nổi trên lớp thân để dễ quan sát: phổi, tim, gan, dạ dày, thận và ruột."}
-        </p>
-      )}
-      <div className={`relative mt-3 overflow-hidden rounded-xl border border-white/90 bg-[#f8faf9] shadow-[inset_0_0_0_1px_rgba(190,208,214,.28)] ${placementMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}>
-        <div ref={mountRef} className="h-[285px] w-full sm:h-[410px]" />
-        {loading && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-white/60 text-sm font-medium text-slate-600">Đang tải mô hình ngựa 3D…</div>}
-        {loadError && <div role="alert" className="absolute inset-0 grid place-items-center bg-white/90 p-6 text-center text-sm text-rose-700">Không tải được mô hình 3D. {loadError}</div>}
-        {placementMode && <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full border border-[#c8dfd8] bg-[#eff7f5]/95 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#376c61]"><span className="h-2 w-2 rounded-full bg-[#299477]" /> Chọn vị trí trên ngựa</div>}
-        <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg border border-white/90 bg-white/80 px-2.5 py-1.5 text-[10px] text-slate-500 shadow-sm">{placementMode ? "Bấm lên thân ngựa để lấy tọa độ" : "Kéo mô hình để xoay 360°"}</div>
+      <p className="mt-1 text-[10px] text-slate-500">
+        {enabledAnatomyLayers.length
+          ? enabledAnatomyLayers.map((layer) => layer.description).join(" · ")
+          : "Bật một hoặc nhiều lớp để xem giải phẫu bên trong; tắt cả ba để trở về lớp lông."}
+      </p>
+      <p className="mt-1 text-[10px] text-slate-500">Mô hình minh họa phục vụ học tập; nội tạng được dựng bằng mesh riêng và có vị trí, biên dạng ước lượng theo rig.</p>
+      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className={`relative min-w-0 overflow-hidden rounded-xl border border-white/90 bg-[#f8faf9] shadow-[inset_0_0_0_1px_rgba(190,208,214,.28)] ${placementMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}>
+          <div ref={mountRef} className="h-[285px] w-full sm:h-[410px]" />
+          {loading && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-white/60 text-sm font-medium text-slate-600">Đang tải mô hình ngựa 3D…</div>}
+          {loadError && <div role="alert" className="absolute inset-0 grid place-items-center bg-white/90 p-6 text-center text-sm text-rose-700">Không tải được mô hình 3D. {loadError}</div>}
+          {placementMode && <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full border border-[#c8dfd8] bg-[#eff7f5]/95 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#376c61]"><span className="h-2 w-2 rounded-full bg-[#299477]" /> Chọn vị trí trên ngựa</div>}
+          {hoveredMarker && hoveredMarkerRecord && !placementMode && (
+            <div className="pointer-events-none absolute z-10 max-w-[170px] rounded-lg border border-[#d9e4e4] bg-white/95 px-2.5 py-1.5 shadow-md" style={{ left: hoveredMarker.x, top: hoveredMarker.y }}>
+              <p className="text-[11px] font-semibold text-[#36566a]">{hoveredMarkerRecord.body_part}</p>
+              <p className="mt-0.5 text-[10px] text-slate-600">{hoveredMarkerRecord.severity} · {hoveredMarkerRecord.recovery_status}</p>
+            </div>
+          )}
+          <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg border border-white/90 bg-white/80 px-2.5 py-1.5 text-[10px] text-slate-500 shadow-sm">{placementMode ? "Bấm lên thân ngựa để lấy tọa độ" : "Kéo để xoay · nhấp đúp để lấy nét"}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="mb-1.5 flex gap-1 rounded-lg border border-[#dce6eb] bg-white/80 p-1" role="tablist" aria-label="Bảng giải phẫu">
+            <button type="button" role="tab" aria-selected={inspectorTab === "skeleton"} onClick={() => { setInspectorTab("skeleton"); setAnatomyVisibility((current) => ({ ...current, skeleton: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "skeleton" ? "bg-[#446b72] text-white" : "text-slate-500"}`}>X&#x01B0;&#x01A1;ng</button>
+            <button type="button" role="tab" aria-selected={inspectorTab === "muscle"} onClick={() => { setInspectorTab("muscle"); setAnatomyVisibility((current) => ({ ...current, muscle: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "muscle" ? "bg-[#446b72] text-white" : "text-slate-500"}`}>Cơ</button>
+            <button type="button" role="tab" aria-selected={inspectorTab === "organs"} onClick={() => { setInspectorTab("organs"); setAnatomyVisibility((current) => ({ ...current, organs: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "organs" ? "bg-[#446b72] text-white" : "text-slate-500"}`}>Nội tạng</button>
+          </div>
+          {inspectorTab === "skeleton" ? (
+            <SkeletonAnatomyPanel
+              records={skeletonRecords}
+              selectedId={selectedSkeletonId}
+              onSelect={(id) => {
+                setSelectedSkeletonId(id);
+                setSelectedOrganId(null);
+                setSelectedMuscleId(null);
+                setAnatomyVisibility((current) => ({ ...current, skeleton: true }));
+                actionsRef.current.focusSkeleton(id);
+              }}
+              explodeView={explodeView}
+              setExplodeView={setExplodeView}
+            />
+          ) : inspectorTab === "organs" ? (
+            <OrganAnatomyPanel
+              records={organRecords}
+              systems={organSystems}
+              setSystems={setOrganSystems}
+              selectedId={selectedOrganId}
+              onSelect={(id) => setSelectedOrganId(id)}
+            />
+          ) : (
+            <MuscleAnatomyPanel
+              filters={muscleFilters}
+              setFilters={setMuscleFilters}
+              muscles={filteredMuscles}
+              selectedMuscle={selectedMuscle}
+              selectedId={selectedMuscleId}
+              onSelect={(id) => {
+                setSelectedMuscleId(id);
+                setSelectedOrganId(null);
+                setAnatomyVisibility((current) => ({ ...current, muscle: true }));
+                actionsRef.current.focusMuscle(id);
+              }}
+            />
+          )}
+        </div>
       </div>
 
       {selectedMarker && <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-xs text-slate-600">
