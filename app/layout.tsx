@@ -3,11 +3,14 @@ import "@fontsource/be-vietnam-pro/400.css";
 import "@fontsource/be-vietnam-pro/500.css";
 import "@fontsource/be-vietnam-pro/600.css";
 import "@fontsource/be-vietnam-pro/700.css";
-import "./globals.css";
+
+import "@/styles/globals.css";
+import "@/styles/horses.css";
+import "@/styles/design.css";
 
 export const metadata: Metadata = {
-  title: "Equine Sovereign | Racehorse Management",
-  description: "Hệ thống quản lý và huấn luyện ngựa đua chuyên nghiệp",
+  title: "Equine | Racehorse System",
+  description: "Hệ thống quản lý, huấn luyện và chăm sóc ngựa đua.",
   referrer: "no-referrer-when-downgrade",
 };
 

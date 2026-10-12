@@ -10,6 +10,7 @@ export type AuthUser = {
   phone?: string | null;
   roleName: RoleName;
   status: UserStatus;
+  mustChangePassword: boolean;
   approvedAt?: string | null;
   createdAt: string;
 };
