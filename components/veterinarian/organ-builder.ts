@@ -404,6 +404,9 @@ export function buildEquineOrganLayer(
     .map((point) => point.add(new THREE.Vector3(0, -axes.halfHeight * 0.09, 0)));
   const tracheaAnchor = bodyPoint(0.23, -0.035, 0);
   const trachea = register("trachea", "Khí quản và phế quản", "respiratory", "Ống khí quản chạy dọc mặt dưới cổ, chia thành hai phế quản chính đi vào phổi.", tracheaAnchor, [82, 34]);
+  const tracheaDrop = axes.halfHeight * 0.18; // 9% of the full model height (2 × halfHeight)
+  trachea.position.y = -tracheaDrop;
+  tracheaAnchor.y -= tracheaDrop;
   if (tracheaAnchors.length > 1) {
     const tracheaCurve = new THREE.CatmullRomCurve3(tracheaAnchors, false, "centripetal");
     addTube(trachea, "Khí quản", tracheaAnchors, axes.halfWidth * 0.022, "#C8797D", 56, 0.96);

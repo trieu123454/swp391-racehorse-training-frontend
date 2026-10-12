@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Head bone preview</title>
+  <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f8faf9}canvas{display:block;width:100%;height:100%}</style>
+  <script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/addons/":"/node_modules/three/examples/jsm/"}}</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { buildEquineSkeletonLayer } from "/public/codex-head-skeleton-builder.js";
+const scene=new THREE.Scene();scene.background=new THREE.Color("#f8faf9");
+const camera=new THREE.PerspectiveCamera(32,innerWidth/innerHeight,.03,100);
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.5));renderer.setSize(innerWidth,innerHeight);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.1;document.body.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0xd8d1c3,2));const key=new THREE.DirectionalLight(0xfff2dc,2.3);key.position.set(-4,7,6);scene.add(key);const fill=new THREE.DirectionalLight(0xe3f1ff,1.2);fill.position.set(5,3,-5);scene.add(fill);const rim=new THREE.DirectionalLight(0xffffff,2);rim.position.set(2,5,8);scene.add(rim);
+const horse=(await new GLTFLoader().loadAsync("/public/models/injury-horse.glb")).scene;horse.updateMatrixWorld(true);const raw=new THREE.Box3().setFromObject(horse),center=raw.getCenter(new THREE.Vector3()),sizeRaw=raw.getSize(new THREE.Vector3()),longAxis=sizeRaw.x>=sizeRaw.z?"x":"z",sideAxis=longAxis==="x"?"z":"x";const withers=horse.getObjectByName("spine_04_012")?.getWorldPosition(new THREE.Vector3()),hoof=horse.getObjectByName("fingers_end_l_0209")?.getWorldPosition(new THREE.Vector3());const scale=1.6/Math.max(.01,withers&&hoof?Math.abs(withers.y-hoof.y):sizeRaw.y*.72);horse.scale.setScalar(scale);horse.position.set(-center.x*scale,-center.y*scale,-center.z*scale);horse.updateMatrixWorld(true);const bounds=new THREE.Box3().setFromObject(horse),size=bounds.getSize(new THREE.Vector3()),axes={longAxis,sideAxis,headDirection:(()=>{const h=horse.getObjectByName("head_019")?.getWorldPosition(new THREE.Vector3());return h&&h.getComponent(longAxis==="x"?0:2)<0?-1:1})(),halfLength:Math.max(size.getComponent(longAxis==="x"?0:2)/2,.01),halfHeight:Math.max(size.y/2,.01),halfWidth:Math.max(size.getComponent(sideAxis==="x"?0:2)/2,.01)};
+const pattern=/saddle|tack|bridle|reins?|halter|stirrups?|mane|forelock|hair/i;horse.traverse(o=>{if(!(o instanceof THREE.Mesh))return;const mats=Array.isArray(o.material)?o.material:[o.material];let accessory=pattern.test(`${o.name} ${o.geometry.name} ${mats.map(m=>m.name).join(" ")}`);let p=o.parent;while(p&&p!==horse&&!accessory){accessory=pattern.test(p.name);p=p.parent}if(accessory){o.visible=false;return}o.material=new THREE.MeshBasicMaterial({color:"#8ebdc6",transparent:true,opacity:.08,depthWrite:false,side:THREE.FrontSide,toneMapped:false});o.renderOrder=1});
+const bones=new Map();horse.traverse(o=>{if(o instanceof THREE.Bone)bones.set(o.name,o)});scene.add(horse);const result=buildEquineSkeletonLayer(bones,axes);scene.add(result.group);window.skeletonGroup=result.group;window.skeletonRecords=result.records;const left=bones.get("clavicle_l_0203")?.getWorldPosition(new THREE.Vector3()),sideIndex=sideAxis==="x"?0:2,viewDir=new THREE.Vector3().setComponent(sideIndex,left?Math.sign(left.getComponent(sideIndex))||-1:-1);viewDir.addScaledVector(new THREE.Vector3().setComponent(longAxis==="x"?0:2,axes.headDirection),.035);viewDir.y=.025;viewDir.normalize();const target=bounds.getCenter(new THREE.Vector3());camera.position.copy(target).addScaledVector(viewDir,4.3);camera.lookAt(target);
+window.focusHead=(distance=1.1)=>{const record=result.records.find(r=>r.id==="skull");const box=new THREE.Box3().setFromObject(record.object),focus=box.getCenter(new THREE.Vector3());camera.position.copy(focus).addScaledVector(viewDir,distance);camera.lookAt(focus);camera.updateProjectionMatrix()};window.previewReady={axes,records:result.records.length};renderer.setAnimationLoop(()=>renderer.render(scene,camera));window.addEventListener("resize",()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+</script>
+</body>
+</html>

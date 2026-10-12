@@ -17,12 +17,20 @@ export default function SkeletonAnatomyPanel({
   onSelect,
   explodeView,
   setExplodeView,
+  showLabels,
+  setShowLabels,
+  jawOpen,
+  setJawOpen,
 }: {
   records: SkeletonRecord[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   explodeView: boolean;
   setExplodeView: (visible: boolean) => void;
+  showLabels: boolean;
+  setShowLabels: (visible: boolean) => void;
+  jawOpen: boolean;
+  setJawOpen: (visible: boolean) => void;
 }) {
   const [search, setSearch] = useState("");
   const [group, setGroup] = useState<"all" | SkeletonGroup>("all");
@@ -34,6 +42,17 @@ export default function SkeletonAnatomyPanel({
   }), [records, group, query]);
   const selected = records.find((record) => record.id === selectedId) ?? null;
 
+  if (records.length === 0) {
+    return (
+      <div className="flex h-[410px] min-h-0 flex-col rounded-xl border border-[#dce6eb] bg-white/90 p-3">
+        <h5 className="text-sm font-semibold text-[#36566a]">Bộ xương</h5>
+        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs leading-relaxed text-amber-900">
+          Không tìm thấy đủ điểm neo trên rig để dựng cột sống minh họa.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-[410px] min-h-0 flex-col rounded-xl border border-[#dce6eb] bg-white/90 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -42,7 +61,11 @@ export default function SkeletonAnatomyPanel({
           <p className="text-[10px] text-slate-500">{records.length} cấu trúc · chọn để lấy nét</p>
         </div>
       </div>
-      <div className="mt-2 flex justify-end">
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <label className="flex items-center gap-1.5 text-[10px] font-medium text-slate-600">
+          <input type="checkbox" checked={showLabels} onChange={(event) => setShowLabels(event.target.checked)} className="accent-[#446b72]" />
+          Nhãn xương
+        </label>
         <button type="button" onClick={() => setExplodeView(!explodeView)} aria-pressed={explodeView} className={`ml-auto rounded-md border px-2 py-1 text-[10px] font-semibold ${explodeView ? "border-[#87a8a3] bg-[#eef6f3] text-[#365f59]" : "border-slate-200 text-slate-500"}`}>
           {explodeView ? "Gộp xương" : "Tách lớp"}
         </button>
@@ -66,6 +89,7 @@ export default function SkeletonAnatomyPanel({
           <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-800">Minh họa</span>
         </div>
         <p className="mt-1.5 line-clamp-3 text-[10px] leading-relaxed text-slate-600">{selected.description}</p>
+        {selected.id === "mandible" && <button type="button" onClick={() => setJawOpen(!jawOpen)} aria-pressed={jawOpen} className="mt-2 rounded-md border border-[#cddedc] bg-white px-2 py-1 text-[10px] font-semibold text-[#45696b]">{jawOpen ? "Khép hàm" : "Mở hàm"}</button>}
       </div> : <p className="mt-2 rounded-lg bg-[#f7faf9] px-2.5 py-2 text-[10px] leading-relaxed text-slate-500">Mesh xương được dựng theo rig hiện có; số đo, bề mặt khớp và biến thiên cá thể là ước lượng phục vụ học tập.</p>}
     </div>
   );
