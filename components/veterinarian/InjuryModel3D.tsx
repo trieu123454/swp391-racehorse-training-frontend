@@ -138,6 +138,29 @@ function pin(color: THREE.ColorRepresentation, haloGeometry: THREE.SphereGeometr
   return group;
 }
 
+function createStudioBackdrop() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 8;
+  canvas.height = 512;
+  const context = canvas.getContext("2d");
+  if (context) {
+    const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, "#f4f4f1");
+    gradient.addColorStop(0.52, "#e9eef0");
+    gradient.addColorStop(1, "#d9e6ef");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const softLight = context.createRadialGradient(0, 0, 0, 0, 0, canvas.height * 0.9);
+    softLight.addColorStop(0, "rgba(255,255,255,0.34)");
+    softLight.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = softLight;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 export default function InjuryModel3D({
   markers,
   placementMode = false,
@@ -170,7 +193,7 @@ export default function InjuryModel3D({
     onSelectLocation,
   });
   const [view, setViewState] = useState<ViewerView>("left");
-  const [anatomyVisibility, setAnatomyVisibility] = useState<AnatomyVisibility>({ skin: true, skeleton: false, organs: false, muscle: false });
+  const [anatomyVisibility, setAnatomyVisibility] = useState<AnatomyVisibility>({ skin: true, skeleton: true, organs: false, muscle: false });
   const anatomyVisibilityRef = useRef<AnatomyVisibility>(anatomyVisibility);
   const [muscleFilters, setMuscleFilters] = useState<MuscleFilters>({ group: "all", superficial: true, deep: true, search: "" });
   const [selectedMuscleId, setSelectedMuscleId] = useState<string | null>(null);
@@ -186,7 +209,7 @@ export default function InjuryModel3D({
   const [explodeView, setExplodeView] = useState(false);
   const [showSkeletonLabels, setShowSkeletonLabels] = useState(false);
   const [jawOpen, setJawOpen] = useState(false);
-  const [inspectorTab, setInspectorTab] = useState<"muscle" | "organs" | "skeleton">("muscle");
+  const [inspectorTab, setInspectorTab] = useState<"muscle" | "organs" | "skeleton">("skeleton");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -208,7 +231,7 @@ export default function InjuryModel3D({
     let modelAxes: ModelAxes | null = null;
     let boneNodes = new Map<string, THREE.Bone>();
     let modelMeshes: THREE.Object3D[] = [];
-    let layerMeshes: { mesh: THREE.Mesh; skinMaterial: THREE.Material | THREE.Material[]; ghostMaterial: THREE.MeshBasicMaterial }[] = [];
+    let layerMeshes: { mesh: THREE.Mesh; skinMaterial: THREE.Material | THREE.Material[]; ghostMaterial: THREE.MeshPhysicalMaterial }[] = [];
     let anatomyGroups: THREE.Group[] = [];
     let muscleLayer: THREE.Group | null = null;
     let skeletonLayer: THREE.Group | null = null;
@@ -234,27 +257,32 @@ export default function InjuryModel3D({
     let frameId = 0;
     let fittedDistance = 6.3;
     let modelRadius = 0;
+    const modelCenter = new THREE.Vector3();
     let contactShadow: THREE.Mesh | null = null;
     let currentView: ViewerView = "left";
     let cameraReady = false;
     let startPoint: { x: number; y: number } | null = null;
     const markerObjects = new Map<string, THREE.Group>();
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#f8faf9");
+    const backdropTexture = createStudioBackdrop();
+    scene.background = backdropTexture;
 
     const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "low-power" });
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
     } catch {
+      backdropTexture.dispose();
       setLoadError("Trình duyệt không cấp được WebGL cho mô hình 3D. Hãy tải lại trang hoặc đóng bớt tab đang dùng đồ họa 3D.");
       setLoading(false);
       return () => { disposed = true; };
     }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.className = "block h-full w-full touch-none";
     renderer.domElement.setAttribute("aria-label", "Mô hình ngựa 3D tương tác để xem và đánh dấu vị trí chấn thương");
     const handleContextLost = () => {
@@ -267,15 +295,27 @@ export default function InjuryModel3D({
     renderer.domElement.addEventListener("webglcontextlost", handleContextLost);
     mount.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0xa8aaa0, 2.1));
-    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-    const keyLight = new THREE.DirectionalLight(0xfff4e4, 3.2);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x858b93, 1.55));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.38));
+    const keyLight = new THREE.DirectionalLight(0xfff4e4, 2.8);
     keyLight.position.set(-4, 7, 5);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(1024, 1024);
+    keyLight.shadow.camera.left = -4;
+    keyLight.shadow.camera.right = 4;
+    keyLight.shadow.camera.top = 4;
+    keyLight.shadow.camera.bottom = -4;
+    keyLight.shadow.camera.near = 0.1;
+    keyLight.shadow.camera.far = 18;
+    keyLight.shadow.camera.updateProjectionMatrix();
+    keyLight.shadow.bias = -0.00025;
+    keyLight.shadow.normalBias = 0.02;
+    keyLight.shadow.radius = 3;
     scene.add(keyLight);
-    const fillLight = new THREE.DirectionalLight(0xdceeff, 1.15);
+    const fillLight = new THREE.DirectionalLight(0xdceeff, 0.82);
     fillLight.position.set(5, 2, -5);
     scene.add(fillLight);
-    const rimLight = new THREE.DirectionalLight(0xf5dfc6, 1.55);
+    const rimLight = new THREE.DirectionalLight(0xf5dfc6, 1.25);
     rimLight.position.set(0, 4, -7);
     scene.add(rimLight);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -457,7 +497,7 @@ export default function InjuryModel3D({
       const verticalFov = THREE.MathUtils.degToRad(camera.fov);
       const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
       const limitingFov = Math.min(verticalFov, horizontalFov);
-      fittedDistance = Math.max(2.4, modelRadius / Math.sin(limitingFov / 2) * 1.08);
+      fittedDistance = Math.max(2.4, modelRadius / Math.sin(limitingFov / 2) * 1.2);
       controls.minDistance = Math.max(0.55, Math.min(1.25, modelRadius * 0.38));
       controls.maxDistance = Math.max(11, fittedDistance * 2.2);
       const direction = new THREE.Vector3();
@@ -477,7 +517,7 @@ export default function InjuryModel3D({
         direction.y = 0.08;
       }
       direction.normalize();
-      controls.target.set(0, 0, 0);
+      controls.target.copy(modelCenter);
       camera.position.copy(controls.target).addScaledVector(direction, fittedDistance);
       camera.lookAt(controls.target);
       controls.update();
@@ -832,14 +872,17 @@ export default function InjuryModel3D({
       horse.updateMatrixWorld(true);
       horse.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
-        let ancestor: THREE.Object3D | null = object;
         const materialNames = (Array.isArray(object.material) ? object.material : [object.material]).map((material) => material.name).join(" ");
-        let belongsToAccessory = /saddle|tack|bridle|reins?|halter|stirrups?|mane|forelock|hair/i.test(`${object.name} ${object.geometry.name} ${materialNames}`);
-        while (ancestor && ancestor !== horse && !belongsToAccessory) {
-          belongsToAccessory = /saddle|tack|bridle|reins?|halter|stirrups?|mane|forelock|hair/i.test(ancestor.name);
+        const meshDescription = `${object.name} ${object.geometry.name} ${materialNames}`;
+        let belongsToHair = /mane|forelock|hair/i.test(meshDescription);
+        let belongsToTack = /saddle|tack|bridle|reins?|halter|stirrups?/i.test(meshDescription);
+        let ancestor: THREE.Object3D | null = object.parent;
+        while (ancestor && ancestor !== horse) {
+          belongsToHair ||= /mane|forelock|hair/i.test(ancestor.name);
+          belongsToTack ||= /saddle|tack|bridle|reins?|halter|stirrups?/i.test(ancestor.name);
           ancestor = ancestor.parent;
         }
-        if (belongsToAccessory) accessoryMeshes.push(object);
+        if (belongsToTack && !belongsToHair) accessoryMeshes.push(object);
       });
       const bounds = new THREE.Box3().setFromObject(horse);
       const center = bounds.getCenter(new THREE.Vector3());
@@ -859,6 +902,7 @@ export default function InjuryModel3D({
       horse.updateMatrixWorld(true);
 
       const normalizedBounds = new THREE.Box3().setFromObject(horse);
+      normalizedBounds.getCenter(modelCenter);
       const size = normalizedBounds.getSize(new THREE.Vector3());
       const shadowCanvas = document.createElement("canvas");
       shadowCanvas.width = 128;
@@ -900,14 +944,29 @@ export default function InjuryModel3D({
       });
       layerMeshes = modelMeshes.map((object) => {
         const mesh = object as THREE.Mesh;
-        const ghostMaterial = new THREE.MeshBasicMaterial({
-          color: "#8ebdc6",
+        const ghostMaterial = new THREE.MeshPhysicalMaterial({
+          color: "#b9d8e1",
           transparent: true,
-          opacity: 0.1,
+          opacity: 0.085,
           depthWrite: false,
           side: THREE.FrontSide,
-          toneMapped: false,
+          roughness: 0.2,
+          metalness: 0,
+          clearcoat: 1,
+          clearcoatRoughness: 0.08,
+          emissive: "#17313a",
+          emissiveIntensity: 0.1,
         });
+        ghostMaterial.onBeforeCompile = (shader) => {
+          shader.fragmentShader = shader.fragmentShader.replace(
+            "#include <output_fragment>",
+            `#include <output_fragment>
+            float shellRim = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 3.4);
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.72, 0.87, 0.93), shellRim * 0.92);
+            gl_FragColor.a = max(gl_FragColor.a, shellRim * 0.38);`,
+          );
+        };
+        ghostMaterial.customProgramCacheKey = () => "equine-glass-shell-rim-v1";
         return {
           mesh,
           skinMaterial: mesh.material,
@@ -993,6 +1052,7 @@ export default function InjuryModel3D({
       controls.dispose();
       renderer.forceContextLoss();
       renderer.dispose();
+      backdropTexture.dispose();
       haloGeometry.dispose();
       coreGeometry.dispose();
       draftHaloGeometry.dispose();

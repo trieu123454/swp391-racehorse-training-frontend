@@ -30,7 +30,7 @@ const groupLabels: Record<SkeletonGroup, string> = {
 };
 
 function boneGeometry() {
-  const radialSegments = 12;
+  const radialSegments = 20;
   const rings = [
     [0, 0.58], [0.055, 0.82], [0.13, 0.7], [0.25, 0.52],
     [0.75, 0.52], [0.87, 0.7], [0.945, 0.82], [1, 0.58],
@@ -188,12 +188,12 @@ export function buildEquineSkeletonLayer(
   const ownedLabelTextures: THREE.Texture[] = [];
   const ownedLabelMaterials: THREE.Material[] = [];
   const materials = {
-    bone: new THREE.MeshStandardMaterial({ color: "#e8dfc9", roughness: 0.6, metalness: 0, bumpMap: surface, bumpScale: 0.006 }),
-    cartilage: new THREE.MeshStandardMaterial({ color: "#bfd3cf", roughness: 0.42, metalness: 0, transparent: true, opacity: 0.66, depthWrite: false }),
-    tooth: new THREE.MeshStandardMaterial({ color: "#f5f1e6", roughness: 0.34, metalness: 0, bumpMap: surface, bumpScale: 0.002 }),
+    bone: new THREE.MeshStandardMaterial({ color: "#E8E0D0", roughness: 0.68, metalness: 0, bumpMap: surface, bumpScale: 0.0048 }),
+    cartilage: new THREE.MeshStandardMaterial({ color: "#D5CFC2", roughness: 0.54, metalness: 0, transparent: true, opacity: 0.38, depthWrite: false }),
+    tooth: new THREE.MeshStandardMaterial({ color: "#F8F4E8", roughness: 0.38, metalness: 0, bumpMap: surface, bumpScale: 0.002 }),
   };
   const shaftGeometry = boneGeometry();
-  const ellipsoidGeometry = new THREE.SphereGeometry(1, 16, 12);
+  const ellipsoidGeometry = new THREE.SphereGeometry(1, 24, 16);
   const sourceGeometries = new Set<THREE.BufferGeometry>([shaftGeometry, ellipsoidGeometry]);
   const records: SkeletonRecord[] = [];
   const byId = new Map<string, SkeletonRecord>();
@@ -262,11 +262,13 @@ export function buildEquineSkeletonLayer(
     const root = addRecord(id, name, latin, type, middle, description, label);
     addShaft(root, `${name} · thân xương`, start, end, radius);
     const direction = end.clone().sub(start).normalize();
-    const jointRadius = radius * 1.02;
-    addEllipsoid(root, `${name} · đầu gần`, start, new THREE.Vector3(jointRadius, radius * 0.88, jointRadius), direction.clone().negate());
-    addEllipsoid(root, `${name} · đầu xa`, end, new THREE.Vector3(jointRadius * 1.05, radius * 0.92, jointRadius * 1.05), direction);
-    addEllipsoid(root, `${name} · sụn khớp gần`, start.clone().addScaledVector(direction, radius * 0.45), new THREE.Vector3(jointRadius * 0.72, radius * 0.2, jointRadius * 0.72), direction, materials.cartilage);
-    addEllipsoid(root, `${name} · sụn khớp xa`, end.clone().addScaledVector(direction, -radius * 0.45), new THREE.Vector3(jointRadius * 0.72, radius * 0.2, jointRadius * 0.72), direction, materials.cartilage);
+    const jointRadius = radius * 1.2;
+    const epiphysis = new THREE.Vector3(jointRadius * 1.12, radius * 0.62, jointRadius * 1.04);
+    addEllipsoid(root, `${name} · đầu gần`, start.clone().addScaledVector(direction, radius * 0.12), epiphysis, direction);
+    addEllipsoid(root, `${name} · đầu xa`, end.clone().addScaledVector(direction, -radius * 0.12), epiphysis.clone().multiply(new THREE.Vector3(1.04, 1, 1.06)), direction);
+    const articularSurface = new THREE.Vector3(jointRadius * 0.82, radius * 0.13, jointRadius * 0.78);
+    addEllipsoid(root, `${name} · sụn khớp gần`, start.clone().addScaledVector(direction, radius * 0.08), articularSurface, direction, materials.cartilage);
+    addEllipsoid(root, `${name} · sụn khớp xa`, end.clone().addScaledVector(direction, -radius * 0.08), articularSurface, direction, materials.cartilage);
     return root;
   }
 
@@ -622,15 +624,14 @@ export function buildEquineSkeletonLayer(
     addEllipsoid(pelvisHalf, "Acetabulum · ổ cối", hipJoint, new THREE.Vector3(axes.halfHeight * 0.026, axes.halfHeight * 0.028, axes.halfHeight * 0.024));
   }
 
-  // A continuous skull shell follows the poll-to-muzzle axis and stays inside
-  // the translucent head reference. Fine anatomy is estimated from rig anchors.
+  // Follow the rig's head and jaw-end anchors so the upper skull sits on the
+  // sloping face profile instead of floating above the translucent head.
   const head = worldPosition("head_019");
   const muzzle = worldPosition("jaw_end_021");
   if (head && muzzle) {
     const forward = longitudinal.clone().negate();
-    const forwardDistance = THREE.MathUtils.clamp(muzzle.clone().sub(head).dot(forward) * 0.88, 0.42, 0.52);
-    const skullTip = head.clone().addScaledVector(forward, forwardDistance);
-    skullTip.y = THREE.MathUtils.lerp(head.y, muzzle.y, 0.38);
+    const skullTip = head.clone().lerp(muzzle, 0.93);
+    skullTip.y = THREE.MathUtils.lerp(head.y, muzzle.y, 0.68);
     const skullAxis = skullTip.clone().sub(head).normalize();
     const skullLength = skullTip.distanceTo(head);
     const dorsal = new THREE.Vector3().crossVectors(side, skullAxis).normalize();
@@ -826,7 +827,7 @@ export function buildEquineSkeletonLayer(
       const ulnaEnd = humerus.clone().lerp(radiusMid, 0.42).addScaledVector(longitudinal, axes.halfHeight * 0.018);
       addShaft(ulna, "Olecranon · mỏm khuỷu", olecranon, humerus, axes.halfHeight * 0.023, 1.05, 0.92);
       addShaft(ulna, "Ulna · thân gần dính quay", humerus, ulnaEnd, axes.halfHeight * 0.012, 1, 0.85);
-      addEllipsoid(ulna, "Olecranon · lồi củ", olecranon, new THREE.Vector3(axes.halfHeight * 0.021, axes.halfHeight * 0.022, axes.halfHeight * 0.019));
+      addEllipsoid(ulna, "Olecranon · lồi củ", olecranon, new THREE.Vector3(axes.halfHeight * 0.024, axes.halfHeight * 0.017, axes.halfHeight * 0.02));
     }
     if (radiusMid && carpus) {
       const carpals = ["Xương cổ tay quay", "Xương cổ tay trung gian", "Xương cổ tay trụ", "Xương cổ tay phụ", "Xương cổ tay II", "Xương cổ tay III", "Xương cổ tay IV"];
@@ -837,7 +838,7 @@ export function buildEquineSkeletonLayer(
           .addScaledVector(longitudinal, (col - (row === 0 ? 1.5 : 1)) * axes.halfHeight * 0.018)
           .addScaledVector(height, (row === 0 ? -1 : 1) * axes.halfHeight * 0.012);
         const root = addRecord(`carpal-${sideName}-${index + 1}`, `${name} ${suffix}`, index < 4 ? "Ossa carpi proximalia" : "Ossa carpi distalia", "forelimb", point, "Xương cổ tay nhỏ riêng; sơ đồ 7 xương là mô hình quy ước, biến thiên cá thể có thể có.");
-        addEllipsoid(root, name, point, new THREE.Vector3(axes.halfHeight * 0.014, axes.halfHeight * 0.014, axes.halfHeight * 0.014));
+        addEllipsoid(root, name, point, new THREE.Vector3(axes.halfHeight * 0.016, axes.halfHeight * 0.011, axes.halfHeight * 0.013));
       });
     }
     if (carpus && fetlock) {
@@ -907,7 +908,7 @@ export function buildEquineSkeletonLayer(
           .addScaledVector(longitudinal, (col - (row === 0 ? 0 : 0)) * axes.halfHeight * 0.016)
           .addScaledVector(height, (row === 0 ? -1 : 1) * axes.halfHeight * 0.012);
         const root = addRecord(`tarsal-${sideName}-${index}`, `${name} ${suffix}`, "Ossa tarsi", "hindlimb", point, "Các xương cổ chân (tarsus) được tách riêng dạng minh họa.");
-        addEllipsoid(root, name, point, new THREE.Vector3(axes.halfHeight * 0.014, axes.halfHeight * 0.013, axes.halfHeight * 0.014));
+        addEllipsoid(root, name, point, new THREE.Vector3(axes.halfHeight * 0.016, axes.halfHeight * 0.011, axes.halfHeight * 0.013));
       });
     }
     if (hock && fetlock) {
