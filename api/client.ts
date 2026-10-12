@@ -17,6 +17,17 @@ export class ApiRequestError extends Error {
 }
 
 export const SESSION_EXPIRED_EVENT = "racehorse:session-expired";
+export const APP_MUTATION_COMPLETED_EVENT = "racehorse:mutation-completed";
+
+function announceMutationCompleted(path: string, method: string) {
+  if (typeof window === "undefined") return;
+  const normalizedMethod = method.toUpperCase();
+  if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) return;
+  if (path.startsWith("/api/notifications/")) return;
+  window.dispatchEvent(new CustomEvent(APP_MUTATION_COMPLETED_EVENT, {
+    detail: { path, method: normalizedMethod },
+  }));
+}
 
 function expiredSession(): ApiRequestError {
   clearSession();
@@ -90,7 +101,9 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
     headers: { ...(options.headers ?? {}), Authorization: `Bearer ${token}` },
   });
   try {
-    return await request<T>(path, withToken(accessToken));
+    const result = await request<T>(path, withToken(accessToken));
+    announceMutationCompleted(path, options.method ?? "GET");
+    return result;
   } catch (error) {
     if (!(error instanceof ApiRequestError) || error.status !== 401) throw error;
     try {
@@ -105,7 +118,9 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
     if (!refreshed) throw expiredSession();
     if (refreshed === accessToken) throw error;
     try {
-      return await request<T>(path, withToken(refreshed));
+      const result = await request<T>(path, withToken(refreshed));
+      announceMutationCompleted(path, options.method ?? "GET");
+      return result;
     } catch (retryError) {
       if (retryError instanceof ApiRequestError && retryError.status === 401) throw expiredSession();
       throw retryError;

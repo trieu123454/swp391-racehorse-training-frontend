@@ -23,6 +23,7 @@ import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import InjuryModel3D from "@/components/veterinarian/InjuryModel3D";
 import type { Horse } from "@/api/horses/api";
+import { APP_MUTATION_COMPLETED_EVENT } from "@/api/client";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import {
   veterinarianApi,
@@ -61,6 +62,169 @@ const statusLabels: Record<string, string> = {
   Injured: "Chấn thương",
   Quarantine: "Cách ly",
 };
+const readinessLabels: Record<string, string> = {
+  Ready: "sẵn sàng thi đấu",
+  NotReady: "chưa sẵn sàng thi đấu",
+  Unknown: "chưa đánh giá khả năng thi đấu",
+};
+
+type NotificationActionTab = "overview" | "injuries" | "care";
+type VetActionItem = {
+  id: string;
+  horseId: string;
+  title: string;
+  detail: string;
+  actionLabel: string;
+  actionTab: NotificationActionTab;
+  priority: "urgent" | "warning";
+};
+type VetActivity = {
+  id: string;
+  horseId: string | null;
+  horseName: string;
+  message: string;
+  createdAt: string;
+  actionTab: NotificationActionTab;
+};
+const VET_ACTIVITY_SESSION_KEY = "racehorse:veterinarian:recent-activity";
+
+const injuryStatusLabels: Record<InjuryMarker["recovery_status"], string> = {
+  Active: "đang chấn thương",
+  Recovering: "đang hồi phục",
+  Recovered: "đã hồi phục",
+};
+
+const injurySeverityLabels: Record<InjuryMarker["severity"], string> = {
+  Mild: "nhẹ",
+  Moderate: "vừa",
+  Severe: "nặng",
+};
+
+const careTypeLabels: Record<string, string> = {
+  HoofCheck: "Kiểm tra móng",
+  Deworming: "Tẩy giun",
+  Vaccination: "Tiêm phòng",
+  MedicalCheckup: "Khám định kỳ",
+};
+
+function latestInjuriesByBodyPart(markers: InjuryMarker[]) {
+  const ordered = [...markers].sort((left, right) => Date.parse(right.marked_at) - Date.parse(left.marked_at));
+  const latest = new Map<string, InjuryMarker>();
+  for (const marker of ordered) {
+    const key = marker.body_part.trim().toLocaleLowerCase("vi");
+    if (!latest.has(key)) latest.set(key, marker);
+  }
+  return [...latest.values()];
+}
+
+function buildVetActionItems(
+  horses: VetHorse[],
+  injuriesByHorse: Map<string, InjuryMarker[]>,
+  schedules: CareSchedule[],
+) {
+  const items: VetActionItem[] = [];
+
+  for (const horse of horses) {
+    const latestInjuries = latestInjuriesByBodyPart(injuriesByHorse.get(horse.id) ?? []);
+    const activeInjuries = latestInjuries.filter((marker) => marker.recovery_status !== "Recovered");
+
+    for (const marker of activeInjuries) {
+      const severe = marker.severity === "Severe";
+      items.push({
+        id: `injury-${horse.id}-${marker.id}`,
+        horseId: horse.id,
+        title: `${horse.horse_name} · ${marker.body_part}`,
+        detail: marker.recovery_status === "Active"
+          ? `Chấn thương mức ${injurySeverityLabels[marker.severity]} hiện ${injuryStatusLabels[marker.recovery_status]}. Cần chăm sóc và cập nhật đánh giá.`
+          : `Chấn thương mức ${injurySeverityLabels[marker.severity]} hiện ${injuryStatusLabels[marker.recovery_status]}. Cần theo dõi và cập nhật lần đánh giá tiếp theo.`,
+        actionLabel: "Cập nhật chấn thương",
+        actionTab: "injuries",
+        priority: severe ? "urgent" : "warning",
+      });
+    }
+
+    if (horse.current_status === "Quarantine" || (horse.current_status !== "Healthy" && activeInjuries.length === 0)) {
+      const status = statusLabels[horse.current_status] ?? horse.current_status;
+      items.push({
+        id: `health-${horse.id}`,
+        horseId: horse.id,
+        title: `${horse.horse_name} · ${status}`,
+        detail: horse.current_status === "Quarantine"
+          ? "Kiểm tra tình trạng cách ly và cập nhật sức khỏe trước khi đưa ngựa trở lại hoạt động."
+          : "Trạng thái sức khỏe cần được đánh giá và cập nhật sau khi chăm sóc.",
+        actionLabel: "Cập nhật sức khỏe",
+        actionTab: "overview",
+        priority: horse.current_status === "Injured" || horse.current_status === "Quarantine" ? "urgent" : "warning",
+      });
+    }
+
+    if (horse.current_status === "Healthy" && (horse.readiness_status !== "Ready" || horse.is_training_locked)) {
+      items.push({
+        id: `readiness-${horse.id}`,
+        horseId: horse.id,
+        title: `${horse.horse_name} · Đã khỏe mạnh, cần xác nhận trạng thái`,
+        detail: horse.is_training_locked
+          ? "Hồ sơ đã ghi nhận khỏe mạnh nhưng lịch tập vẫn đang khóa. Kiểm tra kết quả khám và mở khóa nếu đủ điều kiện."
+          : "Hồ sơ đã ghi nhận khỏe mạnh nhưng chưa sẵn sàng thi đấu. Cập nhật trạng thái sau khi xác nhận.",
+        actionLabel: "Rà soát sức khỏe",
+        actionTab: "overview",
+        priority: "warning",
+      });
+    }
+  }
+
+  for (const schedule of schedules) {
+    if (schedule.event_status === "Completed" || (!schedule.is_overdue && schedule.next_due_date > today())) continue;
+    const horse = horses.find((item) => item.id === schedule.horse_id);
+    if (!horse) continue;
+    items.push({
+      id: `care-${schedule.id}`,
+      horseId: schedule.horse_id,
+      title: `${horse.horse_name} · ${careTypeLabels[schedule.care_type] ?? schedule.care_type}`,
+      detail: `${schedule.is_overdue ? "Lịch chăm sóc đã quá hạn" : "Lịch chăm sóc đến hạn hôm nay"} (${displayDate(schedule.next_due_date)}). ${schedule.calendar_event_id ? "Hãy hoàn thành lịch hẹn hoặc xác nhận đã chăm sóc." : "Hãy đặt lịch hoặc xác nhận đã chăm sóc."}`,
+      actionLabel: "Mở lịch chăm sóc",
+      actionTab: "care",
+      priority: "urgent",
+    });
+  }
+
+  const priorityOrder = { urgent: 0, warning: 1 };
+  return items.sort((left, right) => priorityOrder[left.priority] - priorityOrder[right.priority] || left.title.localeCompare(right.title, "vi"));
+}
+
+async function fetchVetActionItems(horses: VetHorse[]) {
+  const horsesToInspect = horses.filter((horse) => horse.current_status !== "Healthy" || horse.readiness_status !== "Ready" || horse.is_training_locked);
+  const [schedulesResult, ...injuryResults] = await Promise.allSettled([
+    veterinarianApi.schedules(),
+    ...horsesToInspect.map((horse) => veterinarianApi.injuries(horse.id)),
+  ]);
+  const injuriesByHorse = new Map<string, InjuryMarker[]>();
+  const failures: string[] = [];
+  injuryResults.forEach((result, index) => {
+    if (result.status === "fulfilled") injuriesByHorse.set(horsesToInspect[index].id, result.value.data);
+    else failures.push(horsesToInspect[index].horse_name);
+  });
+  const schedules = schedulesResult.status === "fulfilled" ? schedulesResult.value.data : [];
+  if (schedulesResult.status === "rejected") failures.push("lịch chăm sóc");
+  return {
+    items: buildVetActionItems(horses, injuriesByHorse, schedules),
+    error: failures.length ? "Một số dữ liệu sức khỏe hoặc lịch chăm sóc chưa tải được; hãy làm mới để thử lại." : "",
+  };
+}
+
+function formatNotificationMessage(message: string, horses: VetHorse[]) {
+  const simulationAlert = message.match(/^Training simulation for horse ([\w-]+) exceeded a configured monitoring threshold; review the sensor readings\.?$/i);
+  if (simulationAlert) {
+    const horseId = simulationAlert[1];
+    const horse = horses.find((item) => item.id === horseId);
+    const horseName = horse?.horse_name ?? `mã ${horseId.slice(0, 8)}`;
+    return {
+      message: `Chỉ số cảm biến trong buổi tập của ngựa ${horseName} vượt ngưỡng theo dõi. Bác sĩ cần kiểm tra dữ liệu và đánh giá nguy cơ chấn thương.`,
+      horseId: horse?.id ?? null,
+    };
+  }
+  return { message, horseId: null };
+}
 
 export default function VeterinarianWorkspace() {
   const [overview, setOverview] = useState<HealthOverview | null>(null);
@@ -72,7 +236,10 @@ export default function VeterinarianWorkspace() {
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
   const [notice, setNotice] = useState("");
   const [unread, setUnread] = useState(0);
+  const [actionCount, setActionCount] = useState(0);
   const [openIncidentCount, setOpenIncidentCount] = useState(0);
+  const [recentActivities, setRecentActivities] = useState<VetActivity[]>([]);
+  const [activityHistoryReady, setActivityHistoryReady] = useState(false);
 
   const loadOverview = useCallback(async (nextSection = section) => {
     setLoading(true);
@@ -87,8 +254,10 @@ export default function VeterinarianWorkspace() {
       setSelectedId((current) => result.horses.some((horse) => horse.id === current)
         ? current
         : result.horses[0]?.id ?? "");
+      return result;
     } catch (reason) {
       setError(veterinarianError(reason));
+      return null;
     } finally {
       setLoading(false);
     }
@@ -105,13 +274,63 @@ export default function VeterinarianWorkspace() {
 
   useEffect(() => { void loadOverview(); }, [loadOverview]);
   useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(VET_ACTIVITY_SESSION_KEY);
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setRecentActivities(parsed.filter((item): item is VetActivity => Boolean(
+            item && typeof item === "object"
+            && typeof item.id === "string"
+            && (item.horseId === null || typeof item.horseId === "string")
+            && typeof item.horseName === "string"
+            && typeof item.message === "string"
+            && typeof item.createdAt === "string"
+            && ["overview", "injuries", "care"].includes(item.actionTab),
+          )).slice(0, 12));
+        }
+      }
+    } catch {
+      // Keep the workspace usable if this browser blocks or corrupts session storage.
+    }
+    setActivityHistoryReady(true);
+  }, []);
+  useEffect(() => {
+    if (!activityHistoryReady) return;
+    try {
+      sessionStorage.setItem(VET_ACTIVITY_SESSION_KEY, JSON.stringify(recentActivities));
+    } catch {
+      // Activity notices still remain visible until this workspace is closed.
+    }
+  }, [activityHistoryReady, recentActivities]);
+  useEffect(() => {
     void loadUnread();
     const timer = window.setInterval(() => void loadUnread(), 60_000);
     return () => window.clearInterval(timer);
   }, [loadUnread]);
-
   const horses = useMemo(() => overview?.horses ?? [], [overview]);
   const horse = horses.find((item) => item.id === selectedId) ?? null;
+  useEffect(() => {
+    let timer: number | undefined;
+    const refreshAfterMutation = (event: Event) => {
+      const path = (event as CustomEvent<{ path?: string }>).detail?.path ?? "";
+      if (path.includes("/api/notifications")) return;
+      void loadUnread();
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void (async () => {
+          const refreshedOverview = await loadOverview();
+          const result = await fetchVetActionItems(refreshedOverview?.horses ?? horses);
+          setActionCount(result.items.length);
+        })();
+      }, 180);
+    };
+    window.addEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
+    };
+  }, [horses, loadOverview, loadUnread]);
   const sections = useMemo(() => [...new Set(horses.map((item) => item.stable_box?.section).filter((item): item is string => Boolean(item)))].sort(), [horses]);
   const stableGroups = useMemo(() => {
     const groups = new Map<string, VetHorse[]>();
@@ -125,8 +344,21 @@ export default function VeterinarianWorkspace() {
 
   function changed(message: string) {
     setNotice(message);
-    void loadOverview();
-    void loadUnread();
+    const activity: VetActivity = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      horseId: horse?.id ?? null,
+      horseName: horse?.horse_name ?? "Đàn ngựa",
+      message,
+      createdAt: new Date().toISOString(),
+      actionTab: tab === "injuries" ? "injuries" : tab === "care" ? "care" : "overview",
+    };
+    setRecentActivities((current) => [activity, ...current].slice(0, 12));
+  }
+
+  function openNotificationAction(horseId: string, nextTab: NotificationActionTab) {
+    setSelectedId(horseId);
+    selectTab(nextTab);
+    setNotice("");
   }
 
   return (
@@ -140,7 +372,7 @@ export default function VeterinarianWorkspace() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="mr-1 text-xs text-slate-500">{horses.length} ngựa · {stableGroups.length} vị trí</span>
             <button type="button" onClick={() => { selectTab("incidents"); setNotice(""); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-800 hover:bg-rose-100"><AlertTriangle size={15} /> Sự cố <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold">{openIncidentCount}</span></button>
-            <button type="button" onClick={() => { selectTab("notifications"); setNotice(""); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-equine-line bg-white px-3 text-sm font-semibold text-equine-navy hover:bg-equine-mist"><Bell size={15} /> Thông báo <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${unread ? "bg-rose-100 text-rose-700" : "bg-equine-mist text-slate-600"}`}>{unread}</span></button>
+            <button type="button" onClick={() => { selectTab("notifications"); setNotice(""); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-equine-line bg-white px-3 text-sm font-semibold text-equine-navy hover:bg-equine-mist"><Bell size={15} /> Thông báo <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${unread ? "bg-rose-100 text-rose-700" : "bg-equine-mist text-slate-600"}`}>{unread}</span>{actionCount > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">{actionCount} việc</span>}</button>
             <button type="button" aria-label="Làm mới dữ liệu" className="grid h-10 w-10 place-items-center rounded-xl border border-equine-line bg-white text-equine-navy hover:bg-equine-mist" onClick={() => { void loadOverview(); void loadUnread(); }}><RefreshCw size={15} /></button>
           </div>
         </div>
@@ -172,22 +404,22 @@ export default function VeterinarianWorkspace() {
           {horse && <>
             <HorseSummary horse={horse} />
             <div className="workspace-secondary-nav mt-4 flex gap-2 overflow-x-auto border-b border-equine-line pb-2" role="tablist" aria-label="Chức năng bác sĩ thú y">
-              {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${tab === id ? "bg-equine-navy text-white" : "bg-white text-slate-600 hover:bg-equine-mist"}`} onClick={() => { selectTab(id); setNotice(""); }}><Icon size={15} />{label}{id === "notifications" && unread > 0 && <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] text-rose-700">{unread}</span>}</button>)}
+              {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${tab === id ? "bg-equine-navy text-white" : "bg-white text-slate-600 hover:bg-equine-mist"}`} onClick={() => { selectTab(id); setNotice(""); }}><Icon size={15} />{label}{id === "notifications" && (unread > 0 || actionCount > 0) && <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] text-rose-700">{unread + actionCount}</span>}</button>)}
             </div>
             <div className="mt-4">
               {tab === "overview" && <HorseStatusPanel horse={horse} onChanged={changed} />}
-              {tab === "exams" && <ExamsPanel horse={horse} onChanged={(message) => { setNotice(message); void loadOverview(); }} />}
-              {tab === "medical" && <MedicalPanel horse={horse} onChanged={setNotice} />}
-              {tab === "diet" && <DietPanel horse={horse} onChanged={setNotice} />}
-              {tab === "injuries" && <InjuriesPanel horse={horse} onChanged={setNotice} />}
-              {tab === "care" && <CarePanel horses={horses} selectedHorse={horse} onChanged={(message) => { setNotice(message); void loadUnread(); }} />}
+              {tab === "exams" && <ExamsPanel horse={horse} onChanged={changed} />}
+              {tab === "medical" && <MedicalPanel horse={horse} onChanged={changed} />}
+              {tab === "diet" && <DietPanel horse={horse} onChanged={changed} />}
+              {tab === "injuries" && <InjuriesPanel horse={horse} onChanged={changed} />}
+              {tab === "care" && <CarePanel horses={horses} selectedHorse={horse} onChanged={changed} />}
               {tab === "incidents" && <StableIncidentsPanel onOpenHorse={(id) => { setSelectedId(id); selectTab("overview"); }} />}
-              {tab === "notifications" && <NotificationsPanel onUnread={setUnread} />}
+              {tab === "notifications" && <NotificationsPanel horses={horses} activities={recentActivities} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} />}
             </div>
           </>}
           {!horse && !loading && <div className="rounded-2xl border border-equine-line bg-white p-6"><Notice>Chưa có ngựa đang hoạt động để quản lý sức khỏe.</Notice></div>}
           {!horse && !loading && tab === "incidents" && <div className="mt-4"><StableIncidentsPanel onOpenHorse={(id) => { setSelectedId(id); selectTab("overview"); }} /></div>}
-          {!horse && !loading && tab === "notifications" && <div className="mt-4"><NotificationsPanel onUnread={setUnread} /></div>}
+          {!horse && !loading && tab === "notifications" && <div className="mt-4"><NotificationsPanel horses={horses} activities={recentActivities} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} /></div>}
         </div>
       </div>
     </section>
@@ -278,7 +510,15 @@ function HorseStatusPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (m
   async function updateStatus(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(""); setSuggestLock(false);
     const values = formValues(event.currentTarget);
-    try { const status = String(values.current_status); const result = await veterinarianApi.updateHealthStatus(horse.id, status, String(values.readiness_status), String(values.note ?? "")); setSuggestLock(["Injured", "Quarantine"].includes(status)); setSessions(result.upcoming_sessions ?? []); onChanged(result.is_training_locked && ["Injured", "Quarantine"].includes(status) ? "Đã cập nhật trạng thái và tự động khóa huấn luyện." : "Đã cập nhật trạng thái sức khỏe và sẵn sàng thi đấu."); }
+    try {
+      const status = String(values.current_status);
+      const readiness = String(values.readiness_status);
+      const result = await veterinarianApi.updateHealthStatus(horse.id, status, readiness, String(values.note ?? ""));
+      setSuggestLock(["Injured", "Quarantine"].includes(status));
+      setSessions(result.upcoming_sessions ?? []);
+      const lockNotice = result.is_training_locked && ["Injured", "Quarantine"].includes(status) ? " Huấn luyện đang bị khóa." : "";
+      onChanged(`Đã cập nhật sức khỏe: ${statusLabels[status] ?? status}; ${readinessLabels[readiness] ?? readiness}.${lockNotice}`);
+    }
     catch (reason) { setError(veterinarianError(reason)); }
     finally { setBusy(false); }
   }
@@ -645,13 +885,13 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
           }
         } catch (reason) {
           setError(`Đã lưu chấn thương nhưng không thể tự động cập nhật trạng thái và khóa huấn luyện: ${veterinarianError(reason)}`);
-          onChanged("Đã lưu chấn thương; cần kiểm tra lại trạng thái và khóa huấn luyện.");
+          onChanged(`Đã ghi nhận chấn thương tại ${String(values.body_part)}; cần kiểm tra lại trạng thái sức khỏe và khóa huấn luyện.`);
           return;
         }
         setSuggestLock(true);
-        onChanged("Đã lưu chấn thương. Ngựa đã chuyển sang Chấn thương, chưa sẵn sàng và khóa huấn luyện.");
+        onChanged(`Đã ghi nhận chấn thương tại ${String(values.body_part)}, mức ${injurySeverityLabels[String(values.severity) as InjuryMarker["severity"]] ?? String(values.severity)}. Ngựa đã chuyển sang Chấn thương, chưa sẵn sàng và khóa huấn luyện.`);
       } else {
-        onChanged("Đã lưu đánh giá phục hồi.");
+        onChanged(`Đã cập nhật đánh giá chấn thương tại ${String(values.body_part)}: ${injuryStatusLabels[String(values.recovery_status) as InjuryMarker["recovery_status"]] ?? "đã ghi nhận"}. Xác nhận trạng thái sức khỏe trước khi cho ngựa hoạt động lại.`);
       }
     } catch (reason) { setError(veterinarianError(reason)); }
     finally { setBusy(false); }
@@ -833,12 +1073,27 @@ function CalendarRow({ event }: { event: CareEvent }) {
   return <article className={`flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between ${context ? "border-slate-200 bg-slate-50" : "border-equine-line"}`}><div><p className="font-semibold text-equine-navy">{horseName ? `${horseName} · ` : ""}{eventName}{context ? " · Lịch liên quan" : ""}</p><p className="mt-1 text-xs text-slate-500">{displayDate(event.event_date)}{event.start_time ? ` · ${event.start_time.slice(0, 5)}–${event.end_time?.slice(0, 5) ?? "?"}` : " · Cả ngày"}</p></div><span className="rounded-full bg-white px-2.5 py-1 text-xs text-slate-600">{event.status}</span></article>;
 }
 
-function NotificationsPanel({ onUnread }: { onUnread: (count: number) => void }) {
+function NotificationsPanel({
+  horses,
+  activities,
+  onUnread,
+  onActionCount,
+  onOpenAction,
+}: {
+  horses: VetHorse[];
+  activities: VetActivity[];
+  onUnread: (count: number) => void;
+  onActionCount: (count: number) => void;
+  onOpenAction: (horseId: string, nextTab: NotificationActionTab) => void;
+}) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
+  const [actions, setActions] = useState<VetActionItem[]>([]);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [actionsLoading, setActionsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [actionsError, setActionsError] = useState("");
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -847,6 +1102,31 @@ function NotificationsPanel({ onUnread }: { onUnread: (count: number) => void })
     finally { setLoading(false); }
   }, [onUnread, unreadOnly]);
   useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 60_000); return () => window.clearInterval(timer); }, [load]);
+
+  const loadActions = useCallback(async () => {
+    setActionsLoading(true);
+    setActionsError("");
+    try {
+      const result = await fetchVetActionItems(horses);
+      setActions(result.items);
+      onActionCount(result.items.length);
+      setActionsError(result.error);
+    } catch (reason) {
+      setActionsError(veterinarianError(reason));
+    } finally {
+      setActionsLoading(false);
+    }
+  }, [horses, onActionCount]);
+  useEffect(() => { void loadActions(); const timer = window.setInterval(() => void loadActions(), 60_000); return () => window.clearInterval(timer); }, [loadActions]);
+  useEffect(() => {
+    const refreshAfterMutation = () => {
+      void load();
+      void loadActions();
+    };
+    window.addEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
+    return () => window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
+  }, [load, loadActions]);
+
   async function markRead(id: string) {
     setBusy(true); setError("");
     try { await veterinarianApi.readNotification(id); await load(); }
@@ -859,7 +1139,33 @@ function NotificationsPanel({ onUnread }: { onUnread: (count: number) => void })
     catch (reason) { setError(veterinarianError(reason)); }
     finally { setBusy(false); }
   }
-  return <SectionCard title="Thông báo" description="Chỉ hiển thị thông báo đã đến hạn. Danh sách tự cập nhật mỗi phút." icon={Bell} action={<div className="flex gap-2"><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => setUnreadOnly((value) => !value)}>{unreadOnly ? "Xem tất cả" : "Chưa đọc"}</button><button type="button" className="soft-button h-9 px-3 text-xs" disabled={busy || unread === 0} onClick={() => void markAll()}>Đọc tất cả</button></div>}>
-    <ErrorLine>{error}</ErrorLine>{loading ? <Notice>Đang tải thông báo...</Notice> : notifications.length === 0 ? <Empty>{unreadOnly ? "Không có thông báo chưa đọc." : "Chưa có thông báo đã đến hạn."}</Empty> : <div className="space-y-2">{notifications.map((item) => <article key={item.id} className={`flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between ${item.is_read ? "border-equine-line bg-white" : "border-equine-gold/40 bg-[#fffaf2]"}`}><div><p className="text-sm font-medium text-equine-navy">{item.message}</p><p className="mt-1 text-xs text-slate-500">{displayDate(item.scheduled_at ?? item.created_at)}{item.is_read ? " · Đã đọc" : " · Chưa đọc"}</p></div>{!item.is_read && <button type="button" className="soft-button h-9 px-3 text-xs" disabled={busy} onClick={() => void markRead(item.id)}>Đánh dấu đã đọc</button>}</article>)}</div>}
+  return <SectionCard title="Thông báo" description="Việc cần chăm sóc và cập nhật sức khỏe được tổng hợp từ hồ sơ ngựa; thông báo tự làm mới mỗi phút." icon={Bell} action={<div className="flex gap-2"><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => setUnreadOnly((value) => !value)}>{unreadOnly ? "Xem tất cả" : "Chưa đọc"}</button><button type="button" className="soft-button h-9 px-3 text-xs" disabled={busy || unread === 0} onClick={() => void markAll()}>Đọc tất cả</button></div>}>
+    <ErrorLine>{error}</ErrorLine>
+    {activities.length > 0 && <section className="mb-5 rounded-xl border border-sky-200 bg-sky-50/50 p-3 sm:p-4" aria-label="Hoạt động gần đây">
+      <div className="mb-3"><h4 className="font-semibold text-equine-navy">Hoạt động gần đây</h4><p className="mt-1 text-xs text-slate-500">Các thao tác vừa lưu trong phiên này vẫn được giữ khi tải lại trang.</p></div>
+      <div className="space-y-2">{activities.slice(0, 8).map((activity) => <article key={activity.id} className="flex flex-col gap-3 rounded-lg border border-sky-100 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0"><p className="font-semibold text-equine-navy">{activity.horseName}</p><p className="mt-1 text-sm text-slate-700">{activity.message}</p><p className="mt-1 text-xs text-slate-500">{new Date(activity.createdAt).toLocaleString("vi-VN")}</p></div>
+        {activity.horseId && <button type="button" className="soft-button h-9 shrink-0 px-3 text-xs" onClick={() => onOpenAction(activity.horseId!, activity.actionTab)}>Mở hồ sơ</button>}
+      </article>)}</div>
+    </section>}
+    <section className="mb-5 rounded-xl border border-amber-200 bg-[#fffdf8] p-3 sm:p-4" aria-label="Việc cần xử lý">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div><h4 className="font-semibold text-equine-navy">Việc cần xử lý</h4><p className="mt-1 text-xs text-slate-500">Chấn thương, trạng thái sức khỏe và lịch chăm sóc đến hạn.</p></div>
+        {!actionsLoading && <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">{actions.length} việc</span>}
+      </div>
+      <ErrorLine>{actionsError}</ErrorLine>
+      {actionsLoading ? <Notice>Đang kiểm tra hồ sơ sức khỏe và lịch chăm sóc...</Notice> : actions.length === 0 ? <p className="rounded-lg bg-white px-3 py-3 text-sm text-slate-500">Hiện không có chấn thương hoặc lịch chăm sóc nào cần xử lý.</p> : <div className="space-y-2">{actions.map((item) => <article key={item.id} className={`flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between ${item.priority === "urgent" ? "border-rose-200 bg-rose-50/60" : "border-amber-200 bg-white"}`}>
+        <div className="min-w-0"><p className="font-semibold text-equine-navy">{item.title}</p><p className="mt-1 text-sm text-slate-600">{item.detail}</p></div>
+        <button type="button" className="soft-button h-9 shrink-0 px-3 text-xs" onClick={() => onOpenAction(item.horseId, item.actionTab)}>{item.actionLabel}</button>
+      </article>)}</div>}
+    </section>
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-t border-equine-line pt-4"><div><h4 className="font-semibold text-equine-navy">Thông báo đã đến hạn</h4><p className="mt-1 text-xs text-slate-500">Nhắc lịch và cảnh báo được gửi từ hệ thống.</p></div></div>
+    {loading ? <Notice>Đang tải thông báo...</Notice> : notifications.length === 0 ? <Empty>{unreadOnly ? "Không có thông báo chưa đọc." : "Chưa có thông báo đã đến hạn."}</Empty> : <div className="space-y-2">{notifications.map((item) => {
+      const formatted = formatNotificationMessage(item.message, horses);
+      return <article key={item.id} className={`flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between ${item.is_read ? "border-equine-line bg-white" : "border-equine-gold/40 bg-[#fffaf2]"}`}>
+        <div><p className="text-sm font-medium text-equine-navy">{formatted.message}</p><p className="mt-1 text-xs text-slate-500">{displayDate(item.scheduled_at ?? item.created_at)}{item.is_read ? " · Đã đọc" : " · Chưa đọc"}</p></div>
+        <div className="flex shrink-0 gap-2">{formatted.horseId && <button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => onOpenAction(formatted.horseId!, "overview")}>Mở hồ sơ ngựa</button>}{!item.is_read && <button type="button" className="soft-button h-9 px-3 text-xs" disabled={busy} onClick={() => void markRead(item.id)}>Đánh dấu đã đọc</button>}</div>
+      </article>;
+    })}</div>}
   </SectionCard>;
 }

@@ -145,13 +145,13 @@ function createStudioBackdrop() {
   const context = canvas.getContext("2d");
   if (context) {
     const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
-    gradient.addColorStop(0, "#f4f4f1");
-    gradient.addColorStop(0.52, "#e9eef0");
-    gradient.addColorStop(1, "#d9e6ef");
+    gradient.addColorStop(0, "#17191b");
+    gradient.addColorStop(0.52, "#24292d");
+    gradient.addColorStop(1, "#111416");
     context.fillStyle = gradient;
     context.fillRect(0, 0, canvas.width, canvas.height);
     const softLight = context.createRadialGradient(0, 0, 0, 0, 0, canvas.height * 0.9);
-    softLight.addColorStop(0, "rgba(255,255,255,0.34)");
+    softLight.addColorStop(0, "rgba(255,255,255,0.08)");
     softLight.addColorStop(1, "rgba(255,255,255,0)");
     context.fillStyle = softLight;
     context.fillRect(0, 0, canvas.width, canvas.height);
@@ -241,6 +241,7 @@ export default function InjuryModel3D({
     let skeletonDisplayMaterials: {
       dimBone: THREE.MeshStandardMaterial;
       dimCartilage: THREE.MeshStandardMaterial;
+      dimCostalCartilage: THREE.MeshStandardMaterial;
       dimTooth: THREE.MeshStandardMaterial;
       focusBone: Record<string, THREE.MeshStandardMaterial>;
     } | null = null;
@@ -347,7 +348,7 @@ export default function InjuryModel3D({
         const showGhost = nextLayers.skin && showAnatomy;
         entry.mesh.material = showGhost ? entry.ghostMaterial : entry.skinMaterial;
         entry.mesh.renderOrder = showGhost ? 1 : 0;
-        entry.ghostMaterial.opacity = nextLayers.skeleton ? 0.08 : 0.14;
+        entry.ghostMaterial.opacity = nextLayers.skeleton ? 0.16 : 0.23;
       }
       accessoryMeshes.forEach((mesh) => { mesh.visible = !nextLayers.skeleton; });
       if (muscleLayer) muscleLayer.visible = nextLayers.muscle;
@@ -454,18 +455,21 @@ export default function InjuryModel3D({
           record.object.traverse((object) => {
             if (!(object instanceof THREE.Mesh)) return;
             const isCartilage = Boolean(object.userData.isCartilage);
+            const isCostalCartilage = Boolean(object.userData.isCostalCartilage);
             const isTooth = Boolean(object.userData.isTooth);
             if (dimmed) object.material = isTooth
               ? skeletonDisplayMaterials?.dimTooth ?? object.material
-              : isCartilage ? skeletonDisplayMaterials?.dimCartilage ?? object.material : skeletonDisplayMaterials?.dimBone ?? object.material;
+              : isCostalCartilage ? skeletonDisplayMaterials?.dimCostalCartilage ?? object.material
+                : isCartilage ? skeletonDisplayMaterials?.dimCartilage ?? object.material : skeletonDisplayMaterials?.dimBone ?? object.material;
             else if (highlighted && skeletonDisplayMaterials) {
-              const materials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.MeshStandardMaterial; cartilage: THREE.MeshStandardMaterial; tooth: THREE.MeshStandardMaterial } | undefined;
+              const materials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.MeshStandardMaterial; cartilage: THREE.MeshStandardMaterial; costalCartilage?: THREE.MeshStandardMaterial; tooth: THREE.MeshStandardMaterial } | undefined;
               object.material = isTooth ? materials?.tooth ?? object.material
-                : isCartilage ? materials?.cartilage ?? object.material
+                : isCostalCartilage ? materials?.costalCartilage ?? object.material
+                  : isCartilage ? materials?.cartilage ?? object.material
                   : skeletonDisplayMaterials.focusBone[record.group] ?? object.material;
             } else {
-              const materials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.MeshStandardMaterial; cartilage: THREE.MeshStandardMaterial; tooth: THREE.MeshStandardMaterial } | undefined;
-              if (materials) object.material = isTooth ? materials.tooth : isCartilage ? materials.cartilage : materials.bone;
+              const materials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.MeshStandardMaterial; cartilage: THREE.MeshStandardMaterial; costalCartilage?: THREE.MeshStandardMaterial; tooth: THREE.MeshStandardMaterial } | undefined;
+              if (materials) object.material = isTooth ? materials.tooth : isCostalCartilage ? materials.costalCartilage ?? materials.cartilage : isCartilage ? materials.cartilage : materials.bone;
             }
           });
         }
@@ -947,7 +951,7 @@ export default function InjuryModel3D({
         const ghostMaterial = new THREE.MeshPhysicalMaterial({
           color: "#b9d8e1",
           transparent: true,
-          opacity: 0.085,
+          opacity: 0.18,
           depthWrite: false,
           side: THREE.FrontSide,
           roughness: 0.2,
@@ -992,6 +996,9 @@ export default function InjuryModel3D({
       const dimCartilage = skeletonAnatomy.materials.cartilage.clone();
       dimCartilage.opacity = 0.12;
       dimCartilage.depthWrite = false;
+      const dimCostalCartilage = skeletonAnatomy.materials.costalCartilage.clone();
+      dimCostalCartilage.opacity = 0.16;
+      dimCostalCartilage.depthWrite = false;
       const dimTooth = skeletonAnatomy.materials.tooth.clone();
       dimTooth.transparent = true;
       dimTooth.opacity = 0.14;
@@ -1006,8 +1013,8 @@ export default function InjuryModel3D({
         material.color.set(color);
         return [group, material];
       })) as Record<string, THREE.MeshStandardMaterial>;
-      skeletonDisplayMaterials = { dimBone, dimCartilage, dimTooth, focusBone };
-      skeletonGroup.userData.displayMaterials = [dimBone, dimCartilage, dimTooth, ...Object.values(focusBone)];
+      skeletonDisplayMaterials = { dimBone, dimCartilage, dimCostalCartilage, dimTooth, focusBone };
+      skeletonGroup.userData.displayMaterials = [dimBone, dimCartilage, dimCostalCartilage, dimTooth, ...Object.values(focusBone)];
       muscleLayer = muscleGroup;
       skeletonLayer = skeletonGroup;
       const organAnatomy = buildEquineOrganLayer(boneNodes, axes);
@@ -1086,7 +1093,7 @@ export default function InjuryModel3D({
       layerMeshes.forEach((entry) => entry.ghostMaterial.dispose());
       const skeletonDisplayAssets = skeletonLayer?.userData.displayMaterials as THREE.Material[] | undefined;
       skeletonDisplayAssets?.forEach((material) => material.dispose());
-      const skeletonBaseMaterials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.Material; cartilage: THREE.Material; tooth: THREE.Material } | undefined;
+      const skeletonBaseMaterials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.Material; cartilage: THREE.Material; costalCartilage?: THREE.Material; tooth: THREE.Material } | undefined;
       skeletonBaseMaterials && Object.values(skeletonBaseMaterials).forEach((material) => material.dispose());
       const skeletonLabelMaterials = skeletonLayer?.userData.ownedLabelMaterials as THREE.Material[] | undefined;
       skeletonLabelMaterials?.forEach((material) => material.dispose());

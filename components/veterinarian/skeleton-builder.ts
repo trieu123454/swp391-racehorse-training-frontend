@@ -108,6 +108,8 @@ function loftGeometry(
   const vertices: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
+  const pathDirection = stations[stations.length - 1].center.clone().sub(stations[0].center).normalize();
+  const reverseWinding = new THREE.Vector3().crossVectors(pathDirection, lateral).dot(vertical) < 0;
   stations.forEach((station, ring) => {
     for (let segment = 0; segment < radialSegments; segment += 1) {
       const angle = segment / radialSegments * Math.PI * 2;
@@ -124,7 +126,8 @@ function loftGeometry(
       const next = ring * radialSegments + (segment + 1) % radialSegments;
       const nextRing = current + radialSegments;
       const nextRingNext = next + radialSegments;
-      indices.push(current, next, nextRing, next, nextRingNext, nextRing);
+      if (reverseWinding) indices.push(current, nextRing, next, next, nextRing, nextRingNext);
+      else indices.push(current, next, nextRing, next, nextRingNext, nextRing);
     }
   }
   const endOffset = (stations.length - 1) * radialSegments;
@@ -134,7 +137,8 @@ function loftGeometry(
     uvs.push(0.5, 0);
     for (let segment = 0; segment < radialSegments; segment += 1) {
       const next = (segment + 1) % radialSegments;
-      indices.push(startCenter, next, segment);
+      if (reverseWinding) indices.push(startCenter, segment, next);
+      else indices.push(startCenter, next, segment);
     }
   }
   if (capEnd) {
@@ -144,8 +148,84 @@ function loftGeometry(
     uvs.push(0.5, 1);
     for (let segment = 0; segment < radialSegments; segment += 1) {
       const next = (segment + 1) % radialSegments;
-      indices.push(endCenter, endOffset + segment, endOffset + next);
+      if (reverseWinding) indices.push(endCenter, endOffset + next, endOffset + segment);
+      else indices.push(endCenter, endOffset + segment, endOffset + next);
     }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+function flattenedCurveGeometry(
+  curve: THREE.Curve<THREE.Vector3>,
+  depthDirection: THREE.Vector3,
+  fallbackWidthDirection: THREE.Vector3,
+  breadthRadius: number,
+  thicknessRadius: number,
+  breadthAt: (u: number) => number,
+  tubularSegments = 28,
+  radialSegments = 12,
+) {
+  const vertices: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const centers: THREE.Vector3[] = [];
+  const profile = [
+    [0, 0.7], [0.08, 1], [0.3, 0.92], [0.62, 0.8], [0.86, 0.66], [1, 0.48],
+  ];
+  const profileAt = (u: number) => {
+    const upper = profile.findIndex(([at]) => at >= u);
+    if (upper <= 0) return profile[Math.max(0, upper)][1];
+    const [leftU, leftScale] = profile[upper - 1];
+    const [rightU, rightScale] = profile[upper];
+    return THREE.MathUtils.lerp(leftScale, rightScale, (u - leftU) / Math.max(1e-4, rightU - leftU));
+  };
+
+  for (let ring = 0; ring <= tubularSegments; ring += 1) {
+    const u = ring / tubularSegments;
+    const center = curve.getPointAt(u);
+    const tangent = curve.getTangentAt(u).normalize();
+    const depth = depthDirection.clone().addScaledVector(tangent, -depthDirection.dot(tangent));
+    if (depth.lengthSq() < 1e-6) depth.copy(fallbackWidthDirection).cross(tangent);
+    depth.normalize();
+    const width = new THREE.Vector3().crossVectors(depth, tangent).normalize();
+    centers.push(center);
+    const sectionScale = profileAt(u) * breadthAt(u);
+    for (let segment = 0; segment < radialSegments; segment += 1) {
+      const angle = segment / radialSegments * Math.PI * 2;
+      const point = center.clone()
+        .addScaledVector(width, Math.cos(angle) * breadthRadius * sectionScale)
+        .addScaledVector(depth, Math.sin(angle) * thicknessRadius * sectionScale);
+      vertices.push(point.x, point.y, point.z);
+      uvs.push(segment / radialSegments, u);
+    }
+  }
+
+  for (let ring = 0; ring < tubularSegments; ring += 1) {
+    for (let segment = 0; segment < radialSegments; segment += 1) {
+      const current = ring * radialSegments + segment;
+      const next = ring * radialSegments + (segment + 1) % radialSegments;
+      const nextRing = current + radialSegments;
+      const nextRingNext = next + radialSegments;
+      indices.push(current, next, nextRing, next, nextRingNext, nextRing);
+    }
+  }
+  const startCenter = vertices.length / 3;
+  vertices.push(centers[0].x, centers[0].y, centers[0].z);
+  uvs.push(0.5, 0);
+  const endCenter = vertices.length / 3;
+  const end = centers[centers.length - 1];
+  vertices.push(end.x, end.y, end.z);
+  uvs.push(0.5, 1);
+  const lastRing = tubularSegments * radialSegments;
+  for (let segment = 0; segment < radialSegments; segment += 1) {
+    const next = (segment + 1) % radialSegments;
+    indices.push(startCenter, next, segment);
+    indices.push(endCenter, lastRing + segment, lastRing + next);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
@@ -190,7 +270,9 @@ export function buildEquineSkeletonLayer(
   const materials = {
     bone: new THREE.MeshStandardMaterial({ color: "#E8E0D0", roughness: 0.68, metalness: 0, bumpMap: surface, bumpScale: 0.0048 }),
     cartilage: new THREE.MeshStandardMaterial({ color: "#D5CFC2", roughness: 0.54, metalness: 0, transparent: true, opacity: 0.38, depthWrite: false }),
+    costalCartilage: new THREE.MeshStandardMaterial({ color: "#CFCABD", roughness: 0.66, metalness: 0, transparent: true, opacity: 0.82, depthWrite: false }),
     tooth: new THREE.MeshStandardMaterial({ color: "#F8F4E8", roughness: 0.38, metalness: 0, bumpMap: surface, bumpScale: 0.002 }),
+    boneCrevice: new THREE.MeshStandardMaterial({ color: "#9C9383", roughness: 0.9, metalness: 0 }),
   };
   const shaftGeometry = boneGeometry();
   const ellipsoidGeometry = new THREE.SphereGeometry(1, 24, 16);
@@ -234,7 +316,9 @@ export function buildEquineSkeletonLayer(
     mesh.renderOrder = 3;
     mesh.userData.boneId = root.userData.boneId;
     if (material === materials.cartilage) mesh.userData.isCartilage = true;
+    if (material === materials.costalCartilage) mesh.userData.isCostalCartilage = true;
     if (material === materials.tooth) mesh.userData.isTooth = true;
+    if (material === materials.boneCrevice) mesh.userData.isBoneCrevice = true;
     root.add(mesh);
     return mesh;
   }
@@ -260,15 +344,36 @@ export function buildEquineSkeletonLayer(
   function addLongBone(id: string, name: string, latin: string, type: SkeletonGroup, start: THREE.Vector3, end: THREE.Vector3, radius: number, description: string, label = false) {
     const middle = start.clone().lerp(end, 0.5);
     const root = addRecord(id, name, latin, type, middle, description, label);
-    addShaft(root, `${name} · thân xương`, start, end, radius);
-    const direction = end.clone().sub(start).normalize();
-    const jointRadius = radius * 1.2;
-    const epiphysis = new THREE.Vector3(jointRadius * 1.12, radius * 0.62, jointRadius * 1.04);
-    addEllipsoid(root, `${name} · đầu gần`, start.clone().addScaledVector(direction, radius * 0.12), epiphysis, direction);
-    addEllipsoid(root, `${name} · đầu xa`, end.clone().addScaledVector(direction, -radius * 0.12), epiphysis.clone().multiply(new THREE.Vector3(1.04, 1, 1.06)), direction);
-    const articularSurface = new THREE.Vector3(jointRadius * 0.82, radius * 0.13, jointRadius * 0.78);
-    addEllipsoid(root, `${name} · sụn khớp gần`, start.clone().addScaledVector(direction, radius * 0.08), articularSurface, direction, materials.cartilage);
-    addEllipsoid(root, `${name} · sụn khớp xa`, end.clone().addScaledVector(direction, -radius * 0.08), articularSurface, direction, materials.cartilage);
+    const direction = end.clone().sub(start);
+    const length = direction.length();
+    if (length < 0.008) return root;
+    direction.normalize();
+    const lateral = side.clone().addScaledVector(direction, -side.dot(direction));
+    if (lateral.lengthSq() < 1e-5) lateral.copy(height).addScaledVector(direction, -height.dot(direction));
+    lateral.normalize();
+    const depth = new THREE.Vector3().crossVectors(direction, lateral).normalize();
+    const profile = [
+      [0, 0.86, 0.82], [0.07, 1.08, 0.98], [0.17, 1.02, 0.9],
+      [0.38, 0.78, 0.73], [0.64, 0.82, 0.75], [0.84, 1.02, 0.88],
+      [0.94, 1.14, 0.98], [1, 0.9, 0.84],
+    ] as const;
+    const stations = profile.map(([t, width, thickness]) => ({
+      center: start.clone().lerp(end, t),
+      lateralRadius: radius * width,
+      verticalRadius: radius * thickness,
+    }));
+    addPart(root, `${name} · thân và đầu khớp`, loftGeometry(stations, lateral, depth, 24));
+
+    const cartilageRadius = radius * 0.72;
+    const cartilageLength = Math.min(radius * 0.12, length * 0.035);
+    for (const [endPoint, sign, endName] of [[start, -1, "gần"], [end, 1, "xa"]] as const) {
+      const cartilageStations = [
+        { center: endPoint.clone().addScaledVector(direction, sign * cartilageLength), lateralRadius: cartilageRadius * 0.82, verticalRadius: cartilageRadius * 0.72 },
+        { center: endPoint.clone().addScaledVector(direction, sign * cartilageLength * 0.45), lateralRadius: cartilageRadius, verticalRadius: cartilageRadius * 0.84 },
+        { center: endPoint.clone(), lateralRadius: cartilageRadius * 0.88, verticalRadius: cartilageRadius * 0.76 },
+      ];
+      addPart(root, `${name} · mặt sụn khớp ${endName}`, loftGeometry(cartilageStations, lateral, depth, 20), materials.cartilage);
+    }
     return root;
   }
 
@@ -277,32 +382,42 @@ export function buildEquineSkeletonLayer(
     for (const record of records) {
       const boneParts: THREE.BufferGeometry[] = [];
       const cartilageParts: THREE.BufferGeometry[] = [];
+      const costalCartilageParts: THREE.BufferGeometry[] = [];
       const toothParts: THREE.BufferGeometry[] = [];
+      const boneCreviceParts: THREE.BufferGeometry[] = [];
       record.object.children.forEach((child) => {
         if (!(child instanceof THREE.Mesh)) return;
         const geometry = child.geometry.clone();
         child.updateMatrix();
         geometry.applyMatrix4(child.matrix);
         geometry.computeVertexNormals();
-        if (child.userData.isCartilage) cartilageParts.push(geometry);
+        if (child.userData.isBoneCrevice) boneCreviceParts.push(geometry);
+        else if (child.userData.isCostalCartilage) costalCartilageParts.push(geometry);
+        else if (child.userData.isCartilage) cartilageParts.push(geometry);
         else if (child.userData.isTooth) toothParts.push(geometry);
         else boneParts.push(geometry);
         sourceGeometries.add(child.geometry);
       });
       const mergedBone = boneParts.length ? mergeGeometries(boneParts, false) : null;
       const mergedCartilage = cartilageParts.length ? mergeGeometries(cartilageParts, false) : null;
+      const mergedCostalCartilage = costalCartilageParts.length ? mergeGeometries(costalCartilageParts, false) : null;
       const mergedTooth = toothParts.length ? mergeGeometries(toothParts, false) : null;
-      if ((boneParts.length && !mergedBone) || (cartilageParts.length && !mergedCartilage) || (toothParts.length && !mergedTooth)) {
+      const mergedBoneCrevices = boneCreviceParts.length ? mergeGeometries(boneCreviceParts, false) : null;
+      if ((boneParts.length && !mergedBone) || (cartilageParts.length && !mergedCartilage) || (costalCartilageParts.length && !mergedCostalCartilage) || (toothParts.length && !mergedTooth) || (boneCreviceParts.length && !mergedBoneCrevices)) {
         mergeFallback = true;
-        [...boneParts, ...cartilageParts, ...toothParts].forEach((geometry) => geometry.dispose());
+        [...boneParts, ...cartilageParts, ...costalCartilageParts, ...toothParts, ...boneCreviceParts].forEach((geometry) => geometry.dispose());
         continue;
       }
       mergedBone?.computeBoundingBox();
       mergedBone?.computeBoundingSphere();
       mergedCartilage?.computeBoundingBox();
       mergedCartilage?.computeBoundingSphere();
+      mergedCostalCartilage?.computeBoundingBox();
+      mergedCostalCartilage?.computeBoundingSphere();
       mergedTooth?.computeBoundingBox();
       mergedTooth?.computeBoundingSphere();
+      mergedBoneCrevices?.computeBoundingBox();
+      mergedBoneCrevices?.computeBoundingSphere();
       record.object.clear();
       if (mergedBone) {
         const boneMesh = new THREE.Mesh(mergedBone, materials.bone);
@@ -323,6 +438,17 @@ export function buildEquineSkeletonLayer(
         cartilageMesh.userData.isCartilage = true;
         record.object.add(cartilageMesh);
       }
+      if (mergedCostalCartilage) {
+        const cartilageMesh = new THREE.Mesh(mergedCostalCartilage, materials.costalCartilage);
+        cartilageMesh.name = `${record.name} · sụn sườn`;
+        cartilageMesh.castShadow = true;
+        cartilageMesh.receiveShadow = true;
+        cartilageMesh.renderOrder = 3;
+        cartilageMesh.userData.boneId = record.id;
+        cartilageMesh.userData.isCartilage = true;
+        cartilageMesh.userData.isCostalCartilage = true;
+        record.object.add(cartilageMesh);
+      }
       if (mergedTooth) {
         const toothMesh = new THREE.Mesh(mergedTooth, materials.tooth);
         toothMesh.name = `${record.name} · răng`;
@@ -332,6 +458,16 @@ export function buildEquineSkeletonLayer(
         toothMesh.userData.boneId = record.id;
         toothMesh.userData.isTooth = true;
         record.object.add(toothMesh);
+      }
+      if (mergedBoneCrevices) {
+        const creviceMesh = new THREE.Mesh(mergedBoneCrevices, materials.boneCrevice);
+        creviceMesh.name = `${record.name} · foramina`;
+        creviceMesh.castShadow = true;
+        creviceMesh.receiveShadow = true;
+        creviceMesh.renderOrder = 3;
+        creviceMesh.userData.boneId = record.id;
+        creviceMesh.userData.isBoneCrevice = true;
+        record.object.add(creviceMesh);
       }
     }
 
@@ -417,6 +553,166 @@ export function buildEquineSkeletonLayer(
     return { group, records, materials };
   }
 
+  function addCervicalDetails(
+    root: THREE.Group,
+    name: string,
+    number: number,
+    center: THREE.Vector3,
+    size: number,
+    processHeight: number,
+    tangent: THREE.Vector3,
+    segmentLength: number,
+  ) {
+    const axis = tangent.clone().normalize();
+    const lateral = side.clone().addScaledVector(axis, -side.dot(axis)).normalize();
+    const dorsal = new THREE.Vector3().crossVectors(axis, lateral).normalize();
+    if (dorsal.y < 0) {
+      lateral.negate();
+      dorsal.negate();
+    }
+    const cranial = longitudinal.clone().negate();
+    const bodyScale = number === 7 ? 1.16 : number === 6 ? 1.08 : number === 2 ? 1.06 : number === 5 ? 1.04 : number === 4 ? 1 : 0.96;
+    const halfBodyLength = segmentLength * (number === 2 ? 0.5 : number === 1 ? 0.24 : number === 7 ? 0.41 : 0.47);
+    const bodyCenter = center.clone().addScaledVector(dorsal, -size * 0.34);
+    const bodyStations = [0, 0.13, 0.34, 0.66, 0.87, 1].map((t, index, all) => {
+      const endFactor = index === 0 || index === all.length - 1 ? 0.76 : index === 1 || index === all.length - 2 ? 0.9 : 1;
+      return {
+        center: bodyCenter.clone().addScaledVector(axis, (t * 2 - 1) * halfBodyLength),
+        lateralRadius: size * 0.92 * bodyScale * endFactor,
+        verticalRadius: size * 0.7 * bodyScale * endFactor,
+      };
+    });
+    addPart(root, `${name} · vertebral body`, loftGeometry(bodyStations, lateral, dorsal, 28));
+
+    const processBase = center.clone().addScaledVector(dorsal, size * 0.2);
+    const processTip = center.clone().addScaledVector(dorsal, processHeight);
+    addShaft(root, `${name} · dorsal spine`, processBase, processTip, size * (number === 2 ? 0.3 : number === 7 ? 0.26 : 0.2), 1.15, 0.76);
+
+    const addFacetPlate = (sign: number, facetName: string) => {
+      const facetRoot = bodyCenter.clone().addScaledVector(lateral, sign * size * 0.78);
+      const cranialDorsal = facetRoot.clone().addScaledVector(cranial, segmentLength * 0.13).addScaledVector(dorsal, size * 0.56);
+      const cranialVentral = facetRoot.clone().addScaledVector(cranial, segmentLength * 0.13).addScaledVector(dorsal, size * 0.12);
+      const caudalVentral = facetRoot.clone().addScaledVector(axis, segmentLength * 0.13).addScaledVector(dorsal, size * 0.12);
+      const caudalDorsal = facetRoot.clone().addScaledVector(axis, segmentLength * 0.13).addScaledVector(dorsal, size * 0.56);
+      const normal = lateral.clone().multiplyScalar(sign);
+      const thickness = size * 0.09;
+      addPart(root, `${name} · ${facetName} ${sign < 0 ? "left" : "right"}`, triangularPlateGeometry([cranialDorsal, cranialVentral, caudalVentral], normal, thickness));
+      addPart(root, `${name} · ${facetName} ${sign < 0 ? "left" : "right"} rear`, triangularPlateGeometry([cranialDorsal, caudalVentral, caudalDorsal], normal, thickness));
+    };
+
+    const addTransverseForamen = (sign: number) => {
+      const foramenCenter = center.clone()
+        .addScaledVector(lateral, sign * size * 0.96)
+        .addScaledVector(dorsal, size * 0.17);
+      const longRadius = size * 0.2;
+      const tallRadius = size * 0.125;
+      const vertices = [foramenCenter.x, foramenCenter.y, foramenCenter.z];
+      const uvs = [0.5, 0.5];
+      const indices: number[] = [];
+      const rimPoints = Array.from({ length: 24 }, (_, index) => {
+        const angle = index / 24 * Math.PI * 2;
+        uvs.push(0.5 + Math.cos(angle) * 0.5, 0.5 + Math.sin(angle) * 0.5);
+        return foramenCenter.clone()
+          .addScaledVector(axis, Math.cos(angle) * longRadius)
+          .addScaledVector(dorsal, Math.sin(angle) * tallRadius)
+          .addScaledVector(lateral, sign * size * 0.008);
+      });
+      rimPoints.forEach((point) => vertices.push(point.x, point.y, point.z));
+      for (let index = 0; index < 24; index += 1) {
+        const first = index + 1;
+        const next = ((index + 1) % 24) + 1;
+        indices.push(0, sign < 0 ? first : next, sign < 0 ? next : first);
+      }
+      const opening = new THREE.BufferGeometry();
+      opening.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+      opening.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      opening.setIndex(indices);
+      opening.computeVertexNormals();
+      addPart(root, `${name} · transverse foramen ${sign < 0 ? "left" : "right"}`, opening, materials.boneCrevice);
+      const rimCurve = new THREE.CatmullRomCurve3(rimPoints, true, "centripetal");
+      addPart(root, `${name} · foramen rim ${sign < 0 ? "left" : "right"}`, new THREE.TubeGeometry(rimCurve, 32, size * 0.035, 6, true));
+    };
+
+    if (number === 1) {
+      const ringCenter = center.clone().addScaledVector(dorsal, size * 0.05);
+      const ringPoints = Array.from({ length: 32 }, (_, index) => {
+        const angle = (index / 32) * Math.PI * 2;
+        return ringCenter.clone()
+          .addScaledVector(axis, Math.cos(angle) * segmentLength * 0.31)
+          .addScaledVector(dorsal, Math.sin(angle) * size * 0.92);
+      });
+      const atlasRing = new THREE.CatmullRomCurve3(ringPoints, true, "centripetal");
+      addPart(root, "Atlas · vertebral ring", new THREE.TubeGeometry(atlasRing, 64, size * 0.12, 8, true));
+
+      for (const sign of [-1, 1]) {
+        const wingRoot = center.clone().addScaledVector(lateral, sign * size * 0.45);
+        const wingTip = center.clone().addScaledVector(lateral, sign * size * 3.15);
+        const wingCranial = wingRoot.clone().addScaledVector(lateral, sign * size * 2.2).addScaledVector(cranial, size * 0.68);
+        const wingCaudal = wingRoot.clone().addScaledVector(lateral, sign * size * 2.1).addScaledVector(axis, size * 0.7);
+        addPart(root, `Atlas · wing cranial ${sign < 0 ? "left" : "right"}`, triangularPlateGeometry([wingRoot, wingCranial, wingTip], dorsal, size * 0.16));
+        addPart(root, `Atlas · wing caudal ${sign < 0 ? "left" : "right"}`, triangularPlateGeometry([wingRoot, wingTip, wingCaudal], dorsal, size * 0.16));
+        addShaft(root, `Atlas · wing ridge ${sign < 0 ? "left" : "right"}`, wingRoot, wingTip, size * 0.16, 1.1, 0.75);
+      }
+      addFacetPlate(-1, "occipital facet");
+      addFacetPlate(1, "occipital facet");
+      return;
+    }
+
+    if (number === 2) {
+      const densStart = bodyCenter.clone().addScaledVector(cranial, size * 0.2).addScaledVector(dorsal, size * 0.28);
+      const densEnd = center.clone().addScaledVector(cranial, segmentLength * 0.78).addScaledVector(dorsal, size * 0.28);
+      addShaft(root, "Axis · dens projecting into atlas", densStart, densEnd, size * 0.2, 1.05, 0.85);
+    }
+
+    if (number >= 3 && number <= 5) {
+      for (const sign of [-1, 1]) {
+        const processRoot = bodyCenter.clone().addScaledVector(lateral, sign * size * 0.72).addScaledVector(dorsal, size * 0.12);
+        const processTip = center.clone()
+          .addScaledVector(lateral, sign * size * 2.75)
+          .addScaledVector(cranial, size * 0.24)
+          .addScaledVector(dorsal, size * 0.08);
+        const stations = [
+          { center: processRoot, lateralRadius: size * 0.42, verticalRadius: size * 0.34 },
+          { center: processRoot.clone().lerp(processTip, 0.58), lateralRadius: size * 0.32, verticalRadius: size * 0.26 },
+          { center: processTip, lateralRadius: size * 0.12, verticalRadius: size * 0.12 },
+        ];
+        addPart(root, `${name} · broad transverse process ${sign < 0 ? "left" : "right"}`, loftGeometry(stations, axis, dorsal, 24));
+      }
+    } else if (number === 6) {
+      for (const sign of [-1, 1]) {
+        const processRoot = bodyCenter.clone().addScaledVector(lateral, sign * size * 0.7);
+        const branchJoin = center.clone().addScaledVector(lateral, sign * size * 2.15);
+        const dorsalTip = branchJoin.clone().addScaledVector(dorsal, size * 0.68).addScaledVector(cranial, size * 0.3);
+        const ventralTip = branchJoin.clone().addScaledVector(dorsal, -size * 0.48).addScaledVector(axis, size * 0.22);
+        addShaft(root, `C6 · transverse plate ${sign < 0 ? "left" : "right"}`, processRoot, branchJoin, size * 0.19, 1.2, 0.7);
+        addPart(root, `C6 · dorsal branch ${sign < 0 ? "left" : "right"}`, triangularPlateGeometry([processRoot, branchJoin, dorsalTip], axis, size * 0.14));
+        addPart(root, `C6 · ventral branch ${sign < 0 ? "left" : "right"}`, triangularPlateGeometry([processRoot, ventralTip, branchJoin], axis, size * 0.14));
+      }
+    } else {
+      const transverseLength = size * (number === 1 ? 1.8 : number === 7 ? 1.55 : number === 2 ? 1.9 : 2.05);
+      for (const sign of [-1, 1]) {
+        const processRoot = bodyCenter.clone().addScaledVector(lateral, sign * size * 0.68).addScaledVector(dorsal, size * 0.08);
+        const processTip = center.clone()
+          .addScaledVector(lateral, sign * (size * 0.68 + transverseLength))
+          .addScaledVector(cranial, size * (number === 7 ? 0.12 : 0.22));
+        const stations = [
+          { center: processRoot, lateralRadius: size * 0.36, verticalRadius: size * 0.28 },
+          { center: processRoot.clone().lerp(processTip, 0.58), lateralRadius: size * 0.27, verticalRadius: size * 0.21 },
+          { center: processTip, lateralRadius: size * 0.12, verticalRadius: size * 0.1 },
+        ];
+        addPart(root, `${name} · transverse process ${sign < 0 ? "left" : "right"}`, loftGeometry(stations, axis, dorsal, 24));
+      }
+    }
+
+    if (number >= 3 && number <= 6) {
+      addTransverseForamen(-1);
+      addTransverseForamen(1);
+    }
+
+    addFacetPlate(-1, "articular facet");
+    addFacetPlate(1, "articular facet");
+  }
+
   function addVertebra(
     id: string,
     name: string,
@@ -427,10 +723,28 @@ export function buildEquineSkeletonLayer(
     tangent: THREE.Vector3,
     segmentLength: number,
     special: "atlas" | "axis" | "sacral" | "tail" | null = null,
+    cervicalNumber?: number,
   ) {
     const root = addRecord(id, name, latin, "axial", center, `Vị trí và hình dạng của ${name} được dựng ước lượng theo rig để minh họa học tập.`, ["C1", "C2", "T3", "T6", "T10", "L3", "CA1"].includes(name));
+    if (cervicalNumber !== undefined) {
+      addCervicalDetails(root, name, cervicalNumber, center, size, processHeight, tangent, segmentLength);
+      return root;
+    }
     const vertebralAxis = tangent.clone().normalize();
-    addEllipsoid(root, `${name} · thân đốt`, center, new THREE.Vector3(size * 0.8, Math.max(size * 0.9, segmentLength * 0.72), size * 0.85), vertebralAxis);
+    const bodyLateral = side.clone().addScaledVector(vertebralAxis, -side.dot(vertebralAxis));
+    if (bodyLateral.lengthSq() < 1e-5) bodyLateral.copy(longitudinal).addScaledVector(vertebralAxis, -longitudinal.dot(vertebralAxis));
+    bodyLateral.normalize();
+    const bodyDorsal = new THREE.Vector3().crossVectors(vertebralAxis, bodyLateral).normalize();
+    const bodyHalfLength = special === "sacral" ? segmentLength * 0.48 : Math.max(size * 0.46, segmentLength * 0.54);
+    const centrumProfile = [
+      [-1, 0.72], [-0.78, 0.9], [-0.42, 1], [0, 1.04], [0.42, 1], [0.78, 0.9], [1, 0.72],
+    ] as const;
+    const centrumStations = centrumProfile.map(([t, factor]) => ({
+      center: center.clone().addScaledVector(vertebralAxis, bodyHalfLength * t),
+      lateralRadius: size * 0.88 * factor,
+      verticalRadius: size * 0.72 * factor,
+    }));
+    addPart(root, `${name} · thân đốt`, loftGeometry(centrumStations, bodyLateral, bodyDorsal, 24));
     const dorsal = center.clone().addScaledVector(height, processHeight);
     addShaft(root, `${name} · mỏm gai`, center, dorsal, size * 0.23, 1, 0.8);
     for (const sign of [-1, 1]) {
@@ -497,9 +811,11 @@ export function buildEquineSkeletonLayer(
     sampleArcRange(0, 6, 7).forEach(({ point, tangent, segmentLength }, index) => {
       const number = index + 1;
       const taper = THREE.MathUtils.lerp(0.72, 1, index / 6);
+      const cervicalSize = axes.halfHeight * 0.038 * taper;
+      const processHeights = [0.015, 0.061, 0.03, 0.031, 0.033, 0.037, 0.052];
       const center = point.clone();
       if (number === 1) center.lerp(spineAnchors[0], 0.24).addScaledVector(height, -axes.halfHeight * 0.006);
-      addVertebra(`c${number}`, `C${number}`, number === 1 ? "Atlas" : number === 2 ? "Axis" : `Vertebra cervicalis ${number}`, center, axes.halfHeight * 0.025 * taper, axes.halfHeight * 0.019 * taper, tangent, segmentLength, number === 1 ? "atlas" : number === 2 ? "axis" : null);
+      addVertebra(`c${number}`, `C${number}`, number === 1 ? "Atlas" : number === 2 ? "Axis" : `Vertebra cervicalis ${number}`, center, cervicalSize, axes.halfHeight * processHeights[number - 1], tangent, segmentLength, number === 1 ? "atlas" : number === 2 ? "axis" : null, number);
     });
 
     const thoracicSamples = sampleArcRange(6, 9, 18);
@@ -535,63 +851,146 @@ export function buildEquineSkeletonLayer(
 
   if (options.through === "spine") return finishLayer();
 
-  // Eighteen ribs per side with separate bone and costal cartilage meshes.
+  // Eighteen independently modeled ribs on each side, with true and false
+  // costal cartilage kept in a separate grey-ivory material.
   if (thoracic.length === 18) {
     const ribTips: THREE.Vector3[][] = [[], []];
+    const sternumTargets = Array.from({ length: 9 }, (_, index) => {
+      const source = thoracic[Math.min(index, thoracic.length - 1)];
+      return source.clone()
+        .addScaledVector(longitudinal, axes.halfLength * (0.032 + index * 0.008))
+        .addScaledVector(height, -axes.halfHeight * 0.44);
+    });
+
+    for (let segment = 0; segment < 8; segment += 1) {
+      const point = sternumTargets[segment];
+      const next = sternumTargets[segment + 1];
+      const sternum = addRecord(`sternum-${segment + 1}`, `Thân xương ức ${segment + 1}`, `Sternebra ${segment + 1}`, "axial", point.clone().lerp(next, 0.5), "Đốt xương ức nối với sụn của tám đôi sườn thật.", segment === 0);
+      const centerline = new THREE.CatmullRomCurve3([
+        point,
+        point.clone().lerp(next, 0.28).addScaledVector(height, -axes.halfHeight * 0.004),
+        point.clone().lerp(next, 0.72).addScaledVector(height, -axes.halfHeight * 0.004),
+        next,
+      ]);
+      const stations = Array.from({ length: 6 }, (_, index) => {
+        const u = index / 5;
+        return {
+          center: centerline.getPointAt(u),
+          lateralRadius: axes.halfWidth * (u < 0.12 || u > 0.88 ? 0.018 : 0.024),
+          verticalRadius: axes.halfHeight * (u < 0.12 || u > 0.88 ? 0.011 : 0.015),
+        };
+      });
+      addPart(sternum, "Sternebra · thân dẹt", loftGeometry(stations, side, height, 16));
+    }
+
+    const keel = addRecord("sternal-keel", "Mào xương ức", "Crista sterni", "axial", sternumTargets[4].clone().addScaledVector(height, -axes.halfHeight * 0.018), "Gờ dọc tạo mặt bụng hình keel của xương ức.");
+    const keelStations = sternumTargets.map((point, index) => ({
+      center: point.clone().addScaledVector(height, -axes.halfHeight * 0.017),
+      lateralRadius: axes.halfWidth * (index === 0 || index === sternumTargets.length - 1 ? 0.012 : 0.022),
+      verticalRadius: axes.halfHeight * (index === 0 || index === sternumTargets.length - 1 ? 0.006 : 0.010),
+    }));
+    addPart(keel, "Crista sterni · gờ keel", loftGeometry(keelStations, side, height, 16));
+
     thoracic.forEach((root, index) => {
       const number = index + 1;
       const progress = index / 17;
-      const lengthFactor = 0.68 + 0.32 * Math.sin(progress * Math.PI);
-      // Expand the rib arc to occupy the thorax under the ghost skin; its
-      // widest point remains inside the torso width and peaks near rib 10.
-      const span = axes.halfWidth * (0.54 + 0.15 * lengthFactor);
+      const lengthFactor = number <= 4
+        ? THREE.MathUtils.lerp(0.68, 0.82, (number - 1) / 3)
+        : number <= 8
+          ? THREE.MathUtils.lerp(0.86, 0.98, (number - 5) / 3)
+          : number <= 12
+            ? THREE.MathUtils.lerp(1, 1.04, (number - 9) / 3)
+            : THREE.MathUtils.lerp(0.96, 0.66, (number - 13) / 5);
+      const span = axes.halfWidth * (0.59 + 0.17 * lengthFactor);
+      const verticalDepth = 0.34 + 0.095 * lengthFactor;
+      const isTrueRib = number <= 8;
+
       for (const [sideIndex, sign] of [-1, 1].entries()) {
         const ribId = `rib-${number}-${sign < 0 ? "l" : "r"}`;
-        const start = root.clone().addScaledVector(height, -axes.halfHeight * 0.012);
-        const lower = root.clone()
-          .addScaledVector(longitudinal, axes.halfLength * (0.018 + progress * 0.075))
+        const start = root.clone().addScaledVector(height, -axes.halfHeight * 0.006);
+        const neck = root.clone()
+          .addScaledVector(longitudinal, axes.halfLength * (0.004 + progress * 0.012))
+          .addScaledVector(side, sign * span * 0.18)
+          .addScaledVector(height, -axes.halfHeight * 0.025);
+        const outer = root.clone()
+          .addScaledVector(longitudinal, axes.halfLength * (0.014 + progress * 0.052))
           .addScaledVector(side, sign * span)
-          .addScaledVector(height, -axes.halfHeight * (0.34 + 0.12 * lengthFactor));
-        const tip = lower.clone().addScaledVector(longitudinal, axes.halfLength * (0.012 + progress * 0.03));
-        const isTrueRib = number <= 8;
-        const record = addRecord(ribId, `Xương sườn ${number}${sign < 0 ? " trái" : " phải"}`, `Costa ${number}`, "axial", start.clone().lerp(tip, 0.5), `${isTrueRib ? "Sườn thật" : "Sườn giả"}; xương sườn riêng, sụn sườn dựng riêng.`, number === 1 || number === 8 || number === 18);
-        const sideSign = sign;
-        const curve = new THREE.CatmullRomCurve3([
-          start,
-          start.clone().lerp(lower, 0.28).addScaledVector(side, sideSign * axes.halfWidth * 0.035),
-          start.clone().lerp(lower, 0.7).addScaledVector(longitudinal, axes.halfLength * (0.012 + progress * 0.035)),
-          lower,
-        ]);
-        const rib = addPart(record, "Costa · thân cong", new THREE.TubeGeometry(curve, 20, axes.halfHeight * 0.009, 7, false));
+          .addScaledVector(height, -axes.halfHeight * (0.105 + lengthFactor * 0.045));
+        const sweep = root.clone()
+          .addScaledVector(longitudinal, axes.halfLength * (0.023 + progress * 0.086))
+          .addScaledVector(side, sign * span * 0.84)
+          .addScaledVector(height, -axes.halfHeight * (0.265 + lengthFactor * 0.075));
+        const tip = root.clone()
+          .addScaledVector(longitudinal, axes.halfLength * (0.032 + progress * 0.105))
+          .addScaledVector(side, sign * span * 0.26)
+          .addScaledVector(height, -axes.halfHeight * verticalDepth);
+        const record = addRecord(
+          ribId,
+          `Xương sườn ${number}${sign < 0 ? " trái" : " phải"}`,
+          `Costa ${number}`,
+          "axial",
+          start.clone().lerp(tip, 0.5),
+          `${isTrueRib ? "Sườn thật" : "Sườn giả"}; thân xương sườn cong, đầu sườn và củ sườn khớp riêng.`,
+          number === 1 || number === 8 || number === 18,
+        );
+        const curve = new THREE.CatmullRomCurve3([start, neck, outer, sweep, tip], false, "centripetal");
+        addPart(record, "Costa · thân xương dẹt cong", flattenedCurveGeometry(
+          curve,
+          longitudinal,
+          side,
+          axes.halfHeight * 0.012,
+          axes.halfHeight * 0.0042,
+          (u) => 1 - u * 0.18,
+          32,
+          12,
+        ));
+
+        const ribHead = loftGeometry([
+          { center: start.clone().addScaledVector(longitudinal, -axes.halfHeight * 0.011), lateralRadius: axes.halfHeight * 0.008, verticalRadius: axes.halfHeight * 0.009 },
+          { center: start.clone(), lateralRadius: axes.halfHeight * 0.012, verticalRadius: axes.halfHeight * 0.011 },
+          { center: start.clone().addScaledVector(longitudinal, axes.halfHeight * 0.012), lateralRadius: axes.halfHeight * 0.008, verticalRadius: axes.halfHeight * 0.009 },
+        ], side, height, 14);
+        addPart(record, "Caput costae · đầu khớp sườn", ribHead);
+
+        const tubercle = [
+          start.clone().addScaledVector(height, axes.halfHeight * 0.012),
+          start.clone().addScaledVector(side, sign * axes.halfHeight * 0.032).addScaledVector(height, axes.halfHeight * 0.038),
+          start.clone().addScaledVector(longitudinal, axes.halfHeight * 0.022).addScaledVector(height, axes.halfHeight * 0.031),
+        ] as [THREE.Vector3, THREE.Vector3, THREE.Vector3];
+        addPart(record, "Tuberculum costae · củ sườn", triangularPlateGeometry(tubercle, longitudinal, axes.halfHeight * 0.006));
+
         ribTips[sideIndex].push(tip);
         if (isTrueRib) {
-          const sternum = root.clone()
-            .addScaledVector(longitudinal, axes.halfLength * (0.03 + progress * 0.07))
-            .addScaledVector(height, -axes.halfHeight * 0.43);
-          const cartilageCurve = new THREE.CatmullRomCurve3([lower, lower.clone().lerp(sternum, 0.5), sternum]);
-          addPart(record, "Cartilago costalis · sụn sườn", new THREE.TubeGeometry(cartilageCurve, 8, axes.halfHeight * 0.0075, 6, false), materials.cartilage);
+          const sternum = sternumTargets[index];
+          const cartilageCurve = new THREE.CatmullRomCurve3([
+            tip,
+            tip.clone().lerp(sternum, 0.48).addScaledVector(height, -axes.halfHeight * 0.006),
+            sternum,
+          ]);
+          addPart(record, "Cartilago costalis · sụn nối xương ức", new THREE.TubeGeometry(cartilageCurve, 12, axes.halfHeight * 0.006, 7, false), materials.costalCartilage);
         }
       }
     });
-    // Eight true pairs meet segmented sternebrae; false ribs form the costal arch.
-    for (let segment = 0; segment < 8; segment += 1) {
-      const point = thoracic[segment].clone()
-        .addScaledVector(longitudinal, axes.halfLength * (0.014 + segment * 0.002))
-        .addScaledVector(height, -axes.halfHeight * 0.43);
-      const next = thoracic[Math.min(segment + 1, 17)].clone()
-        .addScaledVector(longitudinal, axes.halfLength * 0.034)
-        .addScaledVector(height, -axes.halfHeight * 0.43);
-      const sternum = addRecord(`sternum-${segment + 1}`, `Thân xương ức ${segment + 1}`, `Sternebra ${segment + 1}`, "axial", point.clone().lerp(next, 0.5), "Đoạn xương ức nối với sụn các xương sườn thật.", segment === 0);
-      addShaft(sternum, "Sternebra · thân", point, next, axes.halfHeight * 0.016, 0.85, 0.72);
-    }
+
     for (const [sideIndex, sign] of [-1, 1].entries()) {
       const falseTips = ribTips[sideIndex].slice(8);
       for (let index = 0; index < falseTips.length - 1; index += 1) {
         const start = falseTips[index];
-        const end = falseTips[index + 1].clone().addScaledVector(longitudinal, axes.halfLength * 0.018);
-        const curve = new THREE.CatmullRomCurve3([start, start.clone().lerp(end, 0.5).addScaledVector(longitudinal, axes.halfLength * 0.009), end]);
-        const arch = addRecord(`costal-arch-${sideIndex}-${index}`, `Cung sườn ${index + 1}${sign < 0 ? " trái" : " phải"}`, "Arcus costalis", "axial", start.clone().lerp(end, 0.5), "Sụn nối các sườn giả thành cung sườn; vị trí minh họa.");
-        addPart(arch, "Cartilago costalis · cung sườn", new THREE.TubeGeometry(curve, 8, axes.halfHeight * 0.0075, 6, false), materials.cartilage);
+        const end = falseTips[index + 1].clone().addScaledVector(longitudinal, axes.halfLength * 0.012);
+        const archCurve = new THREE.CatmullRomCurve3([
+          start,
+          start.clone().lerp(end, 0.5).addScaledVector(height, axes.halfHeight * 0.008),
+          end,
+        ]);
+        const arch = addRecord(
+          `costal-arch-${sideIndex}-${index}`,
+          `Cung sườn ${index + 1}${sign < 0 ? " trái" : " phải"}`,
+          "Arcus costalis",
+          "axial",
+          start.clone().lerp(end, 0.5),
+          "Sụn nối các sườn giả thành cung sườn cong về phía bụng.",
+        );
+        addPart(arch, "Cartilago costalis · cung sườn", new THREE.TubeGeometry(archCurve, 12, axes.halfHeight * 0.0055, 7, false), materials.costalCartilage);
       }
     }
   }
@@ -621,7 +1020,18 @@ export function buildEquineSkeletonLayer(
     addPart(pelvisHalf, "Pubis · ngành mu", triangularPlateGeometry([hipJoint, pubicRamus, pelvis], side, axes.halfHeight * 0.02));
     addPart(pelvisHalf, "Ischium · ụ ngồi", triangularPlateGeometry([hipJoint, pelvis, ischialTuberosity], side, axes.halfHeight * 0.022));
     addShaft(pelvisHalf, "Crista iliaca · mào chậu", iliacCrest, sacralAttach, axes.halfHeight * 0.012);
-    addEllipsoid(pelvisHalf, "Acetabulum · ổ cối", hipJoint, new THREE.Vector3(axes.halfHeight * 0.026, axes.halfHeight * 0.028, axes.halfHeight * 0.024));
+    const acetabulumCenter = hipJoint.clone().addScaledVector(side, sign * axes.halfHeight * 0.018);
+    const acetabulumRadius = axes.halfHeight * 0.029;
+    const acetabulumPoints = Array.from({ length: 33 }, (_, index) => {
+      const angle = index / 32 * Math.PI * 2;
+      return acetabulumCenter
+        .clone()
+        .addScaledVector(longitudinal, Math.cos(angle) * acetabulumRadius)
+        .addScaledVector(height, Math.sin(angle) * acetabulumRadius * 1.08);
+    });
+    addPart(pelvisHalf, "Acetabulum · viền ổ cối", new THREE.TubeGeometry(new THREE.CatmullRomCurve3(acetabulumPoints, true), 48, axes.halfHeight * 0.005, 8, true));
+    const socketSurfacePoints = acetabulumPoints.map((point) => acetabulumCenter.clone().lerp(point, 0.7));
+    addPart(pelvisHalf, "Acetabulum · sụn viền khớp", new THREE.TubeGeometry(new THREE.CatmullRomCurve3(socketSurfacePoints, true), 48, axes.halfHeight * 0.0025, 8, true), materials.cartilage);
   }
 
   // Follow the rig's head and jaw-end anchors so the upper skull sits on the
