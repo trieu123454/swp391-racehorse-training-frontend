@@ -11,10 +11,10 @@ function setup(fetch, sharedLocalStorage) {
     return { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) };
   };
   const localStorage = sharedLocalStorage ?? storage(), sessionStorage = storage(), cache = {};
-  const context = vm.createContext({ window: { localStorage, sessionStorage }, fetch, process: { env: {} } });
+  const context = vm.createContext({ window: { localStorage, sessionStorage, dispatchEvent: () => {} }, Event: class Event {}, CustomEvent: class CustomEvent {}, fetch, process: { env: {} } });
   function load(name) {
     if (cache[name]) return cache[name];
-    const file = name === "api" ? "../api/client.ts" : `../lib/${name}.ts`;
+    const file = name === "api" ? "../src/apis/client.ts" : name === "session" ? "../src/stores/session.ts" : `../src/lib/${name}.ts`;
     const source = fs.readFileSync(path.join(__dirname, file), "utf8");
     const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
     const module = { exports: {} };

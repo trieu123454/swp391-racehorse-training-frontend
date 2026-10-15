@@ -1,4 +1,4 @@
-import type { RoleName } from "./types";
+import type { RoleName } from "@/types/auth";
 
 export const workspaceNavigation: Record<RoleName, readonly { id: string; label: string }[]> = {
   CLUB_MANAGER: [

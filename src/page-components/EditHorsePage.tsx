@@ -12,6 +12,7 @@ import { errorMessage, getHorse, getHorseStables, saveHorse, uploadHorseImage, t
 export default function EditHorsePage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
+  const horseId = params?.id ?? "";
   const [horse, setHorse] = useState<Awaited<ReturnType<typeof getHorse>> | null>(null);
   const [form, setForm] = useState<{ horseName: string; breed: string; birthYear: number; heightCm: string; currentWeightKg: string; pedigreeFather: string; pedigreeMother: string; stableBoxId: string; ownerId: number | null }>({ horseName: "", breed: "", birthYear: 2024, heightCm: "", currentWeightKg: "", pedigreeFather: "", pedigreeMother: "", stableBoxId: "", ownerId: null });
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -23,13 +24,13 @@ export default function EditHorsePage() {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    Promise.all([getHorse(params.id), getHorseStables()]).then(([currentHorse, nextStables]) => {
+    Promise.all([getHorse(horseId), getHorseStables()]).then(([currentHorse, nextStables]) => {
       setHorse(currentHorse);
       setStables(nextStables);
       setForm({ horseName: currentHorse.horse_name, breed: currentHorse.breed ?? "", birthYear: currentHorse.birth_year ?? 2024, heightCm: currentHorse.height_cm == null ? "" : String(currentHorse.height_cm), currentWeightKg: currentHorse.current_weight_kg == null ? "" : String(currentHorse.current_weight_kg), pedigreeFather: currentHorse.pedigree_father ?? "", pedigreeMother: currentHorse.pedigree_mother ?? "", stableBoxId: currentHorse.stable_box_id, ownerId: currentHorse.owner_id });
       setImagePath(currentHorse.image_url);
     }).catch((reason) => setError(errorMessage(reason)));
-  }, [params.id]);
+  }, [horseId]);
 
   if (!horse && !error) {
     return (

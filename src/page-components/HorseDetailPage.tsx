@@ -20,6 +20,7 @@ export default function HorseDetailPage() {
   const router = useRouter();
   const user = useHorseUser();
   const params = useParams<{ id: string }>();
+  const horseId = params?.id ?? "";
   const [request, setRequest] = useState<{
     id: string | null;
     loading: boolean;
@@ -32,7 +33,7 @@ export default function HorseDetailPage() {
   const [deleting, setDeleting] = useState(false);
   useEffect(() => {
     let active = true;
-    const id = params.id;
+    const id = horseId;
     setRequest({ id, loading: true, horse: null, error: "" });
     getHorse(id)
       .then((horse) => {
@@ -42,9 +43,9 @@ export default function HorseDetailPage() {
         if (active) setRequest({ id, loading: false, horse: null, error: errorMessage(reason) });
       });
     return () => { active = false; };
-  }, [params.id]);
+  }, [horseId]);
 
-  const isCurrentRequest = request.id === params.id;
+  const isCurrentRequest = request.id === horseId;
   const loading = !isCurrentRequest || request.loading;
   const horse = isCurrentRequest ? request.horse : null;
   const error = isCurrentRequest ? request.error : "";
@@ -55,7 +56,7 @@ export default function HorseDetailPage() {
     setDeleteWarnings(null);
     setDeleteError("");
     try {
-      setDeleteWarnings(await getHorseDeletionWarnings(params.id));
+      setDeleteWarnings(await getHorseDeletionWarnings(horseId));
     } catch (reason) {
       setDeleteError(errorMessage(reason));
     }
