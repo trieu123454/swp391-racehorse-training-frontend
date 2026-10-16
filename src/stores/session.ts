@@ -1,6 +1,6 @@
 "use client";
 
-import type { AuthResponse, AuthUser } from "./types";
+import type { AuthResponse, AuthUser } from "@/types/auth";
 
 const ACCESS_TOKEN_KEY = "racehorse.accessToken";
 const REFRESH_TOKEN_KEY = "racehorse.refreshToken";

@@ -1,4 +1,4 @@
-import type { RoleName } from "./types";
+import type { RoleName } from "@/types/auth";
 import { Routes } from "@/routes/Routes";
 
 export const roleRoutes: Record<RoleName, string> = {

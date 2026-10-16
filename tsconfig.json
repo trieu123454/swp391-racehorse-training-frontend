@@ -24,7 +24,31 @@
     ],
     "paths": {
       "@/*": [
-        "./*"
+        "./src/*"
+      ],
+      "@/api/*": [
+        "./src/apis/*"
+      ],
+      "@/page/*": [
+        "./src/page-components/*"
+      ],
+      "@/routes/Routes": [
+        "./src/routes.tsx"
+      ],
+      "@/shared/hooks/*": [
+        "./src/hooks/*"
+      ],
+      "@/data/*": [
+        "./src/assets/*"
+      ],
+      "@/lib/types": [
+        "./src/types/auth.ts"
+      ],
+      "@/lib/session": [
+        "./src/stores/session.ts"
+      ],
+      "@/lib/workspace-navigation": [
+        "./src/constants/workspace-navigation.ts"
       ]
     }
   },

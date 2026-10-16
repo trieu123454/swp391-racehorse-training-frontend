@@ -14,7 +14,7 @@ import GroomWorkspace from "@/components/groom/GroomWorkspace";
 import ClubManagerWorkspace from "@/components/club-manager/ClubManagerWorkspace";
 
 export default function RoleDashboardPage() {
-  const { role } = useParams<{ role: string }>();
+  const role = useParams<{ role: string }>()?.role ?? "";
   const router = useRouter();
   useEffect(() => {
     let active = true;

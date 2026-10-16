@@ -29,6 +29,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   const profileRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
+  const currentPathname = pathname ?? "";
 
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
@@ -140,7 +141,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   const dashboardRoute = routeForRole(user.roleName);
   const isDashboard = pathname === dashboardRoute;
   const navigation = workspaceNavigation[user.roleName];
-  const currentLabel = isDashboard ? navigation.find(item => item.id === activeTab)?.label ?? navigation[0].label : pathname.startsWith(Routes.horses) ? "Hồ sơ ngựa" : "Quản lý tài khoản";
+  const currentLabel = isDashboard ? navigation.find(item => item.id === activeTab)?.label ?? navigation[0].label : pathname?.startsWith(Routes.horses) ? "Hồ sơ ngựa" : "Quản lý tài khoản";
 
   return <UserContext.Provider value={user}><div className="horse-app" data-role={user.roleName}>
     <a className="skip-link" href="#workspace-content">Đến nội dung chính</a>
@@ -165,8 +166,8 @@ export default function HorseShell({ children }: { children: ReactNode }) {
       </nav>
       <p className="horse-nav-label">QUẢN LÝ CHUNG</p>
       <nav aria-label="Hồ sơ và hệ thống">
-        <Link href={Routes.horses} className={pathname.startsWith(Routes.horses) ? "active" : ""} aria-current={pathname.startsWith(Routes.horses) ? "page" : undefined}><BookOpen size={18} />Hồ sơ ngựa</Link>
-        {user.roleName === "CLUB_MANAGER" && <Link href={Routes.clubManagerUsers} className={pathname.startsWith(Routes.clubManagerUsers) ? "active" : ""} aria-current={pathname.startsWith(Routes.clubManagerUsers) ? "page" : undefined}><Users size={18} />Quản lý tài khoản</Link>}
+        <Link href={Routes.horses} className={currentPathname.startsWith(Routes.horses) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.horses) ? "page" : undefined}><BookOpen size={18} />Hồ sơ ngựa</Link>
+        {user.roleName === "CLUB_MANAGER" && <Link href={Routes.clubManagerUsers} className={currentPathname.startsWith(Routes.clubManagerUsers) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.clubManagerUsers) ? "page" : undefined}><Users size={18} />Quản lý tài khoản</Link>}
         <Link href={Routes.home}><House size={18} />Trang chủ</Link>
       </nav>
       <div className="horse-account"><span className="horse-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span><div><strong>{user.fullName}</strong><small>{roleLabels[user.roleName]}</small></div><button aria-label={signingOut ? "Đang đăng xuất" : "Đăng xuất"} title={signingOut ? "Đang đăng xuất" : "Đăng xuất"} disabled={signingOut} onClick={signOut}><LogOut size={18} /></button></div>
