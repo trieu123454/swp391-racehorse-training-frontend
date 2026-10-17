@@ -3,7 +3,7 @@ import { Routes } from "@/routes/Routes";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, MapPin, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarDays, Download, ExternalLink, FileText, MapPin, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useHorseUser } from "@/components/horses/HorseShell";
 import { HorseImage, Modal, Notice, StatusBadge } from "@/components/horses/HorseUI";
@@ -220,6 +220,62 @@ export default function HorseDetailPage() {
               </div>
             </section>
 
+            {(user.roleName === "CLUB_MANAGER" || user.roleName === "HORSE_OWNER") && (
+              <section className="rounded-3xl border border-equine-line bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-2 text-equine-navy">
+                  <FileText size={18} />
+                  <h2 className="font-sans text-2xl font-semibold">Giấy tờ sở hữu</h2>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {horse.registration_documents?.map((document) => (
+                    <article key={document.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-equine-line bg-equine-paper p-4">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-equine-copper">
+                          <FileText size={18} />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-equine-navy">{document.name}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {formatFileSize(document.file_size)} · {formatDateTime(document.uploaded_at)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <a
+                          className="soft-button border-equine-line bg-white text-equine-navy"
+                          href={document.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          Xem <ExternalLink size={15} />
+                        </a>
+                        <a
+                          className="gold-button"
+                          href={document.download_url}
+                          download={document.name}
+                        >
+                          <Download size={15} /> Tải xuống
+                        </a>
+                      </div>
+                    </article>
+                  ))}
+                  {!horse.registration_documents && (
+                    <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                      Máy chủ chưa trả danh sách giấy tờ. Hãy khởi động lại BE bằng phiên bản mới rồi tải lại trang.
+                    </p>
+                  )}
+                  {horse.registration_documents?.length === 0 && (
+                    <p className="rounded-2xl bg-equine-paper p-4 text-sm text-slate-600">
+                      Máy chủ không tìm thấy tệp đính kèm trên yêu cầu đã duyệt. Nếu file vẫn có trong “Yêu cầu của tôi”, yêu cầu đó chưa được nối với hồ sơ ngựa này.
+                    </p>
+                  )}
+                  {!!horse.registration_documents?.length && (
+                    <p className="text-xs text-slate-500">Liên kết bảo mật có hiệu lực trong 5 phút. Tải lại trang để tạo liên kết mới.</p>
+                  )}
+                </div>
+              </section>
+            )}
+
             <section className="rounded-3xl border border-equine-line bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2 text-equine-navy">
                 <CalendarDays size={18} />
@@ -287,4 +343,11 @@ function formatDateTime(value: string | null | undefined) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function formatFileSize(value: number) {
+  if (!Number.isFinite(value) || value < 0) return "Kích thước không xác định";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(0)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }

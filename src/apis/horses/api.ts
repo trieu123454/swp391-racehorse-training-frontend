@@ -11,6 +11,17 @@ export type HorseStatus =
   | "Under Observation"
   | "Sick";
 
+export type HorseRegistrationDocument = {
+  id: string;
+  name: string;
+  content_type: string;
+  file_size: number;
+  uploaded_at: string;
+  url: string;
+  download_url: string;
+  expires_in: number;
+};
+
 export type Horse = {
   id: string;
   horse_name: string;
@@ -26,6 +37,7 @@ export type Horse = {
   section: string | null;
   owner_id: number | null;
   owner_name?: string | null;
+  registration_documents?: HorseRegistrationDocument[];
   current_status: HorseStatus | string;
   readiness_status?: "Ready" | "NotReady" | "Unknown";
   is_training_locked: boolean;

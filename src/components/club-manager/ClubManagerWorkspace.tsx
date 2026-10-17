@@ -311,9 +311,16 @@ export default function ClubManagerWorkspace() {
   async function reviewHorseRequest(id: string, action: "APPROVE" | "REJECT", form: HTMLFormElement) {
     if (action === "APPROVE" && !form.reportValidity()) return;
     const values = new FormData(form);
+    const reviewNote = String(values.get("reviewNote") ?? "").trim();
+    if (action === "REJECT" && !reviewNote) {
+      setError("Vui lòng nhập lý do từ chối để Horse Owner biết cần bổ sung gì.");
+      const reviewNoteField = form.elements.namedItem("reviewNote");
+      if (reviewNoteField instanceof HTMLElement) reviewNoteField.focus();
+      return;
+    }
     const body: { action: "APPROVE" | "REJECT"; stableBoxId?: string; horseId?: string; reviewNote?: string } = {
       action,
-      reviewNote: String(values.get("reviewNote") ?? "").trim() || undefined,
+      reviewNote: reviewNote || undefined,
     };
     if (action === "APPROVE") {
       const request = horseRequests.find((item) => item.id === id);
@@ -655,7 +662,7 @@ function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onRevie
               </select>
               <p className="mt-1 text-xs text-slate-500">Duyệt sẽ gán hồ sơ cho Horse Owner gửi yêu cầu; chủ cũ và mới được lưu vào lịch sử.</p>
             </label>}
-            <label className="block"><span className="field-label">Ghi chú duyệt / lý do từ chối</span><input className="field-control px-3" name="reviewNote" maxLength={1000} /></label>
+            <label className="block"><span className="field-label">Ghi chú duyệt / lý do từ chối</span><textarea className="field-control min-h-24 px-3 py-2" name="reviewNote" maxLength={1000} placeholder="Bắt buộc khi từ chối; nêu rõ giấy tờ cần bổ sung hoặc thông tin chưa hợp lệ." /></label>
             {request.request_type === "REGISTER" && !stables.length && <p className="text-sm text-rose-700 sm:col-span-2">Không có chuồng còn chỗ; thêm chuồng trước khi duyệt.</p>}
             {request.request_type === "LINK" && !candidateHorses.length && <p className="text-sm text-rose-700 sm:col-span-2">Chưa có hồ sơ ngựa để liên kết.</p>}
             <div className="flex flex-wrap gap-2 sm:col-span-2">
