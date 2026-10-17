@@ -54,6 +54,10 @@ export default function EditHorsePage() {
       setError("Tên ngựa không được để trống.");
       return;
     }
+    if (!form.ownerId) {
+      setError("Mỗi hồ sơ ngựa cần một chủ sở hữu chính.");
+      return;
+    }
 
     setSaving(true);
     setError("");
@@ -139,7 +143,7 @@ export default function EditHorsePage() {
             </label>
           </div>
 
-          <OwnerCombobox value={form.ownerId} onChange={(ownerId) => setForm({ ...form, ownerId })} />
+          <OwnerCombobox required value={form.ownerId} onChange={(ownerId) => setForm({ ...form, ownerId })} />
 
           <div className="rounded-2xl border border-dashed border-equine-line bg-[#f7f9ff] p-4">
             <span className="field-label">Ảnh ngựa</span>

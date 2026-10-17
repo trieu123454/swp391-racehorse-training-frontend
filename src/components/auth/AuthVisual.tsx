@@ -8,6 +8,7 @@ export function AuthVisual() {
           alt="Ngựa đua được chăm sóc tại chuồng trại"
           className="object-cover"
           fill
+          priority
           quality={80}
           sizes="(max-width: 1200px) 42vw, 650px"
           src="/img/stable-horse.webp"

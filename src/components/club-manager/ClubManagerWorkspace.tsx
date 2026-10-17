@@ -15,13 +15,19 @@ import {
   Trophy,
   Wallet,
 } from "lucide-react";
-import { Notice } from "@/components/horses/HorseUI";
+import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import NotificationCenter from "@/components/shared/NotificationCenter";
 import { authenticatedRequest, ApiRequestError } from "@/api/client";
+import { getHorseStables, type Horse, type Stable } from "@/api/horses/api";
+import {
+  listPendingHorseRegistrationRequests,
+  reviewHorseRegistrationRequest,
+  type ManagerHorseRegistrationRequest,
+} from "@/api/club-manager/api";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 
-type Option = { id: string | number; full_name?: string; horse_name?: string };
+type Option = { id: string | number; full_name?: string; horse_name?: string; breed?: string | null; birth_year?: number | null; owner_id?: number | null; owner_name?: string | null };
 type ManagerTask = { id: string; horse_name: string; groom_name: string | null; task_type: string; task_date: string; status: string };
 type IncidentAssignee = { id: number; full_name: string; email: string; role_name: "HEAD_TRAINER" | "VETERINARIAN" | "GROOM" };
 type AssignmentRole = IncidentAssignee["role_name"] | "CLUB_MANAGER";
@@ -47,13 +53,13 @@ type Report = {
   official_competition: { registered: number; completed: number };
 };
 
-type WorkspaceTab = "overview" | "care" | "inventory" | "incidents" | "finance" | "races" | "audit";
-const workspaceTabIds: readonly WorkspaceTab[] = ["overview", "care", "inventory", "incidents", "finance", "races", "audit"];
+type WorkspaceTab = "overview" | "care" | "inventory" | "incidents" | "finance" | "races" | "audit" | "horse-requests";
+const workspaceTabIds: readonly WorkspaceTab[] = ["overview", "care", "inventory", "incidents", "finance", "races", "audit", "horse-requests"];
 type TabError = { section: string; message: string };
 type LoadErrors = Record<WorkspaceTab, TabError[]>;
 
 const EMPTY_ERRORS: LoadErrors = {
-  overview: [], care: [], inventory: [], incidents: [], finance: [], races: [], audit: [],
+  overview: [], care: [], inventory: [], incidents: [], finance: [], races: [], audit: [], "horse-requests": [],
 };
 
 const assignmentRoles: { value: AssignmentRole; label: string }[] = [
@@ -159,6 +165,8 @@ export default function ClubManagerWorkspace() {
   const [date, setDate] = useState(today());
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
   const [horses, setHorses] = useState<Option[]>([]);
+  const [stables, setStables] = useState<Stable[]>([]);
+  const [horseRequests, setHorseRequests] = useState<ManagerHorseRegistrationRequest[]>([]);
   const [grooms, setGrooms] = useState<Option[]>([]);
   const [tasks, setTasks] = useState<ManagerTask[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -186,10 +194,12 @@ export default function ClubManagerWorkspace() {
       authenticatedRequest<{ data: SupplyRequest[] }>("/api/club-manager/supply-requests?status=Pending"),
       authenticatedRequest<{ data: OfficialRace[] }>("/api/club-manager/races"),
       authenticatedRequest<{ data: IncidentAssignee[] }>("/api/club-manager/groom-incidents/assignees"),
+      listPendingHorseRegistrationRequests(),
+      getHorseStables(),
     ]);
 
     const nextErrors: LoadErrors = {
-      overview: [], care: [], inventory: [], incidents: [], finance: [], races: [], audit: [],
+      overview: [], care: [], inventory: [], incidents: [], finance: [], races: [], audit: [], "horse-requests": [],
     };
     const read = <T,>(index: number, section: string, tabs: WorkspaceTab[], setValue: (value: T) => void) => {
       const result = results[index] as PromiseSettledResult<T>;
@@ -210,6 +220,8 @@ export default function ClubManagerWorkspace() {
     read(7, "Đề xuất vật tư", ["inventory"], (value) => setSupplyRequests((value as { data: SupplyRequest[] }).data));
     read(8, "Danh sách giải đấu", ["races"], (value) => setOfficialRaces((value as { data: OfficialRace[] }).data));
     read(9, "Người phụ trách sự cố", ["incidents"], (value) => setIncidentAssignees((value as { data: IncidentAssignee[] }).data));
+    read(10, "Yêu cầu hồ sơ ngựa", ["horse-requests"], (value) => setHorseRequests(value as ManagerHorseRegistrationRequest[]));
+    read(11, "Danh sách chuồng", ["horse-requests"], (value) => setStables(value as Stable[]));
     setLoadErrors(nextErrors);
   }, [date, incidentFilter]);
 
@@ -296,6 +308,32 @@ export default function ClubManagerWorkspace() {
     await send(`/api/club-manager/supply-requests/${id}`, "PATCH", { action }, action === "Approve" ? "Đã duyệt đề xuất vật tư." : "Đã từ chối đề xuất vật tư.");
   }
 
+  async function reviewHorseRequest(id: string, action: "APPROVE" | "REJECT", form: HTMLFormElement) {
+    if (action === "APPROVE" && !form.reportValidity()) return;
+    const values = new FormData(form);
+    const body: { action: "APPROVE" | "REJECT"; stableBoxId?: string; horseId?: string; reviewNote?: string } = {
+      action,
+      reviewNote: String(values.get("reviewNote") ?? "").trim() || undefined,
+    };
+    if (action === "APPROVE") {
+      const request = horseRequests.find((item) => item.id === id);
+      if (request?.request_type === "REGISTER") body.stableBoxId = String(values.get("stableBoxId") ?? "");
+      if (request?.request_type === "LINK") body.horseId = String(values.get("horseId") ?? "");
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await reviewHorseRegistrationRequest(id, body);
+      setNotice(action === "APPROVE" ? "Đã duyệt hồ sơ ngựa; dữ liệu đã gửi được đưa vào hồ sơ." : "Đã từ chối yêu cầu và gửi kết quả cho Horse Owner.");
+      await load();
+    } catch (reason) {
+      setError(requestError(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function assignIncident(event: FormEvent<HTMLFormElement>, incidentId: string) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -334,15 +372,14 @@ export default function ClubManagerWorkspace() {
     { key: "incidents", label: "Sự cố", icon: <AlertTriangle size={16} />, count: incidents.length },
     { key: "finance", label: "Thu chi", icon: <Wallet size={16} /> },
     { key: "races", label: "Giải đấu", icon: <Trophy size={16} /> },
+    { key: "horse-requests", label: "Hồ sơ ngựa", icon: <FileText size={16} />, count: horseRequests.length },
     { key: "audit", label: "Nhật ký thao tác", icon: <History size={16} /> },
   ];
 
-  return <section className="mt-10 space-y-5" aria-labelledby="club-manager-workspace-title">
+  return <section className="mt-5 space-y-5" aria-labelledby="club-manager-workspace-title">
     <div className="flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <p className="eyebrow">Vận hành câu lạc bộ</p>
-        <h2 id="club-manager-workspace-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Điều hành câu lạc bộ</h2>
-        <p className="mt-2 text-sm text-slate-600">Theo dõi vận hành và điều phối công việc của câu lạc bộ.</p>
+        <h2 id="club-manager-workspace-title" className="font-sans text-3xl font-semibold text-equine-navy">Điều hành câu lạc bộ</h2>
       </div>
       <div className="flex gap-2">
         <input aria-label="Ngày báo cáo" type="date" className="field-control px-3" value={date} onChange={(event) => setDate(event.target.value)} />
@@ -429,6 +466,14 @@ export default function ClubManagerWorkspace() {
           {!tasks.length && <p className="text-sm text-slate-500">Chưa giao việc trong ngày này.</p>}
         </div>
       </Panel>}
+
+      {tab === "horse-requests" && <HorseRegistrationReviewPanel
+        requests={horseRequests}
+        horses={horses}
+        stables={stables}
+        busy={busy}
+        onReview={reviewHorseRequest}
+      />}
 
       {tab === "inventory" && <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Danh mục & tồn kho vật tư" icon={Package}>
@@ -563,6 +608,70 @@ function Metric({ icon: Icon, label, value }: { icon: typeof Activity; label: st
 
 function Panel({ title, icon: Icon, children }: { title: string; icon: typeof Activity; children: ReactNode }) {
   return <section className="rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Icon size={18} />{title}</h3>{children}</section>;
+}
+
+function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onReview }: {
+  requests: ManagerHorseRegistrationRequest[];
+  horses: Option[];
+  stables: Stable[];
+  busy: boolean;
+  onReview: (id: string, action: "APPROVE" | "REJECT", form: HTMLFormElement) => void;
+}) {
+  return <Panel title={`Yêu cầu hồ sơ ngựa · ${requests.length} chờ duyệt`} icon={FileText}>
+    <div className="space-y-3">
+      {requests.map((request) => {
+        const candidateHorses = horses;
+        return <article key={request.id} className="rounded-xl border border-equine-line p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h4 className="font-semibold text-equine-navy">{request.horse_name}</h4>
+              <p className="mt-1 text-xs text-slate-500">{request.request_type === "LINK" ? "Liên kết hồ sơ có sẵn" : "Đăng ký hồ sơ mới"} · {new Date(request.created_at).toLocaleString("vi-VN")}</p>
+            </div>
+            <p className="text-sm font-medium text-equine-navy">{request.owner_name} <span className="font-normal text-slate-500">· {request.owner_email}</span></p>
+          </div>
+          <dl className="mt-3 grid gap-x-4 gap-y-1 rounded-lg bg-equine-paper p-3 text-sm sm:grid-cols-2">
+            <Fact label="Giống" value={request.breed} />
+            <Fact label="Năm sinh" value={request.birth_year == null ? null : String(request.birth_year)} />
+            <Fact label="Microchip" value={request.microchip_number} />
+            <Fact label="Hộ chiếu" value={request.passport_number} />
+            <Fact label="Chiều cao" value={request.height_cm == null ? null : `${request.height_cm} cm`} />
+            <Fact label="Cân nặng" value={request.current_weight_kg == null ? null : `${request.current_weight_kg} kg`} />
+            <Fact label="Cha / mẹ" value={[request.pedigree_father, request.pedigree_mother].filter(Boolean).join(" / ")} />
+          </dl>
+          {request.horse_image_url && <div className="mt-3 h-40 w-60 overflow-hidden rounded-xl border border-equine-line bg-equine-paper"><HorseImage horse={{ id: request.id, horse_name: request.horse_name, image_url: request.horse_image_url } as Horse} preview={request.horse_image_url} /></div>}
+          {request.owner_note && <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">{request.owner_note}</p>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {request.documents.map((document) => <a key={document.id} href={document.url} target="_blank" rel="noreferrer" className="rounded-lg border border-equine-line bg-white px-3 py-2 text-xs font-medium text-equine-navy underline">Xem {document.name}</a>)}
+          </div>
+          <form className="mt-4 grid gap-3 border-t border-equine-line pt-4 sm:grid-cols-2">
+            {request.request_type === "REGISTER" ? <label className="block"><span className="field-label">Chuồng khi tạo hồ sơ</span>
+              <select className="field-control px-3" name="stableBoxId" defaultValue={stables[0]?.id ?? ""} required disabled={!stables.length}>
+                {stables.map((stable) => <option key={stable.id} value={stable.id}>{stable.box_code} · {stable.section}</option>)}
+              </select>
+            </label> : <label className="block"><span className="field-label">Hồ sơ ngựa cần liên kết</span>
+              <select className="field-control px-3" name="horseId" defaultValue="" required disabled={!candidateHorses.length}>
+                <option value="">Chọn hồ sơ ngựa</option>
+                {candidateHorses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}{horse.breed ? ` · ${horse.breed}` : ""}{horse.birth_year ? ` · ${horse.birth_year}` : ""} · {horse.owner_name ?? "Chưa có chủ"}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-slate-500">Duyệt sẽ gán hồ sơ cho Horse Owner gửi yêu cầu; chủ cũ và mới được lưu vào lịch sử.</p>
+            </label>}
+            <label className="block"><span className="field-label">Ghi chú duyệt / lý do từ chối</span><input className="field-control px-3" name="reviewNote" maxLength={1000} /></label>
+            {request.request_type === "REGISTER" && !stables.length && <p className="text-sm text-rose-700 sm:col-span-2">Không có chuồng còn chỗ; thêm chuồng trước khi duyệt.</p>}
+            {request.request_type === "LINK" && !candidateHorses.length && <p className="text-sm text-rose-700 sm:col-span-2">Chưa có hồ sơ ngựa để liên kết.</p>}
+            <div className="flex flex-wrap gap-2 sm:col-span-2">
+              <button type="button" className="gold-button" disabled={busy || (request.request_type === "REGISTER" ? !stables.length : !candidateHorses.length)} onClick={(event) => { const form = event.currentTarget.form; if (form) onReview(request.id, "APPROVE", form); }}>Duyệt và {request.request_type === "LINK" ? "liên kết hồ sơ" : "tạo hồ sơ"}</button>
+              <button type="button" className="soft-button border-rose-200 bg-rose-50 text-rose-800" disabled={busy} onClick={(event) => { const form = event.currentTarget.form; if (form) onReview(request.id, "REJECT", form); }}>Từ chối</button>
+            </div>
+          </form>
+        </article>;
+      })}
+      {!requests.length && <p className="text-sm text-slate-500">Không có yêu cầu đăng ký ngựa đang chờ.</p>}
+    </div>
+  </Panel>;
+}
+
+function Fact({ label, value }: { label: string; value: string | null | undefined }) {
+  return <div className="flex gap-1"><dt className="text-slate-500">{label}:</dt><dd className="font-medium text-equine-navy">{value || "—"}</dd></div>;
 }
 
 function Select({ name, label, options }: { name: string; label: string; options: [string, string][] }) {

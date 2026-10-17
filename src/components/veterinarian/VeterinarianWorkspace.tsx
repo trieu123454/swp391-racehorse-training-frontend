@@ -17,6 +17,7 @@ import {
   Stethoscope,
   UnlockKeyhole,
   Utensils,
+  Warehouse,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { HorseImage, Notice } from "@/components/horses/HorseUI";
@@ -42,11 +43,12 @@ import {
   type VetStableIncident,
 } from "@/api/veterinarian/api";
 
-type WorkspaceTab = "overview" | "exams" | "medical" | "diet" | "injuries" | "care" | "incidents" | "notifications";
-const workspaceTabIds: readonly WorkspaceTab[] = ["overview", "exams", "medical", "diet", "injuries", "care", "incidents", "notifications"];
+type WorkspaceTab = "overview" | "stables" | "exams" | "medical" | "diet" | "injuries" | "care" | "incidents" | "notifications";
+const workspaceTabIds: readonly WorkspaceTab[] = ["overview", "stables", "exams", "medical", "diet", "injuries", "care", "incidents", "notifications"];
 
 const tabs: { id: WorkspaceTab; label: string; icon: typeof Activity }[] = [
   { id: "overview", label: "Sức khỏe", icon: HeartPulse },
+  { id: "stables", label: "Sơ đồ chuồng trại", icon: Warehouse },
   { id: "exams", label: "Khám bệnh", icon: Stethoscope },
   { id: "medical", label: "Chẩn đoán & thuốc", icon: FileHeart },
   { id: "diet", label: "Khẩu phần", icon: Utensils },
@@ -230,7 +232,6 @@ export default function VeterinarianWorkspace() {
   const [overview, setOverview] = useState<HealthOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [section, setSection] = useState("");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
@@ -241,12 +242,12 @@ export default function VeterinarianWorkspace() {
   const [recentActivities, setRecentActivities] = useState<VetActivity[]>([]);
   const [activityHistoryReady, setActivityHistoryReady] = useState(false);
 
-  const loadOverview = useCallback(async (nextSection = section) => {
+  const loadOverview = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const [result, incidents] = await Promise.all([
-        veterinarianApi.overview(nextSection || undefined),
+        veterinarianApi.overview(),
         veterinarianApi.incidents("Open").catch(() => null),
       ]);
       setOverview(result);
@@ -261,7 +262,7 @@ export default function VeterinarianWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, [section]);
+  }, []);
 
   const loadUnread = useCallback(async () => {
     try {
@@ -331,7 +332,6 @@ export default function VeterinarianWorkspace() {
       window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
     };
   }, [horses, loadOverview, loadUnread]);
-  const sections = useMemo(() => [...new Set(horses.map((item) => item.stable_box?.section).filter((item): item is string => Boolean(item)))].sort(), [horses]);
   const stableGroups = useMemo(() => {
     const groups = new Map<string, VetHorse[]>();
     for (const item of horses) {
@@ -340,7 +340,12 @@ export default function VeterinarianWorkspace() {
     }
     return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right, "vi"));
   }, [horses]);
-  const visibleHorses = horses.filter((item) => item.horse_name.toLocaleLowerCase("vi").includes(search.trim().toLocaleLowerCase("vi")));
+  const visibleHorses = horses.filter((item) => {
+    const query = search.trim().toLocaleLowerCase("vi");
+    return item.horse_name.toLocaleLowerCase("vi").includes(query)
+      || item.id.toLocaleLowerCase("vi").includes(query)
+      || item.stable_box?.box_code.toLocaleLowerCase("vi").includes(query);
+  });
 
   function changed(message: string) {
     setNotice(message);
@@ -362,45 +367,34 @@ export default function VeterinarianWorkspace() {
   }
 
   return (
-    <section className="dashboard-workspace" aria-label="Không gian bác sĩ thú y">
+    <section className="dashboard-workspace mx-auto w-full" aria-label="Không gian bác sĩ thú y">
       {error && <div className="mt-5"><Notice error>{error}</Notice></div>}
       {notice && <div className="mt-5"><Notice>{notice}</Notice></div>}
 
-      <section hidden={tab !== "overview"} className="mt-4 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5" aria-label="Sơ đồ sức khỏe chuồng trại">
-        <div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 lg:flex-row lg:items-center lg:justify-between">
-          <div><h2 className="font-sans text-lg font-semibold text-equine-navy">Sơ đồ trạng thái chuồng trại</h2><p className="mt-1 text-sm text-slate-500">Chọn ô chuồng để mở hồ sơ sức khỏe tương ứng.</p></div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="mr-1 text-xs text-slate-500">{horses.length} ngựa · {stableGroups.length} vị trí</span>
-            <button type="button" onClick={() => { selectTab("incidents"); setNotice(""); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-800 hover:bg-rose-100"><AlertTriangle size={15} /> Sự cố <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold">{openIncidentCount}</span></button>
-            <button type="button" onClick={() => { selectTab("notifications"); setNotice(""); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-equine-line bg-white px-3 text-sm font-semibold text-equine-navy hover:bg-equine-mist"><Bell size={15} /> Thông báo <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${unread ? "bg-rose-100 text-rose-700" : "bg-equine-mist text-slate-600"}`}>{unread}</span>{actionCount > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">{actionCount} việc</span>}</button>
-            <button type="button" aria-label="Làm mới dữ liệu" className="grid h-10 w-10 place-items-center rounded-xl border border-equine-line bg-white text-equine-navy hover:bg-equine-mist" onClick={() => { void loadOverview(); void loadUnread(); }}><RefreshCw size={15} /></button>
-          </div>
+      {tab !== "stables" && <div className="relative mt-4 w-full max-w-2xl">
+        <label className="flex items-center gap-2 rounded-xl border border-equine-line bg-white px-3 py-2.5 shadow-sm"><Search size={16} className="shrink-0 text-slate-500" /><span className="sr-only">Tìm ngựa theo tên hoặc mã số</span><input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none" placeholder="Tìm theo tên hoặc mã số ngựa..." /></label>
+        {search.trim() && <div className="absolute left-0 right-0 top-full z-20 mt-2 max-h-[65vh] space-y-2 overflow-y-auto rounded-xl border border-equine-line bg-white p-2 shadow-lg">
+          {loading && !overview ? <Notice>Đang tìm ngựa...</Notice> : visibleHorses.length === 0 ? <Notice>Không tìm thấy ngựa phù hợp.</Notice> : visibleHorses.map((item) => <HorseChoice key={item.id} horse={item} selected={item.id === selectedId} onClick={() => { setSelectedId(item.id); setSearch(""); setNotice(""); }} />)}
+        </div>}
+      </div>}
+
+      {tab === "stables" ? (
+        <div className="mt-5 max-w-[430px]">
+          <StableMapPanel
+            horses={horses}
+            stableGroups={stableGroups}
+            selectedId={selectedId}
+            openIncidentCount={openIncidentCount}
+            unread={unread}
+            actionCount={actionCount}
+            onIncident={() => { selectTab("incidents"); setNotice(""); }}
+            onNotifications={() => { selectTab("notifications"); setNotice(""); }}
+            onRefresh={() => { void loadOverview(); void loadUnread(); }}
+            onSelectHorse={(id) => { setSelectedId(id); selectTab("overview"); setNotice(""); }}
+          />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{stableGroups.map(([location, occupants]) => <div key={location} className="rounded-xl border border-equine-line bg-[#f8fafc] p-3">
-          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">{location}</p>
-          <div className="space-y-2">{occupants.map((item) => <button type="button" key={item.id} onClick={() => { setSelectedId(item.id); selectTab("overview"); }} aria-pressed={item.id === selectedId} className={`flex w-full items-center justify-between gap-2 rounded-lg border p-2 text-left text-sm ${item.id === selectedId ? "border-equine-gold bg-[#fffaf2]" : "border-equine-line bg-white"}`}>
-            <span className="truncate font-semibold text-equine-navy">{item.horse_name}{item.is_training_locked ? " · Khóa" : ""}</span>
-            <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${item.current_status === "Injured" || item.current_status === "Quarantine" ? "bg-rose-100 text-rose-800" : item.current_status === "Monitoring" ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>{statusLabels[item.current_status] ?? item.current_status}</span>
-          </button>)}</div>
-        </div>)}</div>
-      </section>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="h-fit rounded-2xl border border-equine-line bg-white p-4 shadow-sm xl:sticky xl:top-4">
-          <div className="flex items-center justify-between gap-3">
-            <div><h2 className="font-sans text-lg font-semibold text-equine-navy">Đàn ngựa</h2><p className="text-xs text-slate-500">{horses.length} hồ sơ đang hoạt động</p></div>
-            <label className="sr-only" htmlFor="vet-section">Lọc khu chuồng</label>
-            <select id="vet-section" value={section} onChange={(event) => setSection(event.target.value)} className="field-control h-10 max-w-28 px-2 text-xs">
-              <option value="">Tất cả khu</option>{sections.map((item) => <option key={item} value={item}>Khu {item}</option>)}
-            </select>
-          </div>
-          <label className="mt-4 flex items-center gap-2 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2.5"><Search size={15} className="text-slate-500" /><span className="sr-only">Tìm ngựa</span><input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none" placeholder="Tìm tên ngựa..." /></label>
-          <div className="mt-4 max-h-[65vh] space-y-2 overflow-y-auto pr-1">
-            {loading && !overview ? <Notice>Đang tải đàn ngựa...</Notice> : visibleHorses.length === 0 ? <Notice>Không có ngựa phù hợp.</Notice> : visibleHorses.map((item) => <HorseChoice key={item.id} horse={item} selected={item.id === selectedId} onClick={() => { setSelectedId(item.id); setNotice(""); }} />)}
-          </div>
-        </aside>
-
-        <div className="min-w-0">
+      ) : (
+      <div className="mt-4 min-w-0">
           {horse && <>
             <HorseSummary horse={horse} />
             <div className="workspace-secondary-nav mt-4 flex gap-2 overflow-x-auto border-b border-equine-line pb-2" role="tablist" aria-label="Chức năng bác sĩ thú y">
@@ -420,10 +414,58 @@ export default function VeterinarianWorkspace() {
           {!horse && !loading && <div className="rounded-2xl border border-equine-line bg-white p-6"><Notice>Chưa có ngựa đang hoạt động để quản lý sức khỏe.</Notice></div>}
           {!horse && !loading && tab === "incidents" && <div className="mt-4"><StableIncidentsPanel onOpenHorse={(id) => { setSelectedId(id); selectTab("overview"); }} /></div>}
           {!horse && !loading && tab === "notifications" && <div className="mt-4"><NotificationsPanel horses={horses} activities={recentActivities} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} /></div>}
-        </div>
       </div>
+      )}
     </section>
   );
+}
+
+function StableMapPanel({
+  horses,
+  stableGroups,
+  selectedId,
+  openIncidentCount,
+  unread,
+  actionCount,
+  onIncident,
+  onNotifications,
+  onRefresh,
+  onSelectHorse,
+}: {
+  horses: VetHorse[];
+  stableGroups: [string, VetHorse[]][];
+  selectedId: string | null;
+  openIncidentCount: number;
+  unread: number;
+  actionCount: number;
+  onIncident: () => void;
+  onNotifications: () => void;
+  onRefresh: () => void;
+  onSelectHorse: (id: string) => void;
+}) {
+  return <section className="overflow-hidden rounded-2xl border border-equine-line bg-white shadow-sm" aria-label="Sơ đồ chuồng trại">
+    <div className="flex items-center justify-between gap-2 border-b border-equine-line px-3 py-2.5">
+      <div className="min-w-0">
+        <h2 className="font-sans text-sm font-semibold text-equine-navy">Sơ đồ chuồng trại</h2>
+        <p className="mt-0.5 text-[11px] text-slate-500">{horses.length} ngựa · {stableGroups.length} vị trí</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <button type="button" title="Sự cố" aria-label={`Sự cố cần xử lý: ${openIncidentCount}`} onClick={onIncident} className="relative grid h-8 w-8 place-items-center rounded-lg text-rose-700 hover:bg-rose-50"><AlertTriangle size={15} /><span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-rose-100 px-1 text-[9px] font-bold">{openIncidentCount}</span></button>
+        <button type="button" title="Thông báo" aria-label={`Thông báo: ${unread} chưa đọc, ${actionCount} việc cần xử lý`} onClick={onNotifications} className="relative grid h-8 w-8 place-items-center rounded-lg text-equine-navy hover:bg-equine-mist"><Bell size={15} /><span className={`absolute -right-1 -top-1 min-w-4 rounded-full px-1 text-[9px] font-bold ${unread ? "bg-rose-100 text-rose-700" : "bg-equine-mist text-slate-600"}`}>{unread}</span>{actionCount > 0 && <span className="absolute -bottom-0.5 -right-1 h-2 w-2 rounded-full bg-amber-500" />}</button>
+        <button type="button" title="Làm mới" aria-label="Làm mới dữ liệu" className="grid h-8 w-8 place-items-center rounded-lg text-equine-navy hover:bg-equine-mist" onClick={onRefresh}><RefreshCw size={14} /></button>
+      </div>
+    </div>
+    <div className="max-h-[min(70vh,560px)] space-y-2 overflow-y-auto p-2.5">
+      {stableGroups.map(([location, occupants]) => <div key={location} className="rounded-lg border border-equine-line bg-[#f8fafc] p-2">
+        <p className="mb-1.5 truncate text-[10px] font-bold uppercase tracking-wide text-slate-500">{location}</p>
+        <div className="space-y-1.5">{occupants.map((item) => <button type="button" key={item.id} onClick={() => onSelectHorse(item.id)} aria-pressed={item.id === selectedId} className={`flex w-full items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-left ${item.id === selectedId ? "border-equine-gold bg-[#fffaf2]" : "border-equine-line bg-white"}`}>
+          <span className="truncate text-xs font-semibold text-equine-navy">{item.horse_name}{item.is_training_locked ? " · Khóa" : ""}</span>
+          <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold ${item.current_status === "Injured" || item.current_status === "Quarantine" ? "bg-rose-100 text-rose-800" : item.current_status === "Monitoring" ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>{statusLabels[item.current_status] ?? item.current_status}</span>
+        </button>)}</div>
+      </div>)}
+      {!stableGroups.length && <p className="rounded-lg bg-equine-mist px-3 py-4 text-center text-xs text-slate-500">Chưa có vị trí chuồng.</p>}
+    </div>
+  </section>;
 }
 
 function HorseChoice({ horse, selected, onClick }: { horse: VetHorse; selected: boolean; onClick: () => void }) {
@@ -435,9 +477,9 @@ function HorseChoice({ horse, selected, onClick }: { horse: VetHorse; selected: 
 }
 
 function HorseSummary({ horse }: { horse: VetHorse }) {
-  return <article className="flex flex-col gap-4 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:p-5">
-    <div className="h-24 w-28 shrink-0 overflow-hidden rounded-xl bg-equine-mist"><HorseImage horse={horse as unknown as Horse} /></div>
-    <div className="min-w-0 flex-1"><p className="eyebrow">Hồ sơ sức khỏe</p><h2 className="mt-1 font-sans text-2xl font-semibold text-equine-navy">{horse.horse_name}</h2><p className="mt-1 text-sm text-slate-600">{horse.stable_box ? `Chuồng ${horse.stable_box.box_code} · Khu ${horse.stable_box.section}` : "Chưa gán chuồng"} · {statusLabels[horse.current_status] ?? horse.current_status}</p></div>
+  return <article className="flex flex-col gap-3 rounded-2xl border border-equine-line bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:p-4">
+    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-equine-mist"><HorseImage horse={horse as unknown as Horse} /></div>
+    <div className="min-w-0 flex-1"><p className="eyebrow text-[10px]">Hồ sơ sức khỏe</p><h2 className="mt-0.5 font-sans text-xl font-semibold text-equine-navy">{horse.horse_name}</h2><p className="mt-1 text-sm text-slate-600">{horse.stable_box ? `Chuồng ${horse.stable_box.box_code} · Khu ${horse.stable_box.section}` : "Chưa gán chuồng"} · {statusLabels[horse.current_status] ?? horse.current_status}</p></div>
     {horse.is_training_locked && <div className={`rounded-xl border px-3 py-2 text-sm ${horse.lock_level === "Critical" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}><p className="flex items-center gap-2 font-bold"><LockKeyhole size={15} /> Khóa {horse.lock_level}</p><p className="mt-1 max-w-sm text-xs">{horse.lock_reason}</p></div>}
   </article>;
 }

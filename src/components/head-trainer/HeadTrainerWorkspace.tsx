@@ -453,15 +453,15 @@ export default function HeadTrainerWorkspace() {
 
   return <section className="head-trainer-workspace mt-5" aria-labelledby="head-trainer-title">
     <div className="mb-4 flex items-center justify-between gap-3">
-      <div><p className="eyebrow">Phân hệ huấn luyện</p><h2 id="head-trainer-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Điều phối huấn luyện</h2></div>
+      <div><h2 id="head-trainer-title" className="font-sans text-3xl font-semibold text-equine-navy">Điều phối huấn luyện</h2></div>
       <button type="button" onClick={() => void refresh()} className="soft-button" disabled={busy}><RefreshCw size={15} /> Làm mới</button>
     </div>
     <div className="training-hero" hidden={tab !== "overview"}>
       <div className="training-hero__veil" />
       <div className="training-hero__copy">
-        <p className="training-hero__eyebrow"><span className={featuredSimulation ? "training-live-dot" : "training-hero__dash"} />{featuredSimulation ? "ĐANG CÓ BUỔI TẬP TRỰC TIẾP" : "TRƯỜNG ĐUA HUẤN LUYỆN"}</p>
-        <h3>{featuredSimulation ? `Theo dõi ${featuredSimulation.horses[0]?.horse_name ?? "buổi tập"}` : "Đưa từng buổi tập lên đường đua"}</h3>
-        <p>{featuredSimulation ? "Vận tốc, cự ly và chỉ số cơ thể được cập nhật trong lúc ngựa chạy." : "Lên lịch, chọn mặt sân và theo dõi ngựa di chuyển theo dữ liệu mô phỏng."}</p>
+        <p className="training-hero__eyebrow"><span className={featuredSimulation ? "training-live-dot" : "training-hero__dash"} />{featuredSimulation ? "ĐANG CÓ BUỔI TẬP TRỰC TIẾP" : "TỔNG QUAN HUẤN LUYỆN"}</p>
+        <h3>{featuredSimulation ? `Theo dõi ${featuredSimulation.horses[0]?.horse_name ?? "buổi tập"}` : "Buổi tập mô phỏng"}</h3>
+        {featuredSimulation && <p>Vận tốc, cự ly và chỉ số cơ thể được cập nhật trực tiếp.</p>}
         <div className="training-hero__actions">
           <button type="button" className="training-hero__primary" onClick={() => { if (featuredSimulation) selectSimulation(featuredSimulation); selectTab("simulation"); setError(""); setNotice(""); }}>
             <Play size={16} />{featuredSimulation ? "Theo dõi buổi tập" : "Mở giả lập"}<ArrowUpRight size={16} />
@@ -1046,10 +1046,11 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
   const [trackSurface, setTrackSurface] = useState("Turf");
   const [competitorIds, setCompetitorIds] = useState<string[]>(() => selectedHorse ? [selectedHorse.id] : []);
   const [runStartTime, setRunStartTime] = useState<number | null>(null);
+  const selectedHorseId = selectedHorse?.id;
   useEffect(() => {
-    if (!selectedHorse) return;
-    setCompetitorIds((current) => current.includes(selectedHorse.id) || current.length >= 5 ? current : [selectedHorse.id, ...current]);
-  }, [selectedHorse?.id]);
+    if (!selectedHorseId) return;
+    setCompetitorIds((current) => current.includes(selectedHorseId) || current.length >= 5 ? current : [selectedHorseId, ...current]);
+  }, [selectedHorseId]);
 
   const horsePool = selectedHorse && !horses.some((horse) => horse.id === selectedHorse.id) ? [selectedHorse, ...horses] : horses;
   const availableHorses = horsePool.filter((horse) => !horse.deleted_at);
@@ -1188,15 +1189,28 @@ function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simu
               <div><span>Nhịp tim</span><strong>{current.heartRate} <small>bpm</small></strong></div>
               <div><span>Huyết áp mô phỏng</span><strong>{current.systolic}/{current.diastolic}</strong></div>
             </div> : <p className="text-sm text-slate-500">Đang tải chỉ số…</p>}
-            {current && (current.heartRate > simulation.injury_alert_heart_rate || current.speed > simulation.injury_alert_speed_kmh) && <Notice>Có chỉ số vượt ngưỡng theo dõi; cần xem xét buổi tập.</Notice>}
           </article>;
         })}
       </div>
+      {simulation.alert_thresholds && <details className="training-live-card__details mt-3">
+        <summary>Ngưỡng cảnh báo mô phỏng BR-R04</summary>
+        <p className="pt-3 text-sm text-slate-600">
+          Nhịp tim nghỉ &gt; {simulation.alert_thresholds.resting_heart_rate_bpm} bpm · Vận động &gt; {simulation.alert_thresholds.exercise_heart_rate_bpm} bpm ·
+          Hồi phục &gt; {simulation.alert_thresholds.recovery_heart_rate_bpm} bpm sau {simulation.alert_thresholds.recovery_rest_minutes} phút nghỉ ·
+          Huyết áp tâm thu &gt; {simulation.alert_thresholds.systolic_blood_pressure_mmhg} mmHg ·
+          Cường độ cao &gt; {simulation.alert_thresholds.high_intensity_heart_rate_bpm} bpm qua {simulation.alert_thresholds.high_intensity_sustained_samples} mẫu liên tiếp.
+        </p>
+      </details>}
+      {!!simulation.alerts?.length && <div role="alert" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+        <p className="font-semibold">Cảnh báo chỉ số mô phỏng</p>
+        <ul className="mt-1 list-inside list-disc space-y-1">{simulation.alerts.map(alert => <li key={alert.code}>{alert.message} ({alert.value} {alert.unit})</li>)}</ul>
+      </div>}
+      <p className="mt-2 text-xs text-slate-500">Cảnh báo mô phỏng không tự khóa huấn luyện. Bác sĩ Thú y quyết định khóa hoặc mở khóa.</p>
       <div className="training-live-card__phase"><span>PHA TẬP</span><strong>{({Warmup:"Khởi động",Work:"Vận động chính",Cooldown:"Giảm cường độ",Recovery:"Hồi phục"} as Record<string,string>)[phase] ?? "Đang tải"}</strong>{simulation.distance_meters > 0 && <span>Đích đến {simulation.distance_meters.toLocaleString("vi-VN")} m</span>}</div>
       {simulation.status === "Running" && <p className="mt-3 text-sm text-slate-500">Có thể tải lại trang để tiếp tục theo dõi. Hủy lịch tại tab Lịch tập sẽ dừng giả lập và giữ dữ liệu đã thu.</p>}
       <details className="training-live-card__details"><summary>Biểu đồ cảm biến</summary><div className="pt-4"><SensorTimeline readings={readings}/></div></details>
       {simulation.stop_reason && <Notice>Buổi tập đã dừng: {simulation.stop_reason}</Notice>}
-      {simulation.recovery_heart_rate != null && <p className="mt-3 text-sm">Nhịp tim cuối hồi phục: {simulation.recovery_heart_rate} bpm · Điểm hồi phục ước tính: {simulation.stamina_score ?? "—"}/10</p>}
+      {simulation.recovery_heart_rate != null && <p className="mt-3 text-sm">Nhịp tim mô phỏng sau 15 phút nghỉ: {simulation.recovery_heart_rate} bpm · Điểm hồi phục ước tính: {simulation.stamina_score ?? "—"}/10</p>}
       {simulation.actual_distance_meters != null && <p className="mt-3">Cự ly thực hiện: {Number(simulation.actual_distance_meters).toFixed(1)} m</p>}
       {finishFailed && <button type="button" className="soft-button mt-3" onClick={onRetryFinish} disabled={busy}>Thử lưu kết quả lại</button>}
       {(ranking.length > 0 || simulation.status === "Completed") && <Notice>Đã hoàn tất buổi tập và lưu chỉ số vào biểu đồ phân tích.</Notice>}

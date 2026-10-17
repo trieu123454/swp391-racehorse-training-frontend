@@ -12,7 +12,9 @@ import {
   errorMessage,
   getHorse,
   getHorseDeletionWarnings,
+  getHorseOwnershipHistory,
   type Horse,
+  type OwnershipHistoryEntry,
   type Warnings,
 } from "@/api/horses/api";
 
@@ -28,6 +30,7 @@ export default function HorseDetailPage() {
     error: string;
   }>({ id: null, loading: true, horse: null, error: "" });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [ownershipHistory, setOwnershipHistory] = useState<OwnershipHistoryEntry[]>([]);
   const [deleteWarnings, setDeleteWarnings] = useState<Warnings | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -35,15 +38,20 @@ export default function HorseDetailPage() {
     let active = true;
     const id = horseId;
     setRequest({ id, loading: true, horse: null, error: "" });
-    getHorse(id)
-      .then((horse) => {
-        if (active) setRequest({ id, loading: false, horse, error: "" });
+    Promise.all([
+      getHorse(id),
+      user.roleName === "CLUB_MANAGER" ? getHorseOwnershipHistory(id) : Promise.resolve([] as OwnershipHistoryEntry[]),
+    ])
+      .then(([horse, history]) => {
+        if (!active) return;
+        setRequest({ id, loading: false, horse, error: "" });
+        setOwnershipHistory(history);
       })
       .catch((reason) => {
         if (active) setRequest({ id, loading: false, horse: null, error: errorMessage(reason) });
       });
     return () => { active = false; };
-  }, [horseId]);
+  }, [horseId, user.roleName]);
 
   const isCurrentRequest = request.id === horseId;
   const loading = !isCurrentRequest || request.loading;
@@ -223,6 +231,17 @@ export default function HorseDetailPage() {
                 <p className="mt-2 text-xs leading-5 text-slate-500">Thời điểm hồ sơ ngựa được ghi nhận trên hệ thống.</p>
               </div>
             </section>
+
+            {user.roleName === "CLUB_MANAGER" && <section className="rounded-3xl border border-equine-line bg-white p-5 shadow-sm">
+              <h2 className="font-sans text-2xl font-semibold text-equine-navy">Lịch sử chủ sở hữu</h2>
+              <div className="mt-4 space-y-2">
+                {ownershipHistory.map((entry) => <article key={entry.id} className="rounded-xl border border-equine-line bg-equine-paper p-3 text-sm">
+                  <p className="font-semibold text-equine-navy">{entry.previous_owner_name ?? "Chưa gán chủ"} → {entry.new_owner_name ?? "Chưa gán chủ"}</p>
+                  <p className="mt-1 text-xs text-slate-500">{new Date(entry.changed_at).toLocaleString("vi-VN")} · {entry.changed_by_name ?? "Hệ thống"}</p>
+                </article>)}
+                {!ownershipHistory.length && <p className="text-sm text-slate-500">Chưa có lịch sử thay đổi chủ sở hữu.</p>}
+              </div>
+            </section>}
           </div>
         </div>
       </div>

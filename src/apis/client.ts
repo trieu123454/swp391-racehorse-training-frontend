@@ -96,6 +96,18 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
   if (!accessToken) {
     throw expiredSession();
   }
+  if (accessTokenExpiresSoon(accessToken)) {
+    try {
+      await refreshSession(accessToken);
+    } catch (refreshError) {
+      if (refreshError instanceof ApiRequestError && [400, 401, 403].includes(refreshError.status)) {
+        throw expiredSession();
+      }
+      throw refreshError;
+    }
+    accessToken = getAccessToken();
+    if (!accessToken) throw expiredSession();
+  }
   const withToken = (token: string) => ({
     ...options,
     headers: { ...(options.headers ?? {}), Authorization: `Bearer ${token}` },
@@ -107,7 +119,7 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
   } catch (error) {
     if (!(error instanceof ApiRequestError) || error.status !== 401) throw error;
     try {
-      await validateSession(true);
+      await refreshSession(accessToken);
     } catch (refreshError) {
       if (refreshError instanceof ApiRequestError && [400, 401, 403].includes(refreshError.status)) {
         throw expiredSession();
@@ -116,13 +128,17 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
     }
     const refreshed = getAccessToken();
     if (!refreshed) throw expiredSession();
-    if (refreshed === accessToken) throw error;
     try {
       const result = await request<T>(path, withToken(refreshed));
       announceMutationCompleted(path, options.method ?? "GET");
       return result;
     } catch (retryError) {
-      if (retryError instanceof ApiRequestError && retryError.status === 401) throw expiredSession();
+      // If a newly issued token is also rejected, this session belongs to a
+      // different API instance or is no longer valid. Clear it and return to
+      // login instead of leaving the owner stuck on repeated 401 responses.
+      if (retryError instanceof ApiRequestError && retryError.status === 401) {
+        throw expiredSession();
+      }
       throw retryError;
     }
   }
@@ -171,6 +187,7 @@ export function logout(refreshToken: string) {
 }
 
 let sessionCheck: Promise<AuthUser> | null = null;
+let refreshAfterUnauthorizedCheck: Promise<void> | null = null;
 const SESSION_CACHE_TTL_MS = 60_000;
 let validatedSession: {
   accessToken: string | null;
@@ -214,6 +231,15 @@ async function restoreSession(): Promise<AuthUser> {
   const refreshToken = getRefreshToken();
   const remember = isRemembered();
   try {
+    if (refreshAfterUnauthorizedCheck) {
+      await refreshAfterUnauthorizedCheck;
+      const refreshedAccessToken = getAccessToken();
+      if (refreshedAccessToken) {
+        return await request<AuthUser>("/api/auth/me", {
+          headers: { Authorization: `Bearer ${refreshedAccessToken}` },
+        });
+      }
+    }
     if (accessToken) {
       try {
         return await request<AuthUser>("/api/auth/me", {
@@ -239,4 +265,53 @@ async function restoreSession(): Promise<AuthUser> {
       clearSession();
     throw error;
   }
+}
+
+function accessTokenExpiresSoon(token: string): boolean {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload || typeof atob !== "function") return false;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
+    const expiresAt = (JSON.parse(decoded) as { exp?: unknown }).exp;
+    return typeof expiresAt === "number" && expiresAt * 1000 <= Date.now() + 30_000;
+  } catch {
+    return false;
+  }
+}
+
+/** Refresh a stale credential once for all requests using it. */
+function refreshSession(staleAccessToken: string): Promise<void> {
+  const currentAccessToken = getAccessToken();
+  // Another request may have refreshed the session while this request was in flight.
+  if (currentAccessToken && currentAccessToken !== staleAccessToken) {
+    return Promise.resolve();
+  }
+  if (refreshAfterUnauthorizedCheck) return refreshAfterUnauthorizedCheck;
+
+  const refreshPromise = (async () => {
+    // Let a session restore that was already running finish first. It may have
+    // refreshed the same token, in which case there is no need to rotate it again.
+    if (sessionCheck) await sessionCheck;
+    const latestAccessToken = getAccessToken();
+    if (latestAccessToken && latestAccessToken !== staleAccessToken) return;
+
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) throw new ApiRequestError("Refresh token is missing", 401);
+
+    const remember = isRemembered();
+    const auth = await request<AuthResponse>("/api/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ refreshToken }),
+    });
+    // A logout or a new login may happen while refresh is in flight. Never let
+    // an older response replace that newer session.
+    if (getRefreshToken() === refreshToken) saveSession(auth, remember);
+  })()
+    .finally(() => {
+      refreshAfterUnauthorizedCheck = null;
+    });
+
+  refreshAfterUnauthorizedCheck = refreshPromise;
+  return refreshPromise;
 }

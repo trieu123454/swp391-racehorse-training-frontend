@@ -26,23 +26,22 @@ export default function MuscleAnatomyPanel({
   onSelect: (id: string) => void;
 }) {
   return (
-    <aside className="min-w-0 rounded-xl border border-[#dce6eb] bg-white/90 p-3 shadow-sm" aria-label="Tra cứu cơ ngựa">
-      <h5 className="text-sm font-semibold text-[#36566a]">Tra cứu giải phẫu</h5>
-      <label className="mt-2 block text-[11px] font-medium text-slate-500" htmlFor="muscle-search">Tìm cơ / gân</label>
+    <aside className="min-w-0 rounded-xl border border-equine-line bg-white p-3 shadow-sm" aria-label="Tra cứu cơ ngựa">
+      <h5 className="text-sm font-semibold text-equine-navy">Cơ & gân</h5>
       <input
-        id="muscle-search"
+        id="muscle-search" aria-label="Tìm cơ hoặc gân"
         type="search"
         value={filters.search}
         onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))}
-        placeholder="Tên tiếng Việt hoặc Latin"
-        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-700 outline-none transition focus:border-[#789a9d] focus:ring-2 focus:ring-[#789a9d]/20"
+        placeholder="Tìm cơ hoặc gân…"
+        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-700 outline-none transition focus:border-equine-gold focus:ring-2 focus:ring-equine-gold/20"
       />
-      <label className="mt-2 block text-[11px] font-medium text-slate-500" htmlFor="muscle-group">Nhóm giải phẫu</label>
       <select
+        aria-label="Nhóm cơ"
         id="muscle-group"
         value={filters.group}
         onChange={(event) => setFilters((current) => ({ ...current, group: event.target.value as MuscleGroupFilter }))}
-        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-700 outline-none focus:border-[#789a9d]"
+        className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs text-slate-700 outline-none focus:border-equine-gold"
       >
         {Object.entries(groupLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
@@ -55,13 +54,12 @@ export default function MuscleAnatomyPanel({
               type="button"
               aria-pressed={active}
               onClick={() => setFilters((current) => ({ ...current, [layer]: !current[layer] }))}
-              className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${active ? "border-[#446b72] bg-[#446b72] font-semibold text-white" : "border-slate-200 bg-white text-slate-600"}`}
+              className={`rounded-lg border px-2.5 py-1.5 text-xs transition ${active ? "border-equine-navy bg-equine-navy font-semibold text-white" : "border-equine-line bg-white text-equine-muted"}`}
             >
               {layer === "superficial" ? "Lớp nông" : "Lớp sâu"}
             </button>
           );
         })}
-        <span className="ml-auto self-center text-[10px] text-slate-400">{muscles.length} cấu trúc</span>
       </div>
 
       <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-slate-100" role="listbox" aria-label="Danh sách cấu trúc">
@@ -72,12 +70,11 @@ export default function MuscleAnatomyPanel({
             role="option"
             aria-selected={selectedId === muscle.id}
             onClick={() => onSelect(muscle.id)}
-            className={`flex w-full items-start gap-2 border-b border-slate-100 px-2.5 py-2 text-left last:border-b-0 ${selectedId === muscle.id ? "bg-[#edf4f3]" : "bg-white hover:bg-slate-50"}`}
+            className={`flex w-full items-start gap-2 border-b border-slate-100 px-2.5 py-2 text-left last:border-b-0 ${selectedId === muscle.id ? "bg-equine-champagne" : "bg-white hover:bg-slate-50"}`}
           >
             <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: muscle.color }} />
             <span className="min-w-0">
               <span className="block truncate text-xs font-semibold text-slate-700">{muscle.vi}</span>
-              <span className="block truncate text-[10px] italic text-slate-400">{muscle.latin}</span>
             </span>
           </button>
         )) : <p className="px-2.5 py-3 text-xs text-slate-500">Không tìm thấy cấu trúc phù hợp.</p>}
@@ -87,10 +84,10 @@ export default function MuscleAnatomyPanel({
         <div className="mt-3 border-t border-slate-100 pt-3" aria-live="polite">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <h6 className="text-sm font-semibold text-[#36566a]">{selectedMuscle.vi}</h6>
+              <h6 className="text-sm font-semibold text-equine-navy">{selectedMuscle.vi}</h6>
               <p className="text-[11px] italic text-slate-500">{selectedMuscle.latin}</p>
             </div>
-            <span className="rounded-full bg-[#edf4f3] px-2 py-1 text-[10px] font-medium text-[#446b72]">
+            <span className="rounded-full bg-equine-champagne px-2 py-1 text-[10px] font-medium text-equine-navy">
               {selectedMuscle.kind === "muscle" ? "Cơ" : selectedMuscle.kind === "fascia" ? "Cân" : selectedMuscle.kind === "tendon" ? "Gân" : "Dây chằng"}
             </span>
           </div>
@@ -104,9 +101,7 @@ export default function MuscleAnatomyPanel({
           </dl>
           {selectedMuscle.note && <p className="mt-2 rounded-lg bg-amber-50 px-2.5 py-2 text-[10px] leading-relaxed text-amber-900">Ước lượng mô hình: {selectedMuscle.note}</p>}
         </div>
-      ) : (
-        <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] leading-relaxed text-slate-500">Chọn một cấu trúc trên mô hình hoặc trong danh sách để xem điểm bám và chức năng.</p>
-      )}
+      ) : null}
     </aside>
   );
 }

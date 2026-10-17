@@ -7,9 +7,10 @@ import { errorMessage, getHorseOwners, type Owner } from "@/api/horses/api";
 type Props = {
   value: number | null;
   onChange: (ownerId: number | null) => void;
+  required?: boolean;
 };
 
-export function OwnerCombobox({ value, onChange }: Props) {
+export function OwnerCombobox({ value, onChange, required = false }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedOwner, setSelectedOwner] = useState<Owner | null>(null);
@@ -129,10 +130,10 @@ export function OwnerCombobox({ value, onChange }: Props) {
       >
         <span id="owner-selector-value" className="min-w-0">
           <span className="block truncate text-sm font-medium text-equine-navy">
-            {selectedOwner?.full_name ?? (value === null ? "Không gán chủ sở hữu" : `Chủ sở hữu #${value}`)}
+            {selectedOwner?.full_name ?? (value === null ? (required ? "Chọn Horse Owner" : "Không gán chủ sở hữu") : `Chủ sở hữu #${value}`)}
           </span>
           <span className="block truncate text-xs text-slate-500">
-            {selectedOwner ? `${selectedOwner.email} · Mã #${selectedOwner.user_id}` : value !== null ? (loadingSelection ? "Đang tải thông tin chủ sở hữu..." : `Mã #${value}`) : "Chọn để tìm theo tên, email, số điện thoại hoặc mã chủ"}
+            {selectedOwner ? `${selectedOwner.email} · Mã #${selectedOwner.user_id}` : value !== null ? (loadingSelection ? "Đang tải thông tin chủ sở hữu..." : `Mã #${value}`) : required ? "Bắt buộc chọn một chủ sở hữu chính" : "Chọn để tìm theo tên, email, số điện thoại hoặc mã chủ"}
           </span>
         </span>
         <ChevronDown size={18} className={`shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`} />
@@ -155,14 +156,14 @@ export function OwnerCombobox({ value, onChange }: Props) {
 
           <div className="max-h-72 overflow-y-auto p-1">
             <div id="owner-selector-options" role="listbox" aria-label="Kết quả chủ sở hữu">
-            <button type="button" role="option" aria-selected={value === null} onClick={() => choose(null)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-slate-50">
+            {!required && <button type="button" role="option" aria-selected={value === null} onClick={() => choose(null)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-slate-50">
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500"><UserRound size={16} /></span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium text-equine-navy">Không gán chủ sở hữu</span>
                 <span className="block text-xs text-slate-500">Có thể gán chủ sau</span>
               </span>
               {value === null && <Check size={16} className="text-equine-gold" />}
-            </button>
+            </button>}
 
             {owners.map((owner) => (
               <button key={owner.user_id} type="button" role="option" aria-selected={value === owner.user_id} onClick={() => choose(owner)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-[#f7f9ff]">

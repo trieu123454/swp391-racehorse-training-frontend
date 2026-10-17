@@ -160,12 +160,10 @@ export default function GroomWorkspace() {
     } finally { setBusy(false); }
   }
 
-  return <section className="mt-10 space-y-5" aria-labelledby="groom-workspace-title">
+  return <section className="mt-5 space-y-5" aria-labelledby="groom-workspace-title">
     <div className="flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <p className="eyebrow">Chăm sóc chuồng trại</p>
-        <h2 id="groom-workspace-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Không gian chăm sóc</h2>
-        <p className="mt-2 text-sm text-slate-600">Xem ngựa được phân công, lịch trong ngày và ghi nhận công việc chăm sóc.</p>
+        <h2 id="groom-workspace-title" className="font-sans text-3xl font-semibold text-equine-navy">Chăm sóc ngựa</h2>
       </div>
       <div className="flex gap-2">
         <input aria-label="Ngày công việc" type="date" className="field-control px-3" value={date} onChange={(event) => setDate(event.target.value)} />

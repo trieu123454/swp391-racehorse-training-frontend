@@ -5,7 +5,7 @@ import { Routes } from "@/routes/Routes";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { Activity, Bell, BookOpen, Boxes, CalendarDays, ChevronDown, ClipboardList, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, X } from "lucide-react";
+import { Activity, ArrowUpRight, Bell, BookOpen, Boxes, CalendarDays, ChevronDown, ClipboardList, FilePlus2, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, Warehouse, X } from "lucide-react";
 import { Brand } from "@/components/shared/Brand";
 import { ApiRequestError, SESSION_EXPIRED_EVENT, logout, validateSession } from "@/api/client";
 import { clearSession, getLogoutRefreshToken, getUser } from "@/lib/session";
@@ -137,7 +137,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
 
   if (!user) return <main className="horse-access">{error ? <><Notice error>{error}</Notice><button className="navy-button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button><Link href={Routes.dashboard}>Về bảng điều khiển</Link></> : <p role="status">Đang xác thực quyền truy cập…</p>}</main>;
 
-  const icons: Record<string, typeof Activity> = { overview: LayoutDashboard, plans: BookOpen, calendar: CalendarDays, simulation: Activity, analysis: Activity, races: Trophy, incidents: Shield, care: ClipboardList, inventory: Boxes, finance: Wallet, audit: History, exams: Stethoscope, medical: HeartPulse, diet: Utensils, injuries: HeartPulse, notifications: Bell, horses: BookOpen, health: HeartPulse, training: CalendarDays };
+  const icons: Record<string, typeof Activity> = { overview: LayoutDashboard, stables: Warehouse, plans: BookOpen, calendar: CalendarDays, simulation: Activity, analysis: Activity, races: Trophy, incidents: Shield, care: ClipboardList, inventory: Boxes, finance: Wallet, audit: History, exams: Stethoscope, medical: HeartPulse, diet: Utensils, injuries: HeartPulse, notifications: Bell, horses: BookOpen, health: HeartPulse, training: CalendarDays };
   const dashboardRoute = routeForRole(user.roleName);
   const isDashboard = pathname === dashboardRoute;
   const navigation = workspaceNavigation[user.roleName];
@@ -166,7 +166,15 @@ export default function HorseShell({ children }: { children: ReactNode }) {
       </nav>
       <p className="horse-nav-label">QUẢN LÝ CHUNG</p>
       <nav aria-label="Hồ sơ và hệ thống">
-        <Link href={Routes.horses} className={currentPathname.startsWith(Routes.horses) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.horses) ? "page" : undefined}><BookOpen size={18} />Hồ sơ ngựa</Link>
+        {user.roleName === "HORSE_OWNER" ? (
+          <Link href={Routes.horses} className={`owner-registration-nav ${currentPathname.startsWith(Routes.horses) ? "active" : ""}`} aria-current={currentPathname.startsWith(Routes.horses) ? "page" : undefined}>
+            <span className="owner-registration-nav-icon"><FilePlus2 size={17} /></span>
+            <span className="owner-registration-nav-copy"><strong>Gửi yêu cầu hồ sơ</strong><small>Đăng ký hoặc liên kết ngựa</small></span>
+            <ArrowUpRight className="owner-registration-nav-arrow" size={15} />
+          </Link>
+        ) : (
+          <Link href={Routes.horses} className={currentPathname.startsWith(Routes.horses) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.horses) ? "page" : undefined}><BookOpen size={18} />Hồ sơ ngựa</Link>
+        )}
         {user.roleName === "CLUB_MANAGER" && <Link href={Routes.clubManagerUsers} className={currentPathname.startsWith(Routes.clubManagerUsers) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.clubManagerUsers) ? "page" : undefined}><Users size={18} />Quản lý tài khoản</Link>}
         <Link href={Routes.home}><House size={18} />Trang chủ</Link>
       </nav>

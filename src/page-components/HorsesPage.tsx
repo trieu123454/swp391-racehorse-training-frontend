@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useHorseUser } from "@/components/horses/HorseShell";
 import { HorseImage, Modal, Notice, StatusBadge } from "@/components/horses/HorseUI";
+import HorseRegistrationPanel from "@/components/horse-owner/HorseRegistrationPanel";
 import { routeForRole } from "@/lib/roles";
 import {
   deleteHorse as deleteHorseApi,
@@ -108,25 +109,37 @@ export default function HorsesPage() {
     <>
       <main className="min-h-screen bg-equine-paper p-4 sm:p-6 lg:p-8">
         <div className="mx-auto max-w-[1200px]">
-          <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-equine-line bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <p className="eyebrow">Flow 1</p>
-              <h1 className="mt-2 font-sans text-3xl font-semibold text-equine-navy">
-                Quản lý hồ sơ & lý lịch ngựa
-              </h1>
+          {user.roleName === "HORSE_OWNER" ? (
+            <header className="relative mb-4 overflow-hidden rounded-[24px] border border-[#eadfd2] bg-[radial-gradient(ellipse_at_100%_0%,rgba(234,190,150,0.34),transparent_42%),linear-gradient(115deg,#fffaf5_0%,#ffffff_55%,#f8eee5_100%)] p-5 shadow-[0_18px_45px_-38px_rgba(72,47,30,0.5)] sm:p-6">
+              <div aria-hidden="true" className="absolute -right-10 -top-16 h-48 w-48 rounded-full border border-[#e7cbb4]/70" />
+              <div aria-hidden="true" className="absolute -right-1 top-8 h-24 w-24 rounded-full border border-[#e7cbb4]/50" />
+              <div className="relative">
+                <h1 className="font-sans text-3xl font-semibold tracking-tight text-equine-navy sm:text-[2.1rem]">Hồ sơ ngựa</h1>
+                <p className="mt-1.5 text-sm text-slate-600">Đăng ký ngựa mới hoặc liên kết hồ sơ có sẵn.</p>
+              </div>
+            </header>
+          ) : (
+            <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-equine-line bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="eyebrow">Flow 1</p>
+                <h1 className="mt-2 font-sans text-3xl font-semibold text-equine-navy">
+                  Quản lý hồ sơ & lý lịch ngựa
+                </h1>
+              </div>
+              {user.roleName === "CLUB_MANAGER" && (
+                <Link className="gold-button" href={Routes.horseNew}>
+                  <Plus size={17} /> Thêm ngựa mới
+                </Link>
+              )}
             </div>
-            {user.roleName === "CLUB_MANAGER" && (
-              <Link className="gold-button" href={Routes.horseNew}>
-                <Plus size={17} /> Thêm ngựa mới
-              </Link>
-            )}
-          </div>
+          )}
+
+          {user.roleName === "HORSE_OWNER" && <div className="mb-4"><HorseRegistrationPanel /></div>}
 
           {user.roleName !== "HORSE_OWNER" && <div className="mb-6 rounded-2xl border border-equine-line bg-white p-4 shadow-sm">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-equine-navy">Tìm kiếm và lọc hồ sơ</p>
-                <p className="text-xs text-slate-500">Có thể kết hợp nhiều điều kiện cùng lúc.</p>
+                <p className="text-sm font-semibold text-equine-navy">Tìm hồ sơ ngựa</p>
               </div>
               {(searchInput || statusFilter !== "ALL" || stableFilter !== "ALL") && <button type="button" className="text-sm font-semibold text-equine-navy underline" onClick={() => { setSearchInput(""); setSearch(""); setStatusFilter("ALL"); setStableFilter("ALL"); }}>Xóa bộ lọc</button>}
             </div>

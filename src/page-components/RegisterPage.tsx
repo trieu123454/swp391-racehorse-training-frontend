@@ -69,7 +69,7 @@ export default function RegisterPage() {
         password: form.password,
         roleName: "HORSE_OWNER",
       });
-      setMessage("Đăng ký thành công. Bạn có thể đăng nhập ngay.");
+      setMessage("Đăng ký thành công. Đăng nhập rồi gửi thông tin và giấy tờ ngựa để Club Manager xác minh.");
       setForm({
         fullName: "",
         email: "",
@@ -131,7 +131,7 @@ export default function RegisterPage() {
               Đăng ký tài khoản mới
             </h1>
             <p className="auth-subtitle">
-              Tạo tài khoản Chủ ngựa để bắt đầu.
+              Tạo tài khoản Horse Owner để gửi hồ sơ ngựa cho câu lạc bộ xác minh.
             </p>
             <form className="auth-form" onSubmit={handleSubmit}>
               {input(
@@ -197,8 +197,7 @@ export default function RegisterPage() {
               <div className="auth-register-notice">
                 <AlertTriangle className="shrink-0" size={19} />
                 <p>
-                  Tài khoản đăng ký tại đây là tài khoản Chủ ngựa. Các vai trò
-                  nhân sự khác do Club Manager cấp tài khoản.
+                  Tài khoản đăng ký tại đây dành cho Horse Owner. Sau khi đăng nhập, gửi hồ sơ ngựa để Club Manager xác minh; tài khoản nhân sự do Club Manager cấp.
                 </p>
               </div>
               <label className="auth-legal cursor-pointer">

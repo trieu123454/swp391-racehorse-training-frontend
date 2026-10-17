@@ -1,5 +1,6 @@
 import { ApiRequestError, authenticatedRequest } from "@/api/client";
 import type { RoleName } from "@/lib/types";
+import type { HorseRegistrationRequest } from "@/api/horse-owner/api";
 
 export type AssignableRoleName = Exclude<RoleName, "CLUB_MANAGER">;
 export type CreatableRoleName = Exclude<RoleName, "HORSE_OWNER">;
@@ -33,6 +34,12 @@ export type RoleChangeRequest = {
   created_at: string;
   reviewed_by: number | null;
   reviewed_at: string | null;
+};
+
+export type ManagerHorseRegistrationRequest = HorseRegistrationRequest & {
+  owner_name: string;
+  owner_email: string;
+  owner_phone: string | null;
 };
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -93,6 +100,22 @@ export function listRoleChangeRequests(status = "Pending") {
 
 export function handleRoleChange(id: string, action: "approve" | "reject") {
   return request(`/role-change-requests/${id}`, { method: "PATCH", body: JSON.stringify({ action }) });
+}
+
+export function listPendingHorseRegistrationRequests() {
+  return request<ManagerHorseRegistrationRequest[]>("/horse-registration-requests");
+}
+
+export function reviewHorseRegistrationRequest(id: string, input: {
+  action: "APPROVE" | "REJECT";
+  stableBoxId?: string;
+  horseId?: string;
+  reviewNote?: string;
+}) {
+  return request(`/horse-registration-requests/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
 
 export const clubManagerError = (error: unknown) => {

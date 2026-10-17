@@ -115,8 +115,67 @@ export type OwnerDashboard = {
   };
 };
 
+export type HorseRegistrationDocument = {
+  id: string;
+  name: string;
+  content_type: string;
+  file_size: number;
+  url: string;
+};
+
+export type HorseRegistrationRequest = {
+  id: string;
+  request_type: "REGISTER" | "LINK";
+  horse_name: string;
+  horse_image_url: string | null;
+  breed: string | null;
+  birth_year: number | null;
+  height_cm: number | null;
+  current_weight_kg: number | null;
+  pedigree_father: string | null;
+  pedigree_mother: string | null;
+  microchip_number: string | null;
+  passport_number: string | null;
+  owner_note: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  approved_horse_id: string | null;
+  review_note: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+  documents: HorseRegistrationDocument[];
+};
+
+export type HorseRegistrationSubmission = {
+  requestType: "REGISTER" | "LINK";
+  horseName: string;
+  breed?: string | null;
+  birthYear?: number | null;
+  heightCm?: number | null;
+  currentWeightKg?: number | null;
+  pedigreeFather?: string | null;
+  pedigreeMother?: string | null;
+  microchipNumber?: string | null;
+  passportNumber?: string | null;
+  ownerNote?: string | null;
+};
+
 export async function getOwnerHorses() {
   return authenticatedRequest<{ items: OwnerHorse[]; total: number }>("/api/horse-owner/horses");
+}
+
+export function getHorseRegistrationRequests() {
+  return authenticatedRequest<HorseRegistrationRequest[]>("/api/horse-owner/horse-registration-requests");
+}
+
+export async function submitHorseRegistrationRequest(input: HorseRegistrationSubmission, horseImage: File, documents: File[]) {
+  const form = new FormData();
+  form.append("request", new Blob([JSON.stringify(input)], { type: "application/json" }));
+  form.append("horseImage", horseImage);
+  documents.forEach((file) => form.append("documents", file));
+  return authenticatedRequest<HorseRegistrationRequest>("/api/horse-owner/horse-registration-requests", {
+    method: "POST",
+    body: form,
+  });
 }
 
 export async function getOwnerHorseDashboard(horseId: string, year: number) {

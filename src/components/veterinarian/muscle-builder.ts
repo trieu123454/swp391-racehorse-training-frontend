@@ -146,11 +146,6 @@ function createPath(start: THREE.Vector3, end: THREE.Vector3, sideSign: number, 
   return new THREE.CatmullRomCurve3([start, control, end], false, "centripetal");
 }
 
-function sliceCurve(curve: THREE.CatmullRomCurve3, from: number, to: number, steps = 7) {
-  const points = Array.from({ length: steps }, (_, index) => curve.getPoint(from + (to - from) * index / (steps - 1)));
-  return new THREE.CatmullRomCurve3(points, false, "centripetal");
-}
-
 function smoothStep(value: number) {
   const t = THREE.MathUtils.clamp(value, 0, 1);
   return t * t * (3 - 2 * t);

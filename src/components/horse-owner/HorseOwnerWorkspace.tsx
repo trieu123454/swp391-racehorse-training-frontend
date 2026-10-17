@@ -93,12 +93,11 @@ export default function HorseOwnerWorkspace() {
   const TabIcon = selectedTab.icon;
 
   return (
-    <section className="mt-10 space-y-6" aria-labelledby="owner-workspace-title">
+    <section className="mt-5 space-y-6" aria-labelledby="owner-workspace-title">
       <div className="flex flex-col gap-3 border-b border-equine-line pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="eyebrow">Không gian chủ sở hữu</p>
-          <h2 id="owner-workspace-title" className="mt-2 font-sans text-3xl font-semibold text-equine-navy">Theo dõi ngựa của bạn</h2>
-          <p className="mt-2 text-sm text-slate-600">Hồ sơ, sức khỏe, lịch tập, thành tích và báo cáo theo từng ngựa.</p>
+          <h2 id="owner-workspace-title" className="font-sans text-3xl font-semibold text-equine-navy">Theo dõi ngựa của bạn</h2>
+          <p className="mt-1.5 text-sm text-slate-600">Sức khỏe, huấn luyện, thi đấu và chi phí theo từng ngựa.</p>
         </div>
         <div className="flex items-center gap-3 text-xs text-slate-500">
           <span>{updatedAt ? `Cập nhật ${formatDateTime(updatedAt.toISOString())}` : "Tự cập nhật mỗi 30 giây"}</span>
@@ -112,7 +111,7 @@ export default function HorseOwnerWorkspace() {
       <NotificationCenter />
       {loadingHorses ? <Notice>Đang tải ngựa thuộc sở hữu của bạn...</Notice> : horses.length === 0 ? (
         <div className="rounded-2xl border border-equine-line bg-white p-6 shadow-sm">
-          <Notice>Bạn chưa được gán hồ sơ ngựa nào. Khi câu lạc bộ liên kết ngựa với tài khoản này, thông tin sẽ xuất hiện tại đây.</Notice>
+          <Notice>Bạn chưa có ngựa được liên kết. Mở mục Hồ sơ ngựa ở thanh bên để gửi yêu cầu đăng ký hoặc liên kết.</Notice>
         </div>
       ) : (
         <>

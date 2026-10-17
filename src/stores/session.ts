@@ -7,7 +7,8 @@ const REFRESH_TOKEN_KEY = "racehorse.refreshToken";
 const USER_KEY = "racehorse.user";
 const REMEMBER_KEY = "racehorse.remember";
 const LEGACY_SESSION_CLEARED_KEY = "racehorse.legacySessionCleared";
-let transientLogoutToken: string | null = null;
+const API_BASE_KEY = "racehorse.apiBase";
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080").replace(/\/+$/, "");
 
 function tabStorage(): Storage | null {
   if (typeof window === "undefined") return null;
@@ -21,6 +22,14 @@ function tabStorage(): Storage | null {
     }
     storage.setItem(LEGACY_SESSION_CLEARED_KEY, "true");
   }
+  if (storage.getItem(API_BASE_KEY) !== API_BASE_URL) {
+    // Access and refresh tokens belong to the API that issued them. Clear an
+    // old session after changing ports or switching between local and remote APIs.
+    for (const key of [ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, USER_KEY, REMEMBER_KEY]) {
+      storage.removeItem(key);
+    }
+    storage.setItem(API_BASE_KEY, API_BASE_URL);
+  }
   return storage;
 }
 
@@ -29,11 +38,7 @@ export function saveSession(auth: AuthResponse, remember = true) {
   const storage = tabStorage();
   if (!storage) return;
   storage.setItem(ACCESS_TOKEN_KEY, auth.accessToken);
-  if (remember) storage.setItem(REFRESH_TOKEN_KEY, auth.refreshToken);
-  else {
-    storage.removeItem(REFRESH_TOKEN_KEY);
-    transientLogoutToken = auth.refreshToken;
-  }
+  storage.setItem(REFRESH_TOKEN_KEY, auth.refreshToken);
   storage.setItem(USER_KEY, JSON.stringify(auth.user));
   storage.setItem(REMEMBER_KEY, String(remember));
 }
@@ -62,7 +67,7 @@ export function getRefreshToken() {
 }
 
 export function getLogoutRefreshToken() {
-  return read(REFRESH_TOKEN_KEY) ?? transientLogoutToken;
+  return read(REFRESH_TOKEN_KEY);
 }
 
 export function getAccessToken() {
@@ -70,7 +75,6 @@ export function getAccessToken() {
 }
 
 export function clearSession() {
-  transientLogoutToken = null;
   const storage = tabStorage();
   if (!storage) return;
   storage.removeItem(ACCESS_TOKEN_KEY);

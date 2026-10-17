@@ -63,6 +63,18 @@ export type Warnings = {
   activePrescriptions: number;
 };
 
+export type OwnershipHistoryEntry = {
+  id: string;
+  previous_owner_id: number | null;
+  previous_owner_name: string | null;
+  new_owner_id: number | null;
+  new_owner_name: string | null;
+  changed_by: number | null;
+  changed_by_name: string | null;
+  change_reason: string;
+  changed_at: string;
+};
+
 export async function horseRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   return authenticatedRequest<T>(`/api/horses${path}`, options);
 }
@@ -85,6 +97,10 @@ export async function listHorses(params: {
 
 export function getHorse(id: string) {
   return horseRequest<Horse>(`/${id}`);
+}
+
+export function getHorseOwnershipHistory(id: string) {
+  return horseRequest<OwnershipHistoryEntry[]>(`/${id}/ownership-history`);
 }
 
 export function getHorseStables() {

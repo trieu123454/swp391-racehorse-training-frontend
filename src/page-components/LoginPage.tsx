@@ -22,6 +22,9 @@ import { saveSession } from "@/lib/session";
 import type { AuthResponse } from "@/lib/types";
 
 function loginErrorMessage(error: unknown) {
+  if (error instanceof TypeError || (error instanceof Error && /failed to fetch|fetch failed|networkerror|load failed/i.test(error.message))) {
+    return "Không kết nối được máy chủ đăng nhập. Hãy kiểm tra backend đang chạy và địa chỉ NEXT_PUBLIC_API_BASE_URL.";
+  }
   if (error instanceof ApiRequestError) {
     const message = error.message.toLowerCase();
     if (message.includes("email or password is incorrect") || message.includes("user not found")) {

@@ -120,6 +120,24 @@ export type SimulationHorse = {
 };
 
 export type SensorReading = { elapsed_seconds: number; speed_kmh: number; heart_rate: number; bp_systolic: number; bp_diastolic: number };
+export type SimulationAlert = {
+  code: string;
+  label: string;
+  value: number;
+  threshold: number;
+  unit: string;
+  duration_seconds?: number;
+  message: string;
+};
+export type SimulationAlertThresholds = {
+  resting_heart_rate_bpm: number;
+  exercise_heart_rate_bpm: number;
+  recovery_heart_rate_bpm: number;
+  recovery_rest_minutes: number;
+  systolic_blood_pressure_mmhg: number;
+  high_intensity_heart_rate_bpm: number;
+  high_intensity_sustained_samples: number;
+};
 export type TrainingAnalysisSession = {
   simulation_attempts?: {id:string;status:string;stop_reason?:string|null}[];
   id: string; event_date: string; start_time?: string; session_type: string; effective_status: string;
@@ -141,6 +159,8 @@ export type Simulation = {
   actual_distance_meters?: number | null;
   target_intensity?: string;
   readings?: SensorReading[];
+  alerts?: SimulationAlert[];
+  alert_thresholds?: SimulationAlertThresholds;
   phase?: string;
   recovery_heart_rate?: number | null;
   stamina_score?: number | null;
@@ -151,8 +171,6 @@ export type Simulation = {
   distance_meters: number;
   duration_seconds: number;
   training_schedule_id?: string | null;
-  injury_alert_heart_rate: number;
-  injury_alert_speed_kmh: number;
   status: string;
   horses: SimulationHorse[];
 };
