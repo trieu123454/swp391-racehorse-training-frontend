@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, AlertTriangle, ArrowUpRight, CalendarDays, Check, ClipboardList, Flag, Gauge, HeartPulse, Medal, Pencil, Play, Plus, RefreshCw, Search, Timer, Trash2, Users, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowUpRight, CalendarDays, Check, ClipboardList, Flag, Gauge, HeartPulse, Medal, Pencil, Play, Plus, RefreshCw, Search, Timer, Trash2, Users, Utensils, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import SessionTargetsEditor from "./SessionTargetsEditor";
@@ -21,11 +21,12 @@ import {
   type TrainingPlan,
   type TrainingSession,
   type TrainerIncident,
+  type TrainerDietRecord,
   type TrainerHorse,
 } from "@/api/head-trainer/api";
 
-type Tab = "overview" | "analysis" | "plans" | "calendar" | "races" | "simulation" | "incidents";
-const workspaceTabIds: readonly Tab[] = ["overview", "plans", "calendar", "simulation", "analysis", "races", "incidents"];
+type Tab = "overview" | "analysis" | "plans" | "calendar" | "races" | "simulation" | "incidents" | "diet";
+const workspaceTabIds: readonly Tab[] = ["overview", "plans", "diet", "calendar", "simulation", "analysis", "races", "incidents"];
 type Groom = { user_id: number; full_name: string; email: string };
 type SensorVitals = { speed: number; heartRate: number; systolic: number; diastolic: number };
 const distanceOptions: [string, string][] = [["", "Chọn cự ly"], ...Array.from({ length: 15 }, (_, index) => {
@@ -39,6 +40,7 @@ function distanceOptionsWithCurrent(value?: number | null): [string, string][] {
 const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: "overview", label: "Tổng quan", icon: Activity },
   { id: "plans", label: "Giáo án", icon: ClipboardList },
+  { id: "diet", label: "Khẩu phần ăn", icon: Utensils },
   { id: "calendar", label: "Lịch tập", icon: CalendarDays },
   { id: "simulation", label: "Giả lập", icon: Timer },
   { id: "analysis", label: "Phân tích thể lực", icon: Gauge },
@@ -88,6 +90,8 @@ export default function HeadTrainerWorkspace() {
   const [plans, setPlans] = useState<TrainingPlan[]>([]);
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
   const [incidents, setIncidents] = useState<TrainerIncident[]>([]);
+  const [standardDiets, setStandardDiets] = useState<TrainerDietRecord[]>([]);
+  const [editingDietId, setEditingDietId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<TrainingMetric[]>([]);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compare, setCompare] = useState<{ horse_id: string; horse_name: string; metrics: TrainingMetric[] }[]>([]);
@@ -141,15 +145,16 @@ export default function HeadTrainerWorkspace() {
   }, []);
 
   const loadOverview = useCallback(async () => {
-    const [horsePage, overviewPage, groomPage, racePage, incidentPage] = await Promise.all([
+    const [horsePage, overviewPage, groomPage, racePage, incidentPage, dietPage] = await Promise.all([
       listHorses(), headTrainerApi.overview(includeSimulated), headTrainerApi.grooms(), headTrainerApi.races(),
-      headTrainerApi.incidents(),
+      headTrainerApi.incidents(), headTrainerApi.standardDiets(),
     ]);
     setHorses(horsePage.items);
     setOverview(overviewPage.data);
     setGrooms(groomPage.data);
     setRaces(racePage.data);
     setIncidents(incidentPage.data);
+    setStandardDiets(dietPage.data);
     setHorseId((current) => current || horsePage.items[0]?.id || "");
     setCompareIds((current) => current.length ? current : horsePage.items.slice(0, 3).map((item) => item.id));
   }, [includeSimulated]);
@@ -162,6 +167,29 @@ export default function HeadTrainerWorkspace() {
       "Đã gửi kết quả để Club Manager xem xét đóng sự cố.");
     if (saved) {
       form.reset();
+      await loadOverview();
+    }
+  }
+
+  async function saveStandardDiet(event: FormEvent<HTMLFormElement>, dietId?: string) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = new FormData(form);
+    const input = {
+      feed_type: String(values.get("feed_type") ?? "").trim(),
+      quantity_kg: Number(values.get("quantity_kg")),
+      feeding_frequency: String(values.get("feeding_frequency") ?? "").trim() || null,
+      special_instructions: String(values.get("special_instructions") ?? "").trim() || null,
+      effective_date: String(values.get("effective_date")),
+      end_date: String(values.get("end_date") ?? "").trim() || null,
+    };
+    const saved = await run(() => dietId
+      ? headTrainerApi.updateStandardDiet(dietId, input)
+      : headTrainerApi.createStandardDiet(horseId, input),
+    dietId ? "Đã cập nhật khẩu phần thường." : "Đã duyệt khẩu phần thường cho ngựa.");
+    if (saved) {
+      form.reset();
+      setEditingDietId(null);
       await loadOverview();
     }
   }
@@ -499,6 +527,15 @@ export default function HeadTrainerWorkspace() {
         {tab === "overview" && <OverviewPanel horses={horses} overview={overview} selectedHorseId={horseId} metrics={metrics} compare={compare} compareIds={compareIds} setCompareIds={setCompareIds} from={from} setFrom={setFrom} to={to} setTo={setTo} includeSimulated={includeSimulated} setIncludeSimulated={setIncludeSimulated} />}
         {tab === "analysis" && <TrainingAnalysisPanel horseId={horseId} from={from} to={to} setFrom={setFrom} setTo={setTo} revision={analysisRevision}/>}
         {tab === "plans" && <PlansPanel horse={selectedHorse} horses={horses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} busy={busy} />}
+        {tab === "diet" && <StandardDietPanel
+          horseName={selectedHorse?.horse_name ?? ""}
+          records={standardDiets.filter((record) => record.horse_id === horseId)}
+          editing={standardDiets.find((record) => record.id === editingDietId) ?? null}
+          busy={busy}
+          onEdit={setEditingDietId}
+          onCancel={() => setEditingDietId(null)}
+          onSave={saveStandardDiet}
+        />}
         {tab === "calendar" && <CalendarPanel onTargetsSaved={refresh} horses={horses} sessions={sessions} grooms={grooms} from={calendarFrom} setFrom={setCalendarFrom} to={calendarTo} setTo={setCalendarTo} scheduleDraft={scheduleDraft} onDraftUsed={() => setScheduleDraft(null)} onCreate={createSchedule} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onMetrics={recordMetrics} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} />}
         {tab === "races" && <RaceEntriesPanel selectedHorse={selectedHorse} horses={horses} races={races} entries={raceEntries} onRecordResult={async (entryId,input) => { const result=await run(()=>headTrainerApi.recordRaceResult(entryId,input),"Race result saved."); if(result) await refresh(); }} onRegister={async (raceId) => { if (!horseId) return; const result = await run(() => headTrainerApi.registerRace(horseId, raceId), "Đã đăng ký ngựa vào giải."); if (result) await refresh(); }} busy={busy} />}
         {tab === "simulation" && <SimulationPanel sessions={sessions} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} />}
@@ -1257,4 +1294,27 @@ function SelectField({ label, name, options, value, defaultValue, onChange, requ
 
 function TextArea({ label, name, required = false, defaultValue, rows = 3 }: { label: string; name: string; required?: boolean; defaultValue?: string | null; rows?: number }) {
   return <label className="block"><span className="field-label">{label}</span><textarea name={name} required={required} defaultValue={defaultValue ?? ""} rows={rows} className="field-control px-3 py-2" /></label>;
+}
+
+function StandardDietPanel({ horseName, records, editing, busy, onEdit, onCancel, onSave }: {
+  horseName: string;
+  records: TrainerDietRecord[];
+  editing: TrainerDietRecord | null;
+  busy: boolean;
+  onEdit: (id: string) => void;
+  onCancel: () => void;
+  onSave: (event: FormEvent<HTMLFormElement>, dietId?: string) => void | Promise<void>;
+}) {
+  return <Section title="Duyệt khẩu phần thức ăn thường" description={`Head Trainer duyệt khẩu phần vận động cho ${horseName}. Khẩu phần điều trị và quyết định thuốc thuộc Veterinarian.`} icon={Utensils}>
+    <form key={editing?.id ?? `new-${horseName}`} onSubmit={(event) => void onSave(event, editing?.id)} className="grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-3">
+      <label className="block"><span className="field-label">Loại thức ăn</span><input className="field-control px-3" name="feed_type" maxLength={100} defaultValue={editing?.feed_type ?? ""} required placeholder="Cỏ khô, thức ăn viên..." /></label>
+      <label className="block"><span className="field-label">Khẩu phần (kg)</span><input className="field-control px-3" name="quantity_kg" type="number" min="0.01" max="9999.99" step="0.01" defaultValue={editing?.quantity_kg ?? ""} required /></label>
+      <label className="block"><span className="field-label">Tần suất / giờ ăn</span><input className="field-control px-3" name="feeding_frequency" maxLength={50} defaultValue={editing?.feeding_frequency ?? ""} placeholder="Ví dụ: 3 lần/ngày" /></label>
+      <label className="block"><span className="field-label">Áp dụng từ ngày</span><input className="field-control px-3" name="effective_date" type="date" defaultValue={editing?.effective_date ?? today()} required /></label>
+      <label className="block"><span className="field-label">Đến ngày (nếu có)</span><input className="field-control px-3" name="end_date" type="date" defaultValue={editing?.end_date ?? ""} /></label>
+      <label className="block sm:col-span-2 lg:col-span-3"><span className="field-label">Hướng dẫn cho Groom</span><textarea className="field-control min-h-20 px-3 py-2" name="special_instructions" /></label>
+      <div className="flex gap-2 sm:col-span-2 lg:col-span-3"><button className="gold-button" disabled={busy}><Check size={15} />{editing ? "Lưu khẩu phần" : "Duyệt khẩu phần"}</button>{editing && <button type="button" className="soft-button" onClick={onCancel}>Hủy sửa</button>}</div>
+    </form>
+    <div className="mt-4 space-y-2">{records.map((record) => <article key={record.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-equine-line p-3"><div><p className="font-semibold text-equine-navy">{record.feed_type} · {record.quantity_kg} kg{record.feeding_frequency ? ` · ${record.feeding_frequency}` : ""}</p><p className="mt-1 text-xs text-slate-500">{record.effective_date} → {record.end_date ?? "Đang áp dụng"}</p>{record.special_instructions && <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{record.special_instructions}</p>}</div><button type="button" className="soft-button" onClick={() => onEdit(record.id)}><Pencil size={14} /> Sửa khẩu phần</button></article>)}{!records.length && <p className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Ngựa này chưa có khẩu phần thường đang áp dụng. Hãy nhập và duyệt khẩu phần ở trên.</p>}</div>
+  </Section>;
 }

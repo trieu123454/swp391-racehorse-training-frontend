@@ -16,6 +16,12 @@ export type TrainingMetric = {
   is_simulated?: boolean;
 };
 
+export type TrainerDietRecord = {
+  id: string; horse_id: string; horse_name: string; feed_type: string; quantity_kg: number;
+  feeding_frequency: string | null; special_instructions: string | null; effective_date: string; end_date: string | null;
+  diet_type: "STANDARD";
+};
+
 export type TrainingPlan = {
   id: string;
   horse_id: string | null;
@@ -205,6 +211,15 @@ export const headTrainerApi = {
   },
   overview(includeSimulated = true) {
     return call<{ data: TrainerHorse[] }>(`/api/head-trainer/overview?include_simulated=${includeSimulated}`);
+  },
+  standardDiets() {
+    return call<{ data: TrainerDietRecord[] }>("/api/head-trainer/diet-records");
+  },
+  createStandardDiet(horseId: string, input: Record<string, unknown>) {
+    return call<TrainerDietRecord>(`/api/horses/${encodeURIComponent(horseId)}/standard-diet-records`, "POST", input);
+  },
+  updateStandardDiet(id: string, input: Record<string, unknown>) {
+    return call<TrainerDietRecord>(`/api/head-trainer/diet-records/${encodeURIComponent(id)}`, "PATCH", input);
   },
   metrics(horseId: string, from?: string, to?: string, includeSimulated = true) {
     const params = query({ from, to, include_simulated: includeSimulated });

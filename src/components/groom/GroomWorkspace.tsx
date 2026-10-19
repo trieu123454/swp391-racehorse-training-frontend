@@ -16,6 +16,7 @@ import {
   getGroomInventory,
   getMyGroomHorses,
   getGroomSupplyRequests,
+  recordGroomInventoryUsage,
   reportGroomIncident,
   submitGroomIncidentResult,
   uploadGroomIncidentImage,
@@ -160,6 +161,25 @@ export default function GroomWorkspace() {
     } finally { setBusy(false); }
   }
 
+  async function recordInventoryUsage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = new FormData(form);
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const result = await recordGroomInventoryUsage({
+        item_id: String(values.get("item_id")),
+        quantity: Number(values.get("quantity")),
+        reason: String(values.get("reason") ?? "").trim() || undefined,
+      });
+      form.reset();
+      setNotice(`Đã ghi nhận sử dụng ${Math.abs(result.quantity_change)} đơn vị. Tồn còn ${result.quantity_after}.`);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Không thể ghi nhận lượng vật tư đã sử dụng.");
+    } finally { setBusy(false); }
+  }
+
   return <section className="mt-5 space-y-5" aria-labelledby="groom-workspace-title">
     <div className="flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
@@ -232,21 +252,28 @@ export default function GroomWorkspace() {
         <div className="space-y-2">{diets.map((diet) => <article key={diet.id} className="rounded-xl border border-equine-line p-3">
           <div className="flex flex-wrap justify-between gap-2"><p className="font-semibold text-equine-navy">{diet.horse_name}{diet.box_code ? ` · Chuồng ${diet.box_code}` : ""}</p><span className="text-xs text-slate-500">{diet.effective_date ?? "—"} → {diet.end_date ?? "Đang áp dụng"}</span></div>
           <p className="mt-1 text-sm text-slate-700">{diet.feed_type} · {diet.quantity_kg} kg · {diet.feeding_frequency || "Chưa ghi giờ ăn"}</p>
+          <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-[11px] font-semibold ${diet.diet_type === "TREATMENT" ? "bg-violet-50 text-violet-800" : "bg-emerald-50 text-emerald-800"}`}>{diet.diet_type === "TREATMENT" ? "Khẩu phần điều trị · Veterinarian" : "Khẩu phần thường · Head Trainer"}</span>
           {diet.special_instructions && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{diet.special_instructions}</p>}
         </article>)}{!diets.length && <p className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Không có khẩu phần được duyệt áp dụng cho ngày này.</p>}</div>
       </section>
       <section hidden={tab !== "inventory"} id="inventory" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
         <h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Package size={18} /> Vật tư khu vực</h3>
-        <div className="mb-4 space-y-2">{inventory.map((item) => <article key={item.id} className={`flex flex-wrap justify-between gap-2 rounded-lg border p-3 text-sm ${item.is_low_stock ? "border-amber-200 bg-amber-50" : "border-equine-line"}`}>
-          <span className="font-medium text-equine-navy">{item.item_name} · {item.category ?? "Khác"}</span><span>{item.quantity_in_stock} {item.unit ?? "đơn vị"}{item.is_low_stock ? " · Sắp hết" : ""}</span>
+        <div className="mb-4 space-y-2">{inventory.map((item) => <article key={item.id} className={`flex flex-wrap justify-between gap-2 rounded-lg border p-3 text-sm ${item.is_low_stock || item.status === "EXPIRED" ? "border-amber-200 bg-amber-50" : "border-equine-line"}`}>
+          <span className="font-medium text-equine-navy">{item.item_code} · {item.item_name} · {item.category ?? "Khác"}</span><span>Tồn {item.quantity_in_stock} {item.unit ?? "đơn vị"} · Dùng được {item.usable_quantity}{item.nearest_expiry_date ? ` · Hạn gần nhất ${item.nearest_expiry_date}` : ""} · {({ SUFFICIENT: "Còn đủ", LOW_STOCK: "Sắp thiếu", OUT_OF_STOCK: "Hết hàng", EXPIRING: "Sắp hết hạn", EXPIRED: "Có lô hết hạn", INACTIVE: "Ngừng sử dụng" })[item.status]}</span>
         </article>)}{!inventory.length && <p className="text-sm text-slate-500">Chưa có danh mục vật tư.</p>}</div>
+        {inventory.some((item) => item.usable_quantity > 0) && <form onSubmit={recordInventoryUsage} className="mb-4 grid gap-2 rounded-xl border border-equine-line bg-slate-50 p-3 sm:grid-cols-2">
+          <label className="block"><span className="field-label">Vật tư đã sử dụng</span><select className="field-control px-3" name="item_id" required>{inventory.filter((item) => item.usable_quantity > 0).map((item) => <option key={item.id} value={item.id}>{item.item_name} · khả dụng {item.usable_quantity} {item.unit}</option>)}</select></label>
+          <label className="block"><span className="field-label">Số lượng đã dùng</span><input className="field-control px-3" name="quantity" type="number" min="0.01" step="0.01" required /></label>
+          <label className="block sm:col-span-2"><span className="field-label">Công việc / ghi chú (không bắt buộc)</span><input className="field-control px-3" name="reason" maxLength={500} /></label>
+          <button className="soft-button sm:col-span-2" disabled={busy}><Package size={15} /> Xác nhận đã sử dụng</button>
+        </form>}
         {inventory.length > 0 && <form onSubmit={requestSupply} className="grid gap-2 sm:grid-cols-2">
           <label className="block"><span className="field-label">Vật tư cần bổ sung</span><select className="field-control px-3" name="item_id" required>{inventory.map((item) => <option key={item.id} value={item.id}>{item.item_name} · còn {item.quantity_in_stock} {item.unit ?? ""}</option>)}</select></label>
           <label className="block"><span className="field-label">Số lượng</span><input className="field-control px-3" name="quantity_requested" type="number" min="0.01" step="0.01" required /></label>
           <label className="block sm:col-span-2"><span className="field-label">Lý do</span><input className="field-control px-3" name="reason" maxLength={2000} /></label>
           <button className="gold-button sm:col-span-2" disabled={busy}><Plus size={15} /> Đề xuất bổ sung</button>
         </form>}
-        <div className="mt-4 space-y-2">{supplyRequests.slice(0, 5).map((request) => <p key={request.id} className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">{request.item_name} · {request.quantity_requested} · {request.status}</p>)}</div>
+        <div className="mt-4 space-y-2">{supplyRequests.slice(0, 5).map((request) => <p key={request.id} className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">{request.item_name} · đề xuất {request.quantity_requested}{request.quantity_approved != null ? ` · duyệt ${request.quantity_approved}` : ""} · {request.status === "PartiallyApproved" ? "Duyệt một phần" : request.status}</p>)}</div>
       </section>
     </div>
     <section hidden={tab !== "incidents"} id="reported-incidents" className="scroll-mt-24 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">

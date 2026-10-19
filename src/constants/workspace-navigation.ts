@@ -3,12 +3,13 @@ import type { RoleName } from "@/types/auth";
 export const workspaceNavigation: Record<RoleName, readonly { id: string; label: string }[]> = {
   CLUB_MANAGER: [
     { id: "overview", label: "Tổng quan" }, { id: "care", label: "Phân công chăm sóc" },
-    { id: "inventory", label: "Kho vật tư" }, { id: "incidents", label: "Xử lý sự cố" },
+    { id: "inventory", label: "Vật tư & thức ăn" }, { id: "incidents", label: "Xử lý sự cố" },
     { id: "finance", label: "Thu chi" }, { id: "races", label: "Giải đấu" },
     { id: "horse-requests", label: "Yêu cầu hồ sơ" }, { id: "audit", label: "Nhật ký hoạt động" },
   ],
   HEAD_TRAINER: [
     { id: "overview", label: "Tổng quan" }, { id: "plans", label: "Giáo án huấn luyện" },
+    { id: "diet", label: "Khẩu phần ăn" },
     { id: "calendar", label: "Lịch tập" }, { id: "simulation", label: "Mô phỏng buổi tập" },
     { id: "analysis", label: "Phân tích kết quả" }, { id: "races", label: "Thi đấu" }, { id: "incidents", label: "Xử lý sự cố" },
   ],

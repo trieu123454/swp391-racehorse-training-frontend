@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
+import InventoryManagerPanel from "@/components/club-manager/InventoryManagerPanel";
 import NotificationCenter from "@/components/shared/NotificationCenter";
 import { authenticatedRequest, ApiRequestError } from "@/api/client";
 import { getHorseStables, type Horse, type Stable } from "@/api/horses/api";
@@ -37,8 +38,6 @@ type Incident = {
   assignee_name: string | null; assignment_note: string | null; result_note: string | null; created_at: string;
 };
 type AuditRow = { id: string; user_name: string | null; email: string | null; action_performed: string; created_at: string };
-type InventoryItem = { id: string; item_name: string; category: string | null; unit: string | null; quantity_in_stock: number; reorder_threshold: number | null; is_low_stock: boolean };
-type SupplyRequest = { id: string; item_id: string; item_name: string; groom_name: string | null; quantity_requested: number; reason: string | null; status: string; created_at: string };
 type OfficialRace = { id: string; race_name: string; grade: string | null; distance_category: string | null; distance_meters: number | null; race_date: string; location: string | null; description: string | null };
 type Report = {
   from: string;
@@ -173,8 +172,6 @@ export default function ClubManagerWorkspace() {
   const [incidentAssignees, setIncidentAssignees] = useState<IncidentAssignee[]>([]);
   const [incidentFilter, setIncidentFilter] = useState("Open");
   const [audit, setAudit] = useState<AuditRow[]>([]);
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [supplyRequests, setSupplyRequests] = useState<SupplyRequest[]>([]);
   const [report, setReport] = useState<Report | null>(null);
   const [officialRaces, setOfficialRaces] = useState<OfficialRace[]>([]);
   const [loadErrors, setLoadErrors] = useState<LoadErrors>(EMPTY_ERRORS);
@@ -190,8 +187,8 @@ export default function ClubManagerWorkspace() {
       authenticatedRequest<Report>(`/api/club-manager/operations-report?from=${date}&to=${date}`),
       authenticatedRequest<{ items: Option[] }>("/api/horses?page=1&size=100&limit=100"),
       authenticatedRequest<Option[]>("/api/club-manager/grooms"),
-      authenticatedRequest<{ data: InventoryItem[] }>("/api/club-manager/inventory-items"),
-      authenticatedRequest<{ data: SupplyRequest[] }>("/api/club-manager/supply-requests?status=Pending"),
+
+
       authenticatedRequest<{ data: OfficialRace[] }>("/api/club-manager/races"),
       authenticatedRequest<{ data: IncidentAssignee[] }>("/api/club-manager/groom-incidents/assignees"),
       listPendingHorseRegistrationRequests(),
@@ -216,12 +213,10 @@ export default function ClubManagerWorkspace() {
     read(3, "Báo cáo vận hành", ["overview", "finance"], (value) => setReport(value as Report));
     read(4, "Danh sách ngựa", ["care", "finance"], (value) => setHorses((value as { items: Option[] }).items.map((horse) => ({ ...horse, id: String(horse.id) }))));
     read(5, "Danh sách Groom", ["care"], (value) => setGrooms((value as Option[]).map((groom) => ({ ...groom, id: Number(groom.id) }))));
-    read(6, "Tồn kho vật tư", ["inventory"], (value) => setInventory((value as { data: InventoryItem[] }).data));
-    read(7, "Đề xuất vật tư", ["inventory"], (value) => setSupplyRequests((value as { data: SupplyRequest[] }).data));
-    read(8, "Danh sách giải đấu", ["races"], (value) => setOfficialRaces((value as { data: OfficialRace[] }).data));
-    read(9, "Người phụ trách sự cố", ["incidents"], (value) => setIncidentAssignees((value as { data: IncidentAssignee[] }).data));
-    read(10, "Yêu cầu hồ sơ ngựa", ["horse-requests"], (value) => setHorseRequests(value as ManagerHorseRegistrationRequest[]));
-    read(11, "Danh sách chuồng", ["horse-requests"], (value) => setStables(value as Stable[]));
+    read(6, "Danh sách giải đấu", ["races"], (value) => setOfficialRaces((value as { data: OfficialRace[] }).data));
+    read(7, "Người phụ trách sự cố", ["incidents"], (value) => setIncidentAssignees((value as { data: IncidentAssignee[] }).data));
+    read(8, "Yêu cầu hồ sơ ngựa", ["horse-requests"], (value) => setHorseRequests(value as ManagerHorseRegistrationRequest[]));
+    read(9, "Danh sách chuồng", ["horse-requests"], (value) => setStables(value as Stable[]));
     setLoadErrors(nextErrors);
   }, [date, incidentFilter]);
 
@@ -280,32 +275,6 @@ export default function ClubManagerWorkspace() {
       description: String(values.get("description") ?? "").trim() || null,
     }, "Đã thêm giải đấu chính thức.");
     if (saved) form.reset();
-  }
-
-  async function addInventoryItem(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const values = new FormData(form);
-    const saved = await send("/api/club-manager/inventory-items", "POST", {
-      item_name: String(values.get("item_name")), category: String(values.get("category")), unit: String(values.get("unit")),
-      quantity_in_stock: Number(values.get("quantity_in_stock") || 0),
-      reorder_threshold: values.get("reorder_threshold") ? Number(values.get("reorder_threshold")) : null,
-    }, "Đã thêm vật tư vào danh mục.");
-    if (saved) form.reset();
-  }
-
-  async function updateInventoryItem(event: FormEvent<HTMLFormElement>, id: string) {
-    event.preventDefault();
-    const values = new FormData(event.currentTarget);
-    await send(`/api/club-manager/inventory-items/${id}`, "PATCH", {
-      item_name: String(values.get("item_name")), category: String(values.get("category")), unit: String(values.get("unit")),
-      quantity_in_stock: Number(values.get("quantity_in_stock")),
-      reorder_threshold: values.get("reorder_threshold") ? Number(values.get("reorder_threshold")) : null,
-    }, "Đã cập nhật tồn kho.");
-  }
-
-  async function reviewSupply(id: string, action: "Approve" | "Reject") {
-    await send(`/api/club-manager/supply-requests/${id}`, "PATCH", { action }, action === "Approve" ? "Đã duyệt đề xuất vật tư." : "Đã từ chối đề xuất vật tư.");
   }
 
   async function reviewHorseRequest(id: string, action: "APPROVE" | "REJECT", form: HTMLFormElement) {
@@ -375,7 +344,7 @@ export default function ClubManagerWorkspace() {
   const tabs: { key: WorkspaceTab; label: string; icon: ReactNode; count?: number }[] = [
     { key: "overview", label: "Tổng quan", icon: <Activity size={16} /> },
     { key: "care", label: "Giao việc chăm sóc", icon: <ClipboardList size={16} /> },
-    { key: "inventory", label: "Kho vật tư", icon: <Boxes size={16} />, count: supplyRequests.length },
+    { key: "inventory", label: "Vật tư & thức ăn", icon: <Boxes size={16} /> },
     { key: "incidents", label: "Sự cố", icon: <AlertTriangle size={16} />, count: incidents.length },
     { key: "finance", label: "Thu chi", icon: <Wallet size={16} /> },
     { key: "races", label: "Giải đấu", icon: <Trophy size={16} /> },
@@ -482,41 +451,7 @@ export default function ClubManagerWorkspace() {
         onReview={reviewHorseRequest}
       />}
 
-      {tab === "inventory" && <div className="grid gap-5 xl:grid-cols-2">
-        <Panel title="Danh mục & tồn kho vật tư" icon={Package}>
-          <form onSubmit={addInventoryItem} className="mb-4 grid gap-2 rounded-xl bg-slate-50 p-3 sm:grid-cols-2">
-            <label className="block"><span className="field-label">Tên vật tư</span><input className="field-control px-3" name="item_name" maxLength={100} required /></label>
-            <label className="block"><span className="field-label">Nhóm</span><select className="field-control px-3" name="category"><option>Food</option><option>Medicine</option><option>Equipment</option><option>Other</option></select></label>
-            <label className="block"><span className="field-label">Đơn vị</span><input className="field-control px-3" name="unit" maxLength={20} placeholder="kg, hộp, chai..." required /></label>
-            <label className="block"><span className="field-label">Tồn ban đầu</span><input className="field-control px-3" name="quantity_in_stock" type="number" min="0" step="0.01" defaultValue="0" /></label>
-            <label className="block"><span className="field-label">Ngưỡng đặt thêm</span><input className="field-control px-3" name="reorder_threshold" type="number" min="0" step="0.01" /></label>
-            <button className="gold-button self-end" disabled={busy}><Plus size={15} /> Thêm vật tư</button>
-          </form>
-          <div className="max-h-[520px] space-y-3 overflow-y-auto">
-            {inventory.map((item) => <form key={item.id} onSubmit={(event) => void updateInventoryItem(event, item.id)} className={`grid gap-2 rounded-xl border p-3 sm:grid-cols-2 ${item.is_low_stock ? "border-amber-300 bg-amber-50" : "border-equine-line"}`}>
-              <label className="block"><span className="field-label">Tên</span><input className="field-control px-3" name="item_name" defaultValue={item.item_name} maxLength={100} required /></label>
-              <label className="block"><span className="field-label">Nhóm</span><input className="field-control px-3" name="category" defaultValue={item.category ?? "Other"} maxLength={30} required /></label>
-              <label className="block"><span className="field-label">Đơn vị</span><input className="field-control px-3" name="unit" defaultValue={item.unit ?? ""} maxLength={20} required /></label>
-              <label className="block"><span className="field-label">Tồn kho</span><input className="field-control px-3" name="quantity_in_stock" type="number" min="0" step="0.01" defaultValue={item.quantity_in_stock} required /></label>
-              <label className="block"><span className="field-label">Ngưỡng cảnh báo</span><input className="field-control px-3" name="reorder_threshold" type="number" min="0" step="0.01" defaultValue={item.reorder_threshold ?? ""} /></label>
-              <button className="soft-button self-end" disabled={busy}>Lưu tồn kho{item.is_low_stock ? " · Sắp hết" : ""}</button>
-            </form>)}
-            {!inventory.length && <p className="text-sm text-slate-500">Danh mục chưa có vật tư.</p>}
-          </div>
-        </Panel>
-        <Panel title="Đề xuất bổ sung đang chờ" icon={ClipboardList}>
-          <div className="space-y-3">
-            {supplyRequests.map((request) => <article key={request.id} className="rounded-xl border border-equine-line p-3">
-              <div className="flex flex-wrap justify-between gap-2"><p className="font-semibold text-equine-navy">{request.item_name} · {request.quantity_requested}</p><span className="text-xs text-slate-500">{request.groom_name ?? "Groom"}</span></div>
-              {request.reason && <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{request.reason}</p>}
-              <div className="mt-3 flex gap-2"><button type="button" className="soft-button border-emerald-200 bg-emerald-50 text-emerald-800" disabled={busy} onClick={() => void reviewSupply(request.id, "Approve")}>Duyệt</button><button type="button" className="soft-button border-rose-200 bg-rose-50 text-rose-800" disabled={busy} onClick={() => void reviewSupply(request.id, "Reject")}>Từ chối</button></div>
-            </article>)}
-            {!supplyRequests.length && <p className="text-sm text-slate-500">Không có đề xuất nào đang chờ.</p>}
-          </div>
-          <p className="mt-3 text-xs text-slate-500">Sau khi nhận hàng thực tế, cập nhật số tồn trong danh mục để phản ánh kho.</p>
-        </Panel>
-      </div>}
-
+      {tab === "inventory" && <InventoryManagerPanel />}
       {tab === "incidents" && <Panel title="Sự cố Groom" icon={AlertTriangle}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3">
           <p className="text-sm text-slate-600">Xem xét báo cáo, giao người phụ trách, theo dõi kết quả và đóng sự cố.</p>

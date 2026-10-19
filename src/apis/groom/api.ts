@@ -36,13 +36,15 @@ export type GroomCalendarEvent =
 export type GroomCalendar = { date: string; events: GroomCalendarEvent[] };
 
 export type GroomDietRecord = {
-  id: string; horse_id: string; feed_type: string; quantity_kg: number;
+  id: string; horse_id: string; diet_type: "STANDARD" | "TREATMENT"; feed_type: string; quantity_kg: number;
   feeding_frequency: string | null; special_instructions: string | null;
   effective_date: string | null; end_date: string | null;
 };
 export type GroomInventoryItem = {
-  id: string; item_name: string; category: string | null; unit: string | null;
-  quantity_in_stock: number; reorder_threshold: number | null; is_low_stock: boolean;
+  id: string; item_code: string; item_name: string; category: string | null; unit: string | null;
+  quantity_in_stock: number; usable_quantity: number; reorder_threshold: number; is_low_stock: boolean;
+  status: "SUFFICIENT" | "LOW_STOCK" | "OUT_OF_STOCK" | "EXPIRING" | "EXPIRED" | "INACTIVE";
+  nearest_expiry_date: string | null;
 };
 export type GroomIncident = {
   id: string; horse_id: string; horse_name: string; issue_description: string;
@@ -52,7 +54,7 @@ export type GroomIncident = {
   assigned_to_me: boolean;
 };
 export type GroomSupplyRequest = {
-  id: string; item_id: string; item_name: string; quantity_requested: number;
+  id: string; item_id: string; item_name: string; quantity_requested: number; quantity_approved: number | null;
   reason: string | null; status: string; created_at: string; reviewed_at: string | null;
 };
 
@@ -86,6 +88,13 @@ export function createGroomSupplyRequest(input: { item_id: string; quantity_requ
   return authenticatedRequest<GroomSupplyRequest>("/api/groom/supply-requests", {
     method: "POST", body: JSON.stringify(input),
   });
+}
+
+export function recordGroomInventoryUsage(input: { item_id: string; quantity: number; reason?: string }) {
+  return authenticatedRequest<{ item_id: string; quantity_change: number; quantity_before: number; quantity_after: number; status: string }>(
+    "/api/groom/inventory-usage",
+    { method: "POST", body: JSON.stringify(input) },
+  );
 }
 
 export function completeGroomTask(id: string) {
