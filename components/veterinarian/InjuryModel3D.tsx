@@ -38,7 +38,7 @@ const viewPresetLabels: Record<ViewerView, string> = {
 };
 const anatomyLayers: { id: AnatomyLayer; label: string; description: string }[] = [
   { id: "skin", label: "Da", description: "Lớp da/lông mờ để định hướng vị trí xương." },
-  { id: "skeleton", label: "Xương", description: "Cột sống, sọ, 18 đôi xương sườn, xương chậu và xương chi." },
+  { id: "skeleton", label: "Xương", description: "Toàn bộ xương là mesh minh họa, vị trí ước lượng theo rig." },
   { id: "organs", label: "Nội tạng", description: "Phổi, tim, cơ hoành, gan, dạ dày, ruột, thận, bàng quang và hệ thần kinh." },
   { id: "muscle", label: "Cơ", description: "Hệ cơ ngựa, cân, gân và dây chằng; điểm bám trên rig được ước lượng khi thiếu node chuyên biệt." },
 ];
@@ -56,12 +56,14 @@ type InteractionState = {
   muscleFilters: MuscleFilters;
   organSystems: OrganSystems;
   explodeView: boolean;
+  showSkeletonLabels: boolean;
+  jawOpen: boolean;
   onSelectLocation?: (coordinates: Coordinates) => void;
 };
 type HoveredMuscle = string | null;
 type HoveredOrgan = string | null;
 type HoveredSkeleton = string | null;
-type HoveredMarker = { id: string; x: number; y: number } | null;
+type HoveredSkeletonTooltip = { id: string; x: number; y: number } | null;
 type ViewerActions = {
   setView: (view: ViewerView) => void;
   zoom: (factor: number) => void;
@@ -136,6 +138,29 @@ function pin(color: THREE.ColorRepresentation, haloGeometry: THREE.SphereGeometr
   return group;
 }
 
+function createStudioBackdrop() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 8;
+  canvas.height = 512;
+  const context = canvas.getContext("2d");
+  if (context) {
+    const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, "#17191b");
+    gradient.addColorStop(0.52, "#24292d");
+    gradient.addColorStop(1, "#111416");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const softLight = context.createRadialGradient(0, 0, 0, 0, 0, canvas.height * 0.9);
+    softLight.addColorStop(0, "rgba(255,255,255,0.08)");
+    softLight.addColorStop(1, "rgba(255,255,255,0)");
+    context.fillStyle = softLight;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 export default function InjuryModel3D({
   markers,
   placementMode = false,
@@ -163,10 +188,12 @@ export default function InjuryModel3D({
     muscleFilters: { group: "all", superficial: true, deep: true, search: "" },
     organSystems: { respiratory: true, circulatory: true, digestive: true, urinary: true, nervous: true },
     explodeView: false,
+    showSkeletonLabels: false,
+    jawOpen: false,
     onSelectLocation,
   });
   const [view, setViewState] = useState<ViewerView>("left");
-  const [anatomyVisibility, setAnatomyVisibility] = useState<AnatomyVisibility>({ skin: true, skeleton: false, organs: false, muscle: false });
+  const [anatomyVisibility, setAnatomyVisibility] = useState<AnatomyVisibility>({ skin: true, skeleton: true, organs: false, muscle: false });
   const anatomyVisibilityRef = useRef<AnatomyVisibility>(anatomyVisibility);
   const [muscleFilters, setMuscleFilters] = useState<MuscleFilters>({ group: "all", superficial: true, deep: true, search: "" });
   const [selectedMuscleId, setSelectedMuscleId] = useState<string | null>(null);
@@ -178,9 +205,11 @@ export default function InjuryModel3D({
   const [skeletonRecords, setSkeletonRecords] = useState<SkeletonRecord[]>([]);
   const [selectedSkeletonId, setSelectedSkeletonId] = useState<string | null>(null);
   const [hoveredSkeleton, setHoveredSkeleton] = useState<HoveredSkeleton>(null);
+  const [hoveredSkeletonTooltip, setHoveredSkeletonTooltip] = useState<HoveredSkeletonTooltip>(null);
   const [explodeView, setExplodeView] = useState(false);
-  const [hoveredMarker, setHoveredMarker] = useState<HoveredMarker>(null);
-  const [inspectorTab, setInspectorTab] = useState<"muscle" | "organs" | "skeleton">("muscle");
+  const [showSkeletonLabels, setShowSkeletonLabels] = useState(false);
+  const [jawOpen, setJawOpen] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<"muscle" | "organs" | "skeleton">("skeleton");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -189,7 +218,7 @@ export default function InjuryModel3D({
     markers, placementMode, selectedCoordinates, selectedId, selectedMuscleId,
     hoveredMuscleId: hoveredMuscle, selectedOrganId, hoveredOrganId: hoveredOrgan,
     selectedSkeletonId, hoveredSkeletonId: hoveredSkeleton,
-    muscleFilters, organSystems, explodeView, onSelectLocation,
+    muscleFilters, organSystems, explodeView, showSkeletonLabels, jawOpen, onSelectLocation,
   };
   anatomyVisibilityRef.current = anatomyVisibility;
 
@@ -202,7 +231,7 @@ export default function InjuryModel3D({
     let modelAxes: ModelAxes | null = null;
     let boneNodes = new Map<string, THREE.Bone>();
     let modelMeshes: THREE.Object3D[] = [];
-    let layerMeshes: { mesh: THREE.Mesh; skinMaterial: THREE.Material | THREE.Material[]; ghostMaterial: THREE.MeshStandardMaterial }[] = [];
+    let layerMeshes: { mesh: THREE.Mesh; skinMaterial: THREE.Material | THREE.Material[]; ghostMaterial: THREE.MeshPhysicalMaterial }[] = [];
     let anatomyGroups: THREE.Group[] = [];
     let muscleLayer: THREE.Group | null = null;
     let skeletonLayer: THREE.Group | null = null;
@@ -212,6 +241,8 @@ export default function InjuryModel3D({
     let skeletonDisplayMaterials: {
       dimBone: THREE.MeshStandardMaterial;
       dimCartilage: THREE.MeshStandardMaterial;
+      dimCostalCartilage: THREE.MeshStandardMaterial;
+      dimTooth: THREE.MeshStandardMaterial;
       focusBone: Record<string, THREE.MeshStandardMaterial>;
     } | null = null;
     let builtOrganRecords: OrganRecord[] = [];
@@ -227,27 +258,32 @@ export default function InjuryModel3D({
     let frameId = 0;
     let fittedDistance = 6.3;
     let modelRadius = 0;
+    const modelCenter = new THREE.Vector3();
     let contactShadow: THREE.Mesh | null = null;
     let currentView: ViewerView = "left";
     let cameraReady = false;
     let startPoint: { x: number; y: number } | null = null;
     const markerObjects = new Map<string, THREE.Group>();
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#f8faf9");
+    const backdropTexture = createStudioBackdrop();
+    scene.background = backdropTexture;
 
     const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "low-power" });
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
     } catch {
+      backdropTexture.dispose();
       setLoadError("Trình duyệt không cấp được WebGL cho mô hình 3D. Hãy tải lại trang hoặc đóng bớt tab đang dùng đồ họa 3D.");
       setLoading(false);
       return () => { disposed = true; };
     }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.domElement.className = "block h-full w-full touch-none";
     renderer.domElement.setAttribute("aria-label", "Mô hình ngựa 3D tương tác để xem và đánh dấu vị trí chấn thương");
     const handleContextLost = () => {
@@ -260,15 +296,27 @@ export default function InjuryModel3D({
     renderer.domElement.addEventListener("webglcontextlost", handleContextLost);
     mount.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0xa8aaa0, 2.1));
-    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-    const keyLight = new THREE.DirectionalLight(0xfff4e4, 3.2);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x858b93, 1.55));
+    scene.add(new THREE.AmbientLight(0xffffff, 0.38));
+    const keyLight = new THREE.DirectionalLight(0xfff4e4, 2.8);
     keyLight.position.set(-4, 7, 5);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(1024, 1024);
+    keyLight.shadow.camera.left = -4;
+    keyLight.shadow.camera.right = 4;
+    keyLight.shadow.camera.top = 4;
+    keyLight.shadow.camera.bottom = -4;
+    keyLight.shadow.camera.near = 0.1;
+    keyLight.shadow.camera.far = 18;
+    keyLight.shadow.camera.updateProjectionMatrix();
+    keyLight.shadow.bias = -0.00025;
+    keyLight.shadow.normalBias = 0.02;
+    keyLight.shadow.radius = 3;
     scene.add(keyLight);
-    const fillLight = new THREE.DirectionalLight(0xdceeff, 1.15);
+    const fillLight = new THREE.DirectionalLight(0xdceeff, 0.82);
     fillLight.position.set(5, 2, -5);
     scene.add(fillLight);
-    const rimLight = new THREE.DirectionalLight(0xf5dfc6, 1.55);
+    const rimLight = new THREE.DirectionalLight(0xf5dfc6, 1.25);
     rimLight.position.set(0, 4, -7);
     scene.add(rimLight);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -300,9 +348,9 @@ export default function InjuryModel3D({
         const showGhost = nextLayers.skin && showAnatomy;
         entry.mesh.material = showGhost ? entry.ghostMaterial : entry.skinMaterial;
         entry.mesh.renderOrder = showGhost ? 1 : 0;
-        entry.ghostMaterial.opacity = nextLayers.skeleton ? 0.1 : 0.14;
+        entry.ghostMaterial.opacity = nextLayers.skeleton ? 0.16 : 0.23;
       }
-      accessoryMeshes.forEach((mesh) => { mesh.visible = !showAnatomy; });
+      accessoryMeshes.forEach((mesh) => { mesh.visible = !nextLayers.skeleton; });
       if (muscleLayer) muscleLayer.visible = nextLayers.muscle;
       if (skeletonLayer) skeletonLayer.visible = nextLayers.skeleton;
       if (organLayer) organLayer.visible = nextLayers.organs;
@@ -373,8 +421,19 @@ export default function InjuryModel3D({
       if (!skeletonLayer) return;
       const current = interactionRef.current;
       const focusId = current.hoveredSkeletonId ?? current.selectedSkeletonId;
-      const signature = `${focusId ?? ""}|${Number(current.explodeView)}`;
+      const signature = `${focusId ?? ""}|${Number(current.explodeView)}|${Number(current.showSkeletonLabels)}|${Number(current.jawOpen)}`;
       if (signature !== activeSkeletonDisplaySignature) {
+        const jawPivot = skeletonLayer.getObjectByName("mandible-pivot");
+        if (jawPivot) {
+          const sideIndex = modelAxes?.sideAxis === "x" ? 0 : 2;
+          const forward = new THREE.Vector3().setComponent(modelAxes?.longAxis === "x" ? 0 : 2, modelAxes?.headDirection ?? 1);
+          const side = new THREE.Vector3().setComponent(sideIndex, 1);
+          const rotationDirection = Math.sign(new THREE.Vector3().crossVectors(side, forward).y) || 1;
+          jawPivot.rotation.set(0, 0, 0);
+          const angle = current.jawOpen ? -rotationDirection * 0.24 : 0;
+          if (sideIndex === 0) jawPivot.rotation.x = angle;
+          else jawPivot.rotation.z = angle;
+        }
         if (current.explodeView !== activeExplodeState) {
           const sideAxis = modelAxes?.sideAxis === "x" ? "x" : "z";
           const longAxis = modelAxes?.longAxis === "x" ? "x" : "z";
@@ -396,15 +455,27 @@ export default function InjuryModel3D({
           record.object.traverse((object) => {
             if (!(object instanceof THREE.Mesh)) return;
             const isCartilage = Boolean(object.userData.isCartilage);
-            if (dimmed) object.material = isCartilage ? skeletonDisplayMaterials?.dimCartilage ?? object.material : skeletonDisplayMaterials?.dimBone ?? object.material;
-            else if (highlighted && skeletonDisplayMaterials) object.material = isCartilage
-              ? (skeletonLayer?.userData.skeletonMaterials as { cartilage: THREE.MeshStandardMaterial } | undefined)?.cartilage ?? object.material
-              : skeletonDisplayMaterials.focusBone[record.group] ?? object.material;
-            else {
-              const materials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.MeshStandardMaterial; cartilage: THREE.MeshStandardMaterial } | undefined;
-              if (materials) object.material = isCartilage ? materials.cartilage : materials.bone;
+            const isCostalCartilage = Boolean(object.userData.isCostalCartilage);
+            const isTooth = Boolean(object.userData.isTooth);
+            if (dimmed) object.material = isTooth
+              ? skeletonDisplayMaterials?.dimTooth ?? object.material
+              : isCostalCartilage ? skeletonDisplayMaterials?.dimCostalCartilage ?? object.material
+                : isCartilage ? skeletonDisplayMaterials?.dimCartilage ?? object.material : skeletonDisplayMaterials?.dimBone ?? object.material;
+            else if (highlighted && skeletonDisplayMaterials) {
+              const materials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.MeshStandardMaterial; cartilage: THREE.MeshStandardMaterial; costalCartilage?: THREE.MeshStandardMaterial; tooth: THREE.MeshStandardMaterial } | undefined;
+              object.material = isTooth ? materials?.tooth ?? object.material
+                : isCostalCartilage ? materials?.costalCartilage ?? object.material
+                  : isCartilage ? materials?.cartilage ?? object.material
+                  : skeletonDisplayMaterials.focusBone[record.group] ?? object.material;
+            } else {
+              const materials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.MeshStandardMaterial; cartilage: THREE.MeshStandardMaterial; costalCartilage?: THREE.MeshStandardMaterial; tooth: THREE.MeshStandardMaterial } | undefined;
+              if (materials) object.material = isTooth ? materials.tooth : isCostalCartilage ? materials.costalCartilage ?? materials.cartilage : isCartilage ? materials.cartilage : materials.bone;
             }
           });
+        }
+        for (const category of skeletonLayer.children) {
+          const labels = category.getObjectByName("skeleton-labels");
+          if (labels) labels.visible = current.showSkeletonLabels;
         }
         activeSkeletonDisplaySignature = signature;
       }
@@ -430,7 +501,7 @@ export default function InjuryModel3D({
       const verticalFov = THREE.MathUtils.degToRad(camera.fov);
       const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * camera.aspect);
       const limitingFov = Math.min(verticalFov, horizontalFov);
-      fittedDistance = Math.max(2.4, modelRadius / Math.sin(limitingFov / 2) * 1.08);
+      fittedDistance = Math.max(2.4, modelRadius / Math.sin(limitingFov / 2) * 1.2);
       controls.minDistance = Math.max(0.55, Math.min(1.25, modelRadius * 0.38));
       controls.maxDistance = Math.max(11, fittedDistance * 2.2);
       const direction = new THREE.Vector3();
@@ -450,7 +521,7 @@ export default function InjuryModel3D({
         direction.y = 0.08;
       }
       direction.normalize();
-      controls.target.set(0, 0, 0);
+      controls.target.copy(modelCenter);
       camera.position.copy(controls.target).addScaledVector(direction, fittedDistance);
       camera.lookAt(controls.target);
       controls.update();
@@ -550,14 +621,18 @@ export default function InjuryModel3D({
         });
         lastMarkerSignature = nextSignature;
       }
+      markerObjects.forEach((markerPin, id) => {
+        markerPin.visible = !anatomyVisibilityRef.current.skeleton || id === current.selectedId;
+      });
 
       const draft = current.selectedCoordinates;
       const draftSignature = draft ? `${draft.coordinate_x}:${draft.coordinate_y}:${draft.coordinate_z}` : "none";
       if (draftSignature !== lastDraftSignature) {
-        draftMarker.visible = Boolean(draft && draft.coordinate_x != null && draft.coordinate_y != null);
-        if (draftMarker.visible && draft) draftMarker.position.copy(coordinatesToPoint(draft, modelAxes));
+        if (draft && draft.coordinate_x != null && draft.coordinate_y != null) draftMarker.position.copy(coordinatesToPoint(draft, modelAxes));
         lastDraftSignature = draftSignature;
       }
+      draftMarker.visible = !anatomyVisibilityRef.current.skeleton
+        && Boolean(draft && draft.coordinate_x != null && draft.coordinate_y != null);
     }
 
     function handlePointerDown(event: PointerEvent) {
@@ -601,7 +676,7 @@ export default function InjuryModel3D({
         if (current.hoveredMuscleId) setHoveredMuscle(null);
         if (current.hoveredOrganId) setHoveredOrgan(null);
         if (current.hoveredSkeletonId) setHoveredSkeleton(null);
-        setHoveredMarker(null);
+        setHoveredSkeletonTooltip(null);
         renderer.domElement.style.cursor = "crosshair";
         return;
       }
@@ -612,18 +687,18 @@ export default function InjuryModel3D({
       const markerHit = raycaster.intersectObjects([...markerObjects.values()], true)[0];
       const markerId = markerHit?.object.userData.markerId as string | undefined;
       if (markerId) {
-        setHoveredMarker({ id: markerId, x: clamp(event.clientX - rect.left + 12, 8, Math.max(8, rect.width - 180)), y: clamp(event.clientY - rect.top + 12, 8, Math.max(8, rect.height - 70)) });
         setHoveredOrgan(null);
         setHoveredSkeleton(null);
+        setHoveredSkeletonTooltip(null);
         setHoveredMuscle(null);
         renderer.domElement.style.cursor = "pointer";
         return;
       }
-      setHoveredMarker(null);
       const organHit = organHitAt(event);
       const organId = organHit?.object.userData.organId as string | undefined;
       if (organId) {
         setHoveredSkeleton(null);
+        setHoveredSkeletonTooltip(null);
         setHoveredOrgan(organId);
         setHoveredMuscle(null);
         renderer.domElement.style.cursor = "pointer";
@@ -634,11 +709,21 @@ export default function InjuryModel3D({
       const skeletonId = skeletonHit?.object.userData.boneId as string | undefined;
       if (skeletonId) {
         setHoveredSkeleton((previous) => previous === skeletonId ? previous : skeletonId);
+        setHoveredSkeletonTooltip((previous) => {
+          if (previous?.id === skeletonId) return previous;
+          const tooltipWidth = 220;
+          return {
+            id: skeletonId,
+            x: Math.max(8, Math.min(event.clientX - rect.left + 12, rect.width - tooltipWidth - 8)),
+            y: Math.max(8, event.clientY - rect.top - 36),
+          };
+        });
         setHoveredMuscle(null);
         renderer.domElement.style.cursor = "pointer";
         return;
       }
       setHoveredSkeleton(null);
+      setHoveredSkeletonTooltip(null);
       const hit = muscleHitAt(event);
       const id = hit?.object.userData.muscleId as string | undefined;
       if (id) {
@@ -648,6 +733,14 @@ export default function InjuryModel3D({
         setHoveredMuscle(null);
         renderer.domElement.style.cursor = startPoint ? "grabbing" : "grab";
       }
+    }
+
+    function handlePointerLeave() {
+      setHoveredSkeleton(null);
+      setHoveredSkeletonTooltip(null);
+      setHoveredOrgan(null);
+      setHoveredMuscle(null);
+      renderer.domElement.style.cursor = "grab";
     }
 
     function handlePointerUp(event: PointerEvent) {
@@ -685,6 +778,7 @@ export default function InjuryModel3D({
         const skeletonHit = skeletonHitAt(event);
         const skeletonId = skeletonHit?.object.userData.boneId as string | undefined;
         if (skeletonId) {
+          if (skeletonId === "mandible") setJawOpen((open) => !open);
           setSelectedSkeletonId(skeletonId);
           setSelectedOrganId(null);
           setSelectedMuscleId(null);
@@ -752,6 +846,7 @@ export default function InjuryModel3D({
     renderer.domElement.addEventListener("pointerdown", handlePointerDown);
     renderer.domElement.addEventListener("pointerup", handlePointerUp);
     renderer.domElement.addEventListener("pointermove", handlePointerMove);
+    renderer.domElement.addEventListener("pointerleave", handlePointerLeave);
     renderer.domElement.addEventListener("dblclick", handleDoubleClick);
 
     function render() {
@@ -763,6 +858,14 @@ export default function InjuryModel3D({
       syncSkeletonDisplay();
       syncPins();
       controls.update();
+      if (skeletonLayer) {
+        const labelScale = clamp(camera.position.distanceTo(controls.target) / Math.max(fittedDistance, 0.1), 0.14, 1);
+        skeletonLayer.traverse((object) => {
+          if (!(object instanceof THREE.Sprite) || !object.name.startsWith("label-")) return;
+          const baseScale = object.userData.baseLabelScale as [number, number] | undefined;
+          if (baseScale) object.scale.set(baseScale[0] * labelScale, baseScale[1] * labelScale, 1);
+        });
+      }
       renderer.render(scene, camera);
     }
     frameId = window.requestAnimationFrame(render);
@@ -773,13 +876,17 @@ export default function InjuryModel3D({
       horse.updateMatrixWorld(true);
       horse.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) return;
-        let ancestor: THREE.Object3D | null = object;
-        let belongsToAccessory = /saddle|tack|bridle|reins|halter|mane|forelock/i.test(object.geometry.name);
-        while (ancestor && ancestor !== horse && !belongsToAccessory) {
-          belongsToAccessory = /saddle|tack|bridle|reins|halter|mane|forelock/i.test(ancestor.name);
+        const materialNames = (Array.isArray(object.material) ? object.material : [object.material]).map((material) => material.name).join(" ");
+        const meshDescription = `${object.name} ${object.geometry.name} ${materialNames}`;
+        let belongsToHair = /mane|forelock|hair/i.test(meshDescription);
+        let belongsToTack = /saddle|tack|bridle|reins?|halter|stirrups?/i.test(meshDescription);
+        let ancestor: THREE.Object3D | null = object.parent;
+        while (ancestor && ancestor !== horse) {
+          belongsToHair ||= /mane|forelock|hair/i.test(ancestor.name);
+          belongsToTack ||= /saddle|tack|bridle|reins?|halter|stirrups?/i.test(ancestor.name);
           ancestor = ancestor.parent;
         }
-        if (belongsToAccessory) accessoryMeshes.push(object);
+        if (belongsToTack && !belongsToHair) accessoryMeshes.push(object);
       });
       const bounds = new THREE.Box3().setFromObject(horse);
       const center = bounds.getCenter(new THREE.Vector3());
@@ -790,7 +897,7 @@ export default function InjuryModel3D({
       const headPosition = head?.getWorldPosition(new THREE.Vector3());
       const headDirection: 1 | -1 = headPosition && headPosition.getComponent(longAxis === "x" ? 0 : 2) < center.getComponent(longAxis === "x" ? 0 : 2) ? -1 : 1;
       const withersPosition = horse.getObjectByName("spine_04_012")?.getWorldPosition(new THREE.Vector3());
-      const hoofPosition = horse.getObjectByName("foot_l_0407")?.getWorldPosition(new THREE.Vector3());
+      const hoofPosition = horse.getObjectByName("fingers_end_l_0209")?.getWorldPosition(new THREE.Vector3());
       const measuredWithersHeight = withersPosition && hoofPosition ? Math.abs(withersPosition.y - hoofPosition.y) : 0;
       const estimatedWithersHeight = rawSize.y * 0.72;
       const scale = 1.6 / Math.max(0.01, measuredWithersHeight || estimatedWithersHeight);
@@ -799,6 +906,7 @@ export default function InjuryModel3D({
       horse.updateMatrixWorld(true);
 
       const normalizedBounds = new THREE.Box3().setFromObject(horse);
+      normalizedBounds.getCenter(modelCenter);
       const size = normalizedBounds.getSize(new THREE.Vector3());
       const shadowCanvas = document.createElement("canvas");
       shadowCanvas.width = 128;
@@ -840,23 +948,29 @@ export default function InjuryModel3D({
       });
       layerMeshes = modelMeshes.map((object) => {
         const mesh = object as THREE.Mesh;
-        const ghostMaterial = new THREE.MeshStandardMaterial({
-          color: "#aab3b4",
+        const ghostMaterial = new THREE.MeshPhysicalMaterial({
+          color: "#b9d8e1",
           transparent: true,
-          opacity: 0.16,
+          opacity: 0.18,
           depthWrite: false,
-          roughness: 0.92,
-          side: THREE.DoubleSide,
+          side: THREE.FrontSide,
+          roughness: 0.2,
+          metalness: 0,
+          clearcoat: 1,
+          clearcoatRoughness: 0.08,
+          emissive: "#17313a",
+          emissiveIntensity: 0.1,
         });
         ghostMaterial.onBeforeCompile = (shader) => {
           shader.fragmentShader = shader.fragmentShader.replace(
             "#include <output_fragment>",
             `#include <output_fragment>
-            float horseSkinFresnel = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 2.0);
-            gl_FragColor.a *= mix(0.55, 1.0, horseSkinFresnel);`,
+            float shellRim = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 3.4);
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.72, 0.87, 0.93), shellRim * 0.92);
+            gl_FragColor.a = max(gl_FragColor.a, shellRim * 0.38);`,
           );
         };
-        ghostMaterial.customProgramCacheKey = () => "horse-translucent-skin-fresnel-v1";
+        ghostMaterial.customProgramCacheKey = () => "equine-glass-shell-rim-v1";
         return {
           mesh,
           skinMaterial: mesh.material,
@@ -877,22 +991,30 @@ export default function InjuryModel3D({
       setSkeletonRecords(skeletonAnatomy.records);
       const dimBone = skeletonAnatomy.materials.bone.clone();
       dimBone.transparent = true;
-      dimBone.opacity = 0.17;
+      dimBone.opacity = 0.16;
       dimBone.depthWrite = false;
       const dimCartilage = skeletonAnatomy.materials.cartilage.clone();
       dimCartilage.opacity = 0.12;
       dimCartilage.depthWrite = false;
-      const focusBone: Record<string, THREE.MeshStandardMaterial> = {};
-      const groupFocusColors: Record<string, string> = { axial: "#78a9a0", forelimb: "#d29450", hindlimb: "#a57493", head: "#6688a5" };
-      Object.entries(groupFocusColors).forEach(([key, color]) => {
+      const dimCostalCartilage = skeletonAnatomy.materials.costalCartilage.clone();
+      dimCostalCartilage.opacity = 0.16;
+      dimCostalCartilage.depthWrite = false;
+      const dimTooth = skeletonAnatomy.materials.tooth.clone();
+      dimTooth.transparent = true;
+      dimTooth.opacity = 0.14;
+      dimTooth.depthWrite = false;
+      const focusBone = Object.fromEntries([
+        ["axial", "#719b8e"],
+        ["forelimb", "#d29450"],
+        ["hindlimb", "#a57493"],
+        ["head", "#6688a5"],
+      ].map(([group, color]) => {
         const material = skeletonAnatomy.materials.bone.clone();
         material.color.set(color);
-        material.emissive.set(color);
-        material.emissiveIntensity = 0.16;
-        focusBone[key] = material;
-      });
-      skeletonDisplayMaterials = { dimBone, dimCartilage, focusBone };
-      skeletonGroup.userData.displayMaterials = [dimBone, dimCartilage, ...Object.values(focusBone)];
+        return [group, material];
+      })) as Record<string, THREE.MeshStandardMaterial>;
+      skeletonDisplayMaterials = { dimBone, dimCartilage, dimCostalCartilage, dimTooth, focusBone };
+      skeletonGroup.userData.displayMaterials = [dimBone, dimCartilage, dimCostalCartilage, dimTooth, ...Object.values(focusBone)];
       muscleLayer = muscleGroup;
       skeletonLayer = skeletonGroup;
       const organAnatomy = buildEquineOrganLayer(boneNodes, axes);
@@ -931,11 +1053,13 @@ export default function InjuryModel3D({
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       renderer.domElement.removeEventListener("pointerup", handlePointerUp);
       renderer.domElement.removeEventListener("pointermove", handlePointerMove);
+      renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
       renderer.domElement.removeEventListener("dblclick", handleDoubleClick);
       renderer.domElement.removeEventListener("webglcontextlost", handleContextLost);
       controls.dispose();
       renderer.forceContextLoss();
       renderer.dispose();
+      backdropTexture.dispose();
       haloGeometry.dispose();
       coreGeometry.dispose();
       draftHaloGeometry.dispose();
@@ -969,8 +1093,10 @@ export default function InjuryModel3D({
       layerMeshes.forEach((entry) => entry.ghostMaterial.dispose());
       const skeletonDisplayAssets = skeletonLayer?.userData.displayMaterials as THREE.Material[] | undefined;
       skeletonDisplayAssets?.forEach((material) => material.dispose());
-      const skeletonBaseMaterials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.Material; cartilage: THREE.Material } | undefined;
+      const skeletonBaseMaterials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.Material; cartilage: THREE.Material; costalCartilage?: THREE.Material; tooth: THREE.Material } | undefined;
       skeletonBaseMaterials && Object.values(skeletonBaseMaterials).forEach((material) => material.dispose());
+      const skeletonLabelMaterials = skeletonLayer?.userData.ownedLabelMaterials as THREE.Material[] | undefined;
+      skeletonLabelMaterials?.forEach((material) => material.dispose());
       const skeletonTextures = skeletonLayer?.userData.ownedTextures as THREE.Texture[] | undefined;
       skeletonTextures?.forEach((texture) => texture.dispose());
       const muscleTextures = muscleLayer?.userData.ownedTextures as THREE.Texture[] | undefined;
@@ -982,7 +1108,15 @@ export default function InjuryModel3D({
 
   const selectedMarker = markers.find((marker) => marker.id === selectedId);
   const selectedMuscle = equineMuscles.find((muscle) => muscle.id === selectedMuscleId);
-  const hoveredMarkerRecord = hoveredMarker ? markers.find((marker) => marker.id === hoveredMarker.id) : undefined;
+  const hoveredSkeletonRecord = hoveredSkeletonTooltip
+    ? skeletonRecords.find((record) => record.id === hoveredSkeletonTooltip.id) ?? null
+    : null;
+  const hoveredSkeletonName = hoveredSkeletonRecord && /^c[1-7]$/.test(hoveredSkeletonRecord.id)
+    ? `Đốt sống cổ ${hoveredSkeletonRecord.name}`
+    : hoveredSkeletonRecord?.name;
+  const hoveredSkeletonLatin = hoveredSkeletonRecord && /^c[1-7]$/.test(hoveredSkeletonRecord.id)
+    ? `Cervical vertebrae · ${hoveredSkeletonRecord.latin}`
+    : hoveredSkeletonRecord?.latin;
   const normalizedMuscleSearch = muscleFilters.search.trim().toLocaleLowerCase("vi");
   const filteredMuscles = equineMuscles.filter((muscle) => {
     const matchesGroup = muscleFilters.group === "all" || muscle.group === muscleFilters.group;
@@ -1063,19 +1197,28 @@ export default function InjuryModel3D({
           ? enabledAnatomyLayers.map((layer) => layer.description).join(" · ")
           : "Bật một hoặc nhiều lớp để xem giải phẫu bên trong; tắt cả ba để trở về lớp lông."}
       </p>
-      <p className="mt-1 text-[10px] text-slate-500">Mô hình minh họa phục vụ học tập; nội tạng được dựng bằng mesh riêng và có vị trí, biên dạng ước lượng theo rig.</p>
+      <p className="mt-1 text-[10px] text-slate-500">Xương và nội tạng là mesh minh họa; vị trí, tỷ lệ được ước lượng theo rig hiện có.</p>
       <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className={`relative min-w-0 overflow-hidden rounded-xl border border-white/90 bg-[#f8faf9] shadow-[inset_0_0_0_1px_rgba(190,208,214,.28)] ${placementMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}>
           <div ref={mountRef} className="h-[285px] w-full sm:h-[410px]" />
+          {anatomyVisibility.skeleton && skeletonRecords.length === 0 && !loading && !loadError && (
+            <div className="pointer-events-none absolute inset-x-3 top-3 z-[4] rounded-lg border border-[#dce6eb] bg-white/90 px-3 py-2 text-center text-xs font-medium text-slate-600">
+              Không tìm thấy các điểm rig cần thiết để dựng cột sống minh họa.
+            </div>
+          )}
+          {hoveredSkeletonRecord && hoveredSkeletonTooltip && anatomyVisibility.skeleton && !placementMode && (
+            <div
+              role="tooltip"
+              className="pointer-events-none absolute z-[6] max-w-[220px] rounded-md border border-[#d5e0dc] bg-white/95 px-2.5 py-1.5 text-[11px] text-[#36566a] shadow-md"
+              style={{ left: hoveredSkeletonTooltip.x, top: hoveredSkeletonTooltip.y }}
+            >
+              <span className="block font-semibold">{hoveredSkeletonName}</span>
+              <span className="block italic text-slate-500">{hoveredSkeletonLatin}</span>
+            </div>
+          )}
           {loading && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-white/60 text-sm font-medium text-slate-600">Đang tải mô hình ngựa 3D…</div>}
           {loadError && <div role="alert" className="absolute inset-0 grid place-items-center bg-white/90 p-6 text-center text-sm text-rose-700">Không tải được mô hình 3D. {loadError}</div>}
           {placementMode && <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full border border-[#c8dfd8] bg-[#eff7f5]/95 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#376c61]"><span className="h-2 w-2 rounded-full bg-[#299477]" /> Chọn vị trí trên ngựa</div>}
-          {hoveredMarker && hoveredMarkerRecord && !placementMode && (
-            <div className="pointer-events-none absolute z-10 max-w-[170px] rounded-lg border border-[#d9e4e4] bg-white/95 px-2.5 py-1.5 shadow-md" style={{ left: hoveredMarker.x, top: hoveredMarker.y }}>
-              <p className="text-[11px] font-semibold text-[#36566a]">{hoveredMarkerRecord.body_part}</p>
-              <p className="mt-0.5 text-[10px] text-slate-600">{hoveredMarkerRecord.severity} · {hoveredMarkerRecord.recovery_status}</p>
-            </div>
-          )}
           <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg border border-white/90 bg-white/80 px-2.5 py-1.5 text-[10px] text-slate-500 shadow-sm">{placementMode ? "Bấm lên thân ngựa để lấy tọa độ" : "Kéo để xoay · nhấp đúp để lấy nét"}</div>
         </div>
         <div className="min-w-0">
@@ -1097,6 +1240,10 @@ export default function InjuryModel3D({
               }}
               explodeView={explodeView}
               setExplodeView={setExplodeView}
+              showLabels={showSkeletonLabels}
+              setShowLabels={setShowSkeletonLabels}
+              jawOpen={jawOpen}
+              setJawOpen={setJawOpen}
             />
           ) : inspectorTab === "organs" ? (
             <OrganAnatomyPanel

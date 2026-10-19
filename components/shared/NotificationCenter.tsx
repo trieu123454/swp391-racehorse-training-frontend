@@ -3,7 +3,7 @@
 import { Bell, CheckCheck, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Notice } from "@/components/horses/HorseUI";
-import { authenticatedRequest } from "@/api/client";
+import { APP_MUTATION_COMPLETED_EVENT, authenticatedRequest } from "@/api/client";
 
 type AppNotification = {
   id: string;
@@ -39,7 +39,19 @@ export default function NotificationCenter() {
   useEffect(() => {
     void load();
     const interval = window.setInterval(() => void load(), 60_000);
-    return () => window.clearInterval(interval);
+    const refresh = () => void load();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    window.addEventListener(APP_MUTATION_COMPLETED_EVENT, refresh);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refresh);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [load]);
 
   async function markRead(id: string) {
