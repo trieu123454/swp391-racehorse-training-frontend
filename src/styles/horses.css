@@ -26,7 +26,7 @@
 
 .horse-app :where(h1, h2, h3) {
   color: #101732;
-  font-weight: 650;
+  font-weight: 400;
   letter-spacing: -0.025em;
   line-height: 1.25;
 }
@@ -71,21 +71,24 @@
 .horse-brand {
   display: inline-flex;
   align-items: center;
-  margin-bottom: 28px;
+  margin-bottom: 20px;
   width: fit-content;
+  max-width: 100%;
 }
 
 .horse-brand img {
-  width: 48px;
-  height: 48px;
-  border-radius: 6px;
-  object-fit: contain;
+  width: auto !important;
+  height: 60px !important;
+  max-height: 68px !important;
+  max-width: 220px !important;
+  border-radius: 0 !important;
+  object-fit: contain !important;
 }
 
 .horse-nav-label {
   margin: 18px 8px 10px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 400;
   letter-spacing: 0.12em;
   color: #64748B;
 }
@@ -103,7 +106,7 @@
   border-radius: 6px;
   padding: 10px 12px;
   color: #475569;
-  font-weight: 600;
+  font-weight: 400;
   text-decoration: none;
   background: transparent;
   transition: background-color 140ms ease, color 140ms ease;
@@ -136,7 +139,7 @@
   font-size: 0.95rem;
   line-height: 1.35;
   color: #101732;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .horse-sidebar-note small {
@@ -164,7 +167,7 @@
   border-radius: 6px;
   background: linear-gradient(135deg, #1040C5, #0099CF);
   color: #FFFFFF;
-  font-weight: 700;
+  font-weight: 400;
   font-size: 14px;
 }
 
@@ -256,7 +259,7 @@
   overflow: hidden;
   color: #101732;
   font-size: clamp(18px, 1.8vw, 24px);
-  font-weight: 700;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -292,7 +295,7 @@
 .horse-date-pill {
   padding: 0 14px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   color: #475569;
   white-space: nowrap;
 }
@@ -326,7 +329,7 @@
   background: #1040C5;
   color: white;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .horse-profile-copy {
@@ -347,7 +350,7 @@
 .horse-profile-copy strong {
   color: #101732;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .horse-profile-copy small {
@@ -376,7 +379,7 @@
   overflow: hidden;
   color: #101732;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -400,7 +403,7 @@
   background: #FEF2F2;
   color: #B91C1C;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   text-align: left;
   transition: all 140ms ease;
 }
@@ -450,7 +453,7 @@
 
 .horse-footer span {
   color: #0099CF;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .horse-mobile-menu,
@@ -532,7 +535,7 @@
   margin-top: 6px;
   font-size: 13px;
   letter-spacing: 0.05em;
-  font-weight: 700;
+  font-weight: 400;
   color: #101732;
 }
 
@@ -550,7 +553,7 @@
   border-radius: 6px;
   padding: 4px 8px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: 0.02em;
   border: 1px solid transparent;
 }
@@ -628,7 +631,7 @@
 .horse-dialog h2 {
   margin: 0 0 14px;
   font-size: clamp(1.2rem, 2.5vw, 1.5rem);
-  font-weight: 700;
+  font-weight: 400;
   color: #101732;
 }
 
@@ -799,3 +802,23 @@ progress::-moz-progress-bar {
     max-width: 92px;
   }
 }
+
+/* ============================================================
+   FUNCTIONAL WORKSPACE TYPOGRAPHY: ZERO BOLD TEXT / REGULAR WEIGHT
+   Enforces regular (400) font-weight across all functional pages
+   ============================================================ */
+.horse-app,
+.horse-app *,
+.dashboard-workspace,
+.dashboard-workspace *,
+.horse-dialog,
+.horse-dialog *,
+.horse-sidebar,
+.horse-sidebar *,
+.horse-topbar,
+.horse-topbar *,
+.workspace-role,
+.workspace-role * {
+  font-weight: 400 !important;
+}
+

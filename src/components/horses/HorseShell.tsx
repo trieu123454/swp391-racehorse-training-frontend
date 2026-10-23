@@ -148,7 +148,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     {open && <button className="horse-nav-overlay" aria-label="Đóng menu" onClick={() => setOpen(false)} />}
     <aside className={`horse-sidebar ${open ? "is-open" : ""}`}>
       <div className="horse-sidebar-header shrink-0">
-        <Link href={Routes.home} className="horse-brand"><Brand compact /></Link>
+        <Link href={Routes.home} className="horse-brand" aria-label="Equine - Về trang chủ"><Brand /></Link>
         <button className="horse-mobile-close horse-icon-button" aria-label="Đóng menu" onClick={() => setOpen(false)}><X /></button>
         <div className="workspace-role"><strong>{roleLabels[user.roleName]}</strong></div>
       </div>

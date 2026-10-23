@@ -8,28 +8,21 @@ export function Brand({
   light?: boolean;
 }) {
   return (
-    <div className="flex min-w-0 max-w-full items-center gap-3">
+    <div className="inline-flex min-w-0 max-w-full items-center">
       <Image
-        alt="Racehorse System"
-        aria-hidden="true"
-        className="shrink-0"
-        height={compact ? 38 : 48}
-        src={light ? "/img/equine-racehorse-mark-white.svg" : "/img/equine-racehorse-mark.svg"}
-        width={compact ? 38 : 48}
+        alt="Equine Racehorse System"
+        className={`w-auto shrink-0 object-contain ${
+          compact ? "h-14 sm:h-16 lg:h-[68px]" : "h-16 sm:h-[72px]"
+        } ${
+          light
+            ? "brightness-0 invert"
+            : "mix-blend-multiply [filter:contrast(1.06)_brightness(1.03)]"
+        }`}
+        height={compact ? 68 : 72}
+        priority
+        src="/assets/aistudio/image_f48a425a.png"
+        width={compact ? 180 : 196}
       />
-      <div className="min-w-0">
-        <p
-          className={`truncate font-sans font-bold tracking-[0.12em] ${compact ? "text-sm sm:text-base" : "text-lg sm:text-xl"} ${light ? "text-white" : "text-[#101732]"}`}
-        >
-          EQUINE
-        </p>
-        <p
-          className={`truncate font-bold uppercase ${compact ? "text-[8px] sm:text-[9px]" : "text-[10px]"} ${light ? "text-cyan-200" : "text-[#0099CF]"}`}
-          style={{ letterSpacing: "0.1em" }}
-        >
-          Racehorse System
-        </p>
-      </div>
     </div>
   );
 }

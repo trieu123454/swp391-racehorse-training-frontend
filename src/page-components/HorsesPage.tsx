@@ -110,7 +110,7 @@ export default function HorsesPage() {
           <div className="mb-6 flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="eyebrow">Hồ sơ chiến mã</p>
-              <h1 className="mt-1 font-sans text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              <h1 className="mt-1 font-sans text-2xl font-normal tracking-tight text-slate-900 sm:text-3xl">
                 {user.roleName === "HORSE_OWNER" ? "Hồ sơ ngựa của bạn" : "Quản lý hồ sơ & lý lịch ngựa"}
               </h1>
               <p className="mt-1 text-sm text-slate-500">
@@ -131,11 +131,11 @@ export default function HorsesPage() {
           {/* Filter Bar */}
           <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Bộ lọc tìm kiếm</span>
+              <span className="text-xs font-normal uppercase tracking-wider text-slate-500">Bộ lọc tìm kiếm</span>
               {(searchInput || statusFilter !== "ALL" || stableFilter !== "ALL") && (
                 <button
                   type="button"
-                  className="text-xs font-semibold text-teal-700 hover:underline"
+                  className="text-xs font-normal text-teal-700 hover:underline"
                   onClick={() => { setSearchInput(""); setSearch(""); setStatusFilter("ALL"); setStableFilter("ALL"); }}
                 >
                   Xóa bộ lọc
@@ -188,8 +188,8 @@ export default function HorsesPage() {
           </div>
 
           <div className="mb-4 flex items-center justify-between">
-            <p className="text-xs font-medium text-slate-500">
-              Hiển thị <strong className="text-slate-800 font-semibold">{visibleHorses.length}</strong> hồ sơ ngựa
+            <p className="text-xs font-normal text-slate-500">
+              Hiển thị <strong className="text-slate-800 font-normal">{visibleHorses.length}</strong> hồ sơ ngựa
             </p>
           </div>
 
@@ -216,7 +216,7 @@ export default function HorsesPage() {
                     <div className="space-y-3.5 p-4">
                       <div className="flex items-start justify-between gap-2.5">
                         <div className="min-w-0">
-                          <h2 className="truncate font-sans text-lg font-bold text-slate-900">
+                          <h2 className="truncate font-sans text-lg font-normal text-slate-900">
                             {horse.horse_name}
                           </h2>
                           <p className="truncate text-xs text-slate-500">{horse.breed ?? "Chưa cập nhật giống"}</p>
@@ -226,20 +226,20 @@ export default function HorsesPage() {
 
                       <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
                         <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
-                          <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">Chuồng</span>
-                          <strong className="block truncate font-semibold text-slate-800 mt-0.5">{horse.box_code ?? horse.stable_box_id ?? "—"}</strong>
+                          <span className="block text-[10px] font-normal uppercase tracking-wider text-slate-400">Chuồng</span>
+                          <strong className="block truncate font-normal text-slate-800 mt-0.5">{horse.box_code ?? horse.stable_box_id ?? "—"}</strong>
                         </div>
                         <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
-                          <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">Chủ sở hữu</span>
-                          <strong className="block truncate font-semibold text-slate-800 mt-0.5">{owner?.full_name ?? "Chưa có"}</strong>
+                          <span className="block text-[10px] font-normal uppercase tracking-wider text-slate-400">Chủ sở hữu</span>
+                          <strong className="block truncate font-normal text-slate-800 mt-0.5">{owner?.full_name ?? "Chưa có"}</strong>
                         </div>
                         <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
-                          <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">Cân nặng</span>
-                          <strong className="block truncate font-semibold text-slate-800 mt-0.5">{horse.current_weight_kg == null ? "—" : `${horse.current_weight_kg} kg`}</strong>
+                          <span className="block text-[10px] font-normal uppercase tracking-wider text-slate-400">Cân nặng</span>
+                          <strong className="block truncate font-normal text-slate-800 mt-0.5">{horse.current_weight_kg == null ? "—" : `${horse.current_weight_kg} kg`}</strong>
                         </div>
                         <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
-                          <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">Tập luyện</span>
-                          <strong className={`block truncate font-semibold mt-0.5 ${horse.is_training_locked ? "text-amber-700" : "text-emerald-700"}`}>
+                          <span className="block text-[10px] font-normal uppercase tracking-wider text-slate-400">Tập luyện</span>
+                          <strong className={`block truncate font-normal mt-0.5 ${horse.is_training_locked ? "text-amber-700" : "text-emerald-700"}`}>
                             {horse.is_training_locked ? "Đang khóa" : "Sẵn sàng"}
                           </strong>
                         </div>
