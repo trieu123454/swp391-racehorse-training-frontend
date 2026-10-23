@@ -395,6 +395,8 @@ export default function HeadTrainerWorkspace() {
     if (result) { form.reset(); setScheduleDraft(null); await refresh(); }
   }
 
+  // The calendar no longer exposes manual metric entry; this handler remains only for backwards compatibility with the API flow.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function recordMetrics(event: FormEvent<HTMLFormElement>, scheduleId: string) {
     event.preventDefault(); const form = event.currentTarget; const data = new FormData(form);
     const result = await run(() => headTrainerApi.recordMetrics(scheduleId, {
@@ -521,7 +523,7 @@ export default function HeadTrainerWorkspace() {
           onCancel={() => setEditingDietId(null)}
           onSave={saveStandardDiet}
         />}
-        {tab === "calendar" && <CalendarPanel onTargetsSaved={refresh} horses={horses} sessions={sessions} grooms={grooms} from={calendarFrom} setFrom={setCalendarFrom} to={calendarTo} setTo={setCalendarTo} scheduleDraft={scheduleDraft} onDraftUsed={() => setScheduleDraft(null)} onCreate={createSchedule} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onMetrics={recordMetrics} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} />}
+        {tab === "calendar" && <CalendarPanel selectedHorseId={horseId} onTargetsSaved={refresh} horses={horses} sessions={sessions} grooms={grooms} from={calendarFrom} setFrom={setCalendarFrom} to={calendarTo} setTo={setCalendarTo} scheduleDraft={scheduleDraft} onDraftUsed={() => setScheduleDraft(null)} onCreate={createSchedule} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} />}
         {tab === "races" && <RaceEntriesPanel selectedHorse={selectedHorse} horses={horses} races={races} entries={raceEntries} onRecordResult={async (entryId,input) => { const result=await run(()=>headTrainerApi.recordRaceResult(entryId,input),"Race result saved."); if(result) await refresh(); }} onRegister={async (raceId) => { if (!horseId) return; const result = await run(() => headTrainerApi.registerRace(horseId, raceId), "Đã đăng ký ngựa vào giải."); if (result) await refresh(); }} busy={busy} />}
         {tab === "simulation" && <SimulationPanel sessions={sessions} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} />}
       </>}
@@ -897,18 +899,18 @@ function scheduleStatusLabel(value: string) {
   return ({ Scheduled: "Đã lên lịch", Blocked: "Chờ xử lý y tế", InProgress: "Đang diễn ra", Completed: "Hoàn thành", Cancelled: "Đã hủy", Missed: "Bỏ lỡ" } as Record<string, string>)[value] ?? value;
 }
 
-function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, scheduleDraft, onDraftUsed, onCreate, onAssign, onStatus, onMetrics, onVideo, showMetricsFor, setShowMetricsFor, busy, onOpenSimulation, onTargetsSaved }: {
-  horses: Horse[]; sessions: TrainingSession[]; grooms: Groom[]; from: string; setFrom: (value: string) => void;
+function CalendarPanel({ selectedHorseId, horses, sessions, grooms, from, setFrom, to, setTo, scheduleDraft, onDraftUsed, onCreate, onAssign, onStatus, onVideo, showMetricsFor, setShowMetricsFor, busy, onOpenSimulation, onTargetsSaved }: {
+  selectedHorseId: string; horses: Horse[]; sessions: TrainingSession[]; grooms: Groom[]; from: string; setFrom: (value: string) => void;
   to: string; setTo: (value: string) => void; onCreate: (event: FormEvent<HTMLFormElement>) => void;
   scheduleDraft: { horseId: string; planId: string; startDate: string | null } | null; onDraftUsed: () => void;
   onTargetsSaved: () => Promise<void>;
   onOpenSimulation: (session: TrainingSession) => void;
   onAssign: (id: string, groomId: number) => void; onStatus: (id: string, status: string) => void;
-  onMetrics: (event: FormEvent<HTMLFormElement>, id: string) => void; onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; showMetricsFor: string | null;
+  onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; showMetricsFor: string | null;
   setShowMetricsFor: (id: string | null) => void; busy: boolean;
 }) {
   const [createHorse, setCreateHorse] = useState(horses[0]?.id ?? "");
-  const [horsePlans, setHorsePlans] = useState<TrainingPlan[]>([]);
+  const [allHorsePlans, setHorsePlans] = useState<TrainingPlan[]>([]);
   const [horsePlansLoading, setHorsePlansLoading] = useState(false);
   const [horsePlansError, setHorsePlansError] = useState("");
   const [plansReload, setPlansReload] = useState(0);
@@ -916,15 +918,27 @@ function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, sch
   const [sessionType, setSessionType] = useState("Training");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [scheduleDefaults] = useState(() => suggestedTrainingWindow());
+  const [scheduleDate, setScheduleDate] = useState(() => scheduleDraft?.startDate ?? scheduleDefaults.date);
   const createFormRef = useRef<HTMLFormElement>(null);
+  const horsePlans = useMemo(() => allHorsePlans.filter((plan) => {
+    if (!plan.is_active) return false;
+    if (plan.start_date && scheduleDate < plan.start_date) return false;
+    if (plan.end_date && scheduleDate > plan.end_date) return false;
+    return true;
+  }), [allHorsePlans, scheduleDate]);
   const selectedPlan = horsePlans.find((plan) => plan.id === selectedPlanId);
+  const visibleSessions = sessions.filter((session) => session.horse_id === selectedHorseId);
   useEffect(() => { setCreateHorse((id) => horses.some((horse) => horse.id === id) ? id : horses[0]?.id ?? ""); }, [horses]);
   useEffect(() => {
     if (scheduleDraft) {
       setCreateHorse(scheduleDraft.horseId);
       setSelectedPlanId(scheduleDraft.planId);
+      if (scheduleDraft.startDate) setScheduleDate(scheduleDraft.startDate);
     }
   }, [scheduleDraft]);
+  useEffect(() => {
+    setSelectedPlanId((current) => horsePlans.some((plan) => plan.id === current) ? current : "");
+  }, [scheduleDate, horsePlans]);
   useEffect(() => {
     if (scheduleDraft) createFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [scheduleDraft]);
@@ -957,7 +971,7 @@ function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, sch
   }, []);
   return <div className="trainer-calendar space-y-5">
     <Section title="Tạo buổi tập" help="Ngựa không thể có lịch tập chồng thời gian." icon={Plus}>
-      <form ref={createFormRef} onSubmit={onCreate} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <form ref={createFormRef} onSubmit={onCreate} onChange={(event) => { if (event.target instanceof HTMLInputElement && event.target.name === "event_date") setScheduleDate(event.target.value); }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SelectField label="Ngựa" name="horse_id" value={createHorse} onChange={(id) => { setCreateHorse(id); setSelectedPlanId(""); onDraftUsed(); }} options={horses.map((horse) => [horse.id, horse.horse_name])} />
         <SelectField label="Giáo án" name="training_plan_id" required={sessionType !== "Rest"} value={selectedPlanId} onChange={setSelectedPlanId} options={[["", "Không gắn giáo án"], ...horsePlans.map((plan) => [plan.id, plan.stage_name] as [string, string])]} />
         {(horsePlansLoading || horsePlansError || (!horsePlansLoading && !horsePlansError && createHorse && horsePlans.length === 0)) && <div aria-live="polite" className="-mt-2 text-xs text-slate-600 sm:col-span-2 lg:col-span-4">
@@ -979,8 +993,8 @@ function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, sch
     </Section>
     <Section title="Lịch tập" help="Chỉ bắt đầu trong khung giờ đã đặt; chỉ ghi chỉ số sau khi buổi tập hoàn tất." icon={CalendarDays}>
       <div className="trainer-calendar__filters"><Field label="Từ ngày" name="from" type="date" value={from} onChange={setFrom} /><Field label="Đến ngày" name="to" type="date" value={to} onChange={setTo} /></div>
-      <div className="trainer-calendar__list-heading"><div><h4>Danh sách buổi tập</h4></div><span>{sessions.length} buổi</span></div>
-      <div className="trainer-calendar__list">{sessions.map((session) => {
+      <div className="trainer-calendar__list-heading"><div><h4>Danh sách buổi tập</h4><p className="mt-1 text-xs text-slate-500">Chỉ hiển thị lịch của ngựa đang được chọn.</p></div><span>{visibleSessions.length} buổi</span></div>
+       <div className="trainer-calendar__list">{visibleSessions.map((session) => {
         const window = sessionWindow(session);
         const insideTimeWindow = Boolean(window && nowMs >= window.start && nowMs < window.end);
         const afterTimeWindow = Boolean(window && nowMs >= window.end);
@@ -1017,14 +1031,49 @@ function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, sch
             </aside>
           </div>
         {session.status === "Scheduled" && !afterTimeWindow && session.session_type !== "Rest" && <SessionTargetsEditor key={`${session.training_schedule_id}-${session.plan_target_distance_meters}-${session.plan_target_intensity}-${session.track_surface}`} session={session} onSaved={onTargetsSaved}/>}
-        {showMetricsFor === session.training_schedule_id && <SessionMetrics session={session} onMetrics={onMetrics} onVideo={onVideo} busy={busy} />}
+        {showMetricsFor === session.training_schedule_id && <SessionMetrics session={session} onVideo={onVideo} busy={busy} />}
       </article>;
-      })}{sessions.length === 0 && <Notice>Không có buổi tập trong khoảng ngày này.</Notice>}</div>
+      })}{visibleSessions.length === 0 && <Notice>Không có buổi tập của ngựa đang được chọn trong khoảng ngày này.</Notice>}</div>
     </Section>
   </div>;
 }
 
-function SessionMetrics({ session, onMetrics, onVideo, busy }: { session: TrainingSession; onMetrics: (event: FormEvent<HTMLFormElement>, id: string) => void; onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; busy: boolean }) {
+function SessionMetrics({ session, onVideo, busy }: { session: TrainingSession; onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; busy: boolean }) {
+  const [detail, setDetail] = useState<TrainingSession | null>(null);
+  useEffect(() => { headTrainerApi.schedule(session.training_schedule_id).then(setDetail).catch(() => setDetail(session)); }, [session, session.training_schedule_id]);
+  return <div className="mt-4 border-t border-equine-line pt-5">
+    <section aria-label="Lịch sử chỉ số">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-lg font-semibold text-equine-navy">Lịch sử chỉ số</h4>
+        <span className="text-sm text-slate-500">{detail?.metrics?.length ?? 0} lần ghi nhận</span>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {detail?.metrics?.map((metric) => <article key={metric.id} className="rounded-xl border border-equine-line bg-slate-50 p-4 text-sm shadow-sm">
+          <p className="font-semibold text-equine-navy">{metricDate(metric.recorded_at)}</p>
+          <div className="mt-3 grid grid-cols-2 gap-3 text-slate-700">
+            <p><span className="block text-xs text-slate-500">Cân nặng</span><strong>{metric.body_weight_kg ?? "—"} kg</strong></p>
+            <p><span className="block text-xs text-slate-500">Nhịp tim tối đa</span><strong>{metric.max_heart_rate ?? "—"} bpm</strong></p>
+            <p><span className="block text-xs text-slate-500">Tốc độ trung bình</span><strong>{metric.avg_speed_kmh ?? "—"} km/h</strong></p>
+            <p><span className="block text-xs text-slate-500">Điểm thể lực</span><strong>{metric.stamina_score ?? "—"} / 10</strong></p>
+          </div>
+          {metric.trainer_review && <p className="mt-3 border-t border-equine-line pt-3 text-slate-600">{metric.trainer_review}</p>}
+          {metric.has_injury_alert && <p className="mt-2 font-medium text-rose-700">Có cảnh báo sức khỏe</p>}
+        </article>)}
+      </div>
+      {!detail?.metrics?.length && <p className="mt-3 rounded-lg bg-slate-50 p-4 text-sm text-slate-500">Chưa có chỉ số được ghi nhận.</p>}
+    </section>
+    <form onSubmit={(event) => onVideo(event, session.training_schedule_id)} className="mt-5 grid gap-2 border-t border-equine-line pt-5 sm:grid-cols-2">
+      <h4 className="text-sm font-semibold text-equine-navy sm:col-span-2">Chia sẻ video với Horse Owner</h4>
+      <Field label="Đường dẫn HTTPS" name="video_url" type="url" required placeholder="https://..." />
+      <Field label="Mô tả" name="description" maxLength={255} placeholder="Buổi tập hoặc nội dung video" />
+      <div className="flex items-end"><button className="soft-button" disabled={busy}><Plus size={14} /> Chia sẻ video</button></div>
+    </form>
+  </div>;
+}
+
+// Kept as a reference for the previous manual-entry flow; it is no longer rendered.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function LegacySessionMetrics({ session, onMetrics, onVideo, busy }: { session: TrainingSession; onMetrics: (event: FormEvent<HTMLFormElement>, id: string) => void; onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; busy: boolean }) {
   const [detail, setDetail] = useState<TrainingSession | null>(null);
   useEffect(() => { headTrainerApi.schedule(session.training_schedule_id).then(setDetail).catch(() => setDetail(session)); }, [session, session.training_schedule_id]);
   return <div className="mt-4 grid gap-4 border-t border-equine-line pt-4 lg:grid-cols-[1fr_1fr]">
@@ -1268,7 +1317,8 @@ function Field({ label, name, type = "text", required = false, defaultValue, val
   value?: string | number; onChange?: (value: string) => void; maxLength?: number; min?: string | number; max?: string | number; step?: string; placeholder?: string;
   pattern?: string; inputMode?: "numeric" | "text" | "decimal" | "search" | "tel" | "url" | "email"; title?: string;
 }) {
-  return <label className="block"><span className="field-label">{label}{required && <span className="text-rose-600"> *</span>}</span><input name={name} type={type} required={required} maxLength={maxLength} min={min} max={max} step={step} pattern={pattern} inputMode={inputMode} title={title} value={value} defaultValue={value === undefined ? defaultValue ?? "" : undefined} onChange={onChange ? (event) => onChange(event.target.value) : undefined} placeholder={placeholder} className="field-control px-3" /></label>;
+  const inputType = name === "start_time" || name === "end_time" ? "time" : type;
+  return <label className="block"><span className="field-label">{label}{required && <span className="text-rose-600"> *</span>}</span><input name={name} type={inputType} required={required} maxLength={maxLength} min={min} max={max} step={step} pattern={pattern} inputMode={inputMode} title={title} value={value} defaultValue={value === undefined ? defaultValue ?? "" : undefined} onChange={onChange ? (event) => onChange(event.target.value) : undefined} placeholder={placeholder} className="field-control px-3" /></label>;
 }
 
 function SelectField({ label, name, options, value, defaultValue, onChange, required=false }: {
