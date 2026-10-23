@@ -1131,11 +1131,11 @@ export default function InjuryModel3D({
   const allAnatomyVisible = enabledAnatomyLayers.length === anatomyLayers.length - 1;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-equine-line bg-white p-3 shadow-sm sm:p-5" aria-label="Mô hình 3D theo dõi chấn thương ngựa">
+    <section className="overflow-hidden rounded-lg border border-equine-line bg-white p-3 shadow-sm sm:p-5" aria-label="Mô hình 3D theo dõi chấn thương ngựa">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-equine-gold" />
+            <span className="h-2 w-2 rounded-full bg-equine-teal" />
             <h4 className="font-semibold tracking-tight text-equine-navy">Mô hình ngựa 3D</h4>
             <span className="rounded-full border border-equine-line bg-equine-paper px-2 py-0.5 text-[10px] font-semibold text-equine-muted">{locatedCount} điểm đã đánh dấu</span>
           </div>
@@ -1171,7 +1171,7 @@ export default function InjuryModel3D({
             const visible = !allAnatomyVisible;
             setAnatomyVisibility((current) => ({ ...current, skeleton: visible, organs: visible, muscle: visible }));
           }}
-          className={`rounded-lg border px-3 py-1.5 text-xs transition ${allAnatomyVisible ? "border-equine-navy bg-equine-navy font-semibold text-white" : "border-equine-line bg-white font-semibold text-equine-ink hover:border-equine-gold/50 hover:bg-equine-paper"}`}
+          className={`rounded-lg border px-3 py-1.5 text-xs transition ${allAnatomyVisible ? "border-primary bg-primary font-semibold text-white" : "border-equine-line bg-white font-semibold text-slate-700 hover:border-primary/50 hover:bg-slate-50"}`}
         >
           Tổng thể
         </button>
@@ -1187,7 +1187,7 @@ export default function InjuryModel3D({
               if (nextVisible && layer.id === "muscle") setInspectorTab("muscle");
               if (nextVisible && layer.id === "skeleton") setInspectorTab("skeleton");
             }}
-            className={`rounded-lg border px-3 py-1.5 text-xs transition ${anatomyVisibility[layer.id] ? "border-equine-navy bg-equine-navy font-semibold text-white" : "border-equine-line bg-white text-equine-muted hover:border-equine-gold/50 hover:bg-equine-paper hover:text-equine-navy"}`}
+            className={`rounded-lg border px-3 py-1.5 text-xs transition ${anatomyVisibility[layer.id] ? "border-primary bg-primary font-semibold text-white" : "border-equine-line bg-white text-slate-600 hover:border-primary/50 hover:bg-slate-50 hover:text-slate-900"}`}
           >
             {layer.label}
           </button>
@@ -1213,13 +1213,13 @@ export default function InjuryModel3D({
           )}
           {loading && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-white/60 text-sm font-medium text-slate-600">Đang tải mô hình ngựa 3D…</div>}
           {loadError && <div role="alert" className="absolute inset-0 grid place-items-center bg-white/90 p-6 text-center text-sm text-rose-700">Không tải được mô hình 3D. {loadError}</div>}
-          {placementMode && <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full border border-equine-gold/30 bg-equine-champagne px-3 py-2 text-[11px] font-bold text-equine-navy"><span className="h-2 w-2 rounded-full bg-equine-gold" /> Chọn vị trí trên ngựa</div>}
+          {placementMode && <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full border border-primary/30 bg-blue-50 px-3 py-2 text-[11px] font-bold text-equine-navy"><span className="h-2 w-2 rounded-full bg-primary" /> Chọn vị trí trên ngựa</div>}
         </div>
         <div className="min-w-0">
           <div className="mb-1.5 flex gap-1 rounded-lg border border-equine-line bg-white p-1" role="tablist" aria-label="Bảng giải phẫu">
-            <button type="button" role="tab" aria-selected={inspectorTab === "skeleton"} onClick={() => { setInspectorTab("skeleton"); setAnatomyVisibility((current) => ({ ...current, skeleton: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "skeleton" ? "bg-equine-navy text-white" : "text-equine-muted hover:bg-equine-mist"}`}>X&#x01B0;&#x01A1;ng</button>
-            <button type="button" role="tab" aria-selected={inspectorTab === "muscle"} onClick={() => { setInspectorTab("muscle"); setAnatomyVisibility((current) => ({ ...current, muscle: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "muscle" ? "bg-equine-navy text-white" : "text-equine-muted hover:bg-equine-mist"}`}>Cơ</button>
-            <button type="button" role="tab" aria-selected={inspectorTab === "organs"} onClick={() => { setInspectorTab("organs"); setAnatomyVisibility((current) => ({ ...current, organs: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "organs" ? "bg-equine-navy text-white" : "text-equine-muted hover:bg-equine-mist"}`}>Nội tạng</button>
+            <button type="button" role="tab" aria-selected={inspectorTab === "skeleton"} onClick={() => { setInspectorTab("skeleton"); setAnatomyVisibility((current) => ({ ...current, skeleton: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "skeleton" ? "!bg-primary !text-white" : "text-slate-600 hover:bg-slate-100"}`}>X&#x01B0;&#x01A1;ng</button>
+            <button type="button" role="tab" aria-selected={inspectorTab === "muscle"} onClick={() => { setInspectorTab("muscle"); setAnatomyVisibility((current) => ({ ...current, muscle: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "muscle" ? "!bg-primary !text-white" : "text-slate-600 hover:bg-slate-100"}`}>Cơ</button>
+            <button type="button" role="tab" aria-selected={inspectorTab === "organs"} onClick={() => { setInspectorTab("organs"); setAnatomyVisibility((current) => ({ ...current, organs: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "organs" ? "!bg-primary !text-white" : "text-slate-600 hover:bg-slate-100"}`}>Nội tạng</button>
           </div>
           {inspectorTab === "skeleton" ? (
             <SkeletonAnatomyPanel

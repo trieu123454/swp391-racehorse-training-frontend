@@ -3,7 +3,7 @@ import { Routes } from "@/routes/Routes";
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ImagePlus, Save, Upload, X } from "lucide-react";
+import { ImagePlus, Plus, Upload, X } from "lucide-react";
 import { Notice } from "@/components/horses/HorseUI";
 import { OwnerCombobox } from "@/components/horses/OwnerCombobox";
 import { errorMessage, getHorseStables, saveHorse, uploadHorseImage, type Stable } from "@/api/horses/api";
@@ -108,41 +108,42 @@ export default function NewHorsePage() {
   }
 
   return (
-    <main className="min-h-screen bg-equine-paper p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto max-w-[900px] rounded-3xl border border-equine-line bg-white p-4 shadow-sm sm:p-6">
-        <div className="mb-6 flex items-center justify-between gap-3">
+    <main className="min-h-screen bg-slate-50 p-4 sm:p-6 lg:p-8">
+      <div className="mx-auto max-w-[900px] rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+        <div className="mb-6 flex items-center justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
-            <p className="eyebrow">UC-01</p>
-            <h1 className="mt-2 font-sans text-3xl font-semibold text-equine-navy">
-              Tạo mới hồ sơ ngựa
+            <p className="eyebrow">Tạo mới</p>
+            <h1 className="mt-1 font-sans text-2xl font-bold tracking-tight text-slate-900">
+              Đăng ký hồ sơ ngựa mới
             </h1>
           </div>
-          <button type="button" className="soft-button border-equine-line bg-[#f7f9ff] text-slate-700" onClick={() => router.push(Routes.horses)}>
-            <X size={16} /> Hủy
+          <button type="button" className="soft-button" onClick={() => router.push(Routes.horses)}>
+            <X size={15} /> Hủy
           </button>
         </div>
 
-        {error && <Notice error>{error}</Notice>}
+        {error && <div className="mb-5"><Notice error>{error}</Notice></div>}
 
-        <form className="space-y-6" onSubmit={handleSubmit}>
+        <form className="space-y-5" onSubmit={handleSubmit}>
           <div className="grid gap-5 md:grid-cols-[1.1fr_0.9fr]">
-            <div className="space-y-5">
+            <div className="space-y-4">
               <label className="block">
                 <span className="field-label">Tên ngựa</span>
                 <input
                   value={form.horseName}
                   onChange={(event) => setForm({ ...form, horseName: event.target.value })}
-                  className="field-control"
+                  className="field-control w-full"
                   placeholder="Ví dụ: Aurora Peak"
+                  required
                 />
               </label>
 
               <label className="block">
-                <span className="field-label">Giống</span>
+                <span className="field-label">Giống ngựa</span>
                 <input
                   value={form.breed}
                   onChange={(event) => setForm({ ...form, breed: event.target.value })}
-                  className="field-control"
+                  className="field-control w-full"
                   placeholder="Ví dụ: Thoroughbred"
                 />
               </label>
@@ -155,85 +156,52 @@ export default function NewHorsePage() {
                   max={2035}
                   value={form.birthYear}
                   onChange={(event) => setForm({ ...form, birthYear: Number(event.target.value) || 0 })}
-                  className="field-control"
+                  className="field-control w-full"
                 />
               </label>
 
-              <label className="block">
-                <span className="field-label">Chiều cao đến vai (cm)</span>
-                <input type="number" min={50} max={250} step="0.1" value={form.heightCm} onChange={(event) => setForm({ ...form, heightCm: event.target.value })} className="field-control" placeholder="Ví dụ: 162.5" />
-              </label>
-
-              <label className="block">
-                <span className="field-label">Cân nặng hiện tại (kg)</span>
-                <input type="number" min={100} max={900} step="0.01" value={form.currentWeightKg} onChange={(event) => setForm({ ...form, currentWeightKg: event.target.value })} className="field-control" placeholder="Ví dụ: 452" />
-              </label>
-
-              <div className="grid gap-5 md:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className="field-label">Tên cha</span>
+                  <span className="field-label">Chiều cao vai (cm)</span>
+                  <input type="number" min={50} max={250} step="0.1" value={form.heightCm} onChange={(event) => setForm({ ...form, heightCm: event.target.value })} className="field-control w-full" placeholder="Ví dụ: 162.5" />
+                </label>
+
+                <label className="block">
+                  <span className="field-label">Cân nặng (kg)</span>
+                  <input type="number" min={100} max={900} step="0.01" value={form.currentWeightKg} onChange={(event) => setForm({ ...form, currentWeightKg: event.target.value })} className="field-control w-full" placeholder="Ví dụ: 452" />
+                </label>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="field-label">Tên cha (Sire)</span>
                   <input
                     value={form.pedigreeFather}
                     onChange={(event) => setForm({ ...form, pedigreeFather: event.target.value })}
-                    className="field-control"
+                    className="field-control w-full"
                     placeholder="Sire"
                   />
                 </label>
+
                 <label className="block">
-                  <span className="field-label">Tên mẹ</span>
+                  <span className="field-label">Tên mẹ (Dam)</span>
                   <input
                     value={form.pedigreeMother}
                     onChange={(event) => setForm({ ...form, pedigreeMother: event.target.value })}
-                    className="field-control"
+                    className="field-control w-full"
                     placeholder="Dam"
                   />
                 </label>
               </div>
             </div>
 
-            <div className="space-y-5">
-              <div className="rounded-2xl border border-dashed border-equine-line bg-[#f7f9ff] p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="field-label mb-0">Ảnh ngựa</span>
-                  {imagePreview && (
-                    <button type="button" className="text-xs font-medium text-red-600" onClick={() => { setImagePreview(null); setImagePath(null); setUploadProgress(0); }}>
-                      Xóa ảnh
-                    </button>
-                  )}
-                </div>
-
-                {imagePreview ? (
-                  <div className="space-y-3">
-                    {/* Local data URLs are preview-only and should not use Next image optimization. */}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={imagePreview} alt="Preview" className="horse-preview-image h-48 w-full rounded-xl object-cover" />
-                      <p className="text-xs text-slate-500">Đã tải ảnh {uploadProgress}%.</p>
-                      <progress className="h-2 w-full accent-equine-gold" max="100" value={uploadProgress} />
-                  </div>
-                ) : (
-                  <div className="grid h-48 place-items-center rounded-xl border border-dashed border-[#d8dff6] bg-white text-center">
-                    <div className="space-y-2">
-                      <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[#eef2ff] text-equine-navy">
-                        <ImagePlus size={20} />
-                      </div>
-                      <p className="text-sm text-slate-500">Chưa có ảnh hồ sơ</p>
-                    </div>
-                  </div>
-                )}
-
-                <label className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-equine-line bg-white px-3 py-2.5 text-sm font-medium text-equine-navy">
-                  <Upload size={16} />
-                  Chọn ảnh từ máy tính
-                  <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onFileChange} />
-                </label>
-              </div>
-
+            <div className="space-y-4">
               <label className="block">
-                <span className="field-label">Chuồng trại</span>
+                <span className="field-label">Hộp chuồng trại</span>
                 <select
                   value={form.stableBoxId}
                   onChange={(event) => setForm({ ...form, stableBoxId: event.target.value })}
-                  className="field-control"
+                  className="field-control w-full cursor-pointer"
                 >
                   {stables.map((stable) => (
                     <option key={stable.id} value={stable.id}>
@@ -244,16 +212,39 @@ export default function NewHorsePage() {
               </label>
 
               <OwnerCombobox required value={form.ownerId} onChange={(ownerId) => setForm({ ...form, ownerId })} />
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+                <span className="field-label">Ảnh đại diện ngựa</span>
+                {imagePreview && (
+                  <div className="mb-3 overflow-hidden rounded-lg border border-slate-200">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={imagePreview} alt="Preview" className="h-44 w-full object-cover" />
+                  </div>
+                )}
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50">
+                  {imagePreview ? <ImagePlus size={15} /> : <Upload size={15} />}
+                  <span>{imagePreview ? "Đổi ảnh khác" : "Tải ảnh hồ sơ"}</span>
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={onFileChange}
+                  />
+                </label>
+                {imagePreview && (
+                  <progress className="mt-2.5 h-1.5 w-full accent-teal-700" max="100" value={uploadProgress} />
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 border-t border-equine-line pt-5">
-            <button type="button" className="soft-button border-equine-line bg-white text-slate-700" onClick={() => router.push(Routes.horses)}>
-              Quay lại
+          <div className="flex justify-end gap-2.5 border-t border-slate-100 pt-4">
+            <button type="button" className="soft-button" onClick={() => router.push(Routes.horses)}>
+              Hủy
             </button>
-            <button type="submit" disabled={saving || uploading || !stables.length} className="gold-button">
-              <Save size={16} />
-              {uploading ? "Đang tải ảnh..." : saving ? "Đang lưu..." : "Lưu hồ sơ"}
+            <button type="submit" disabled={saving || uploading} className="gold-button">
+              <Plus size={15} /> {saving ? "Đang tạo..." : "Tạo hồ sơ ngựa"}
             </button>
           </div>
         </form>

@@ -141,8 +141,8 @@ export default function TrainingAnalysisPanel({
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl border border-equine-line bg-white p-5">
-        <h3 className="font-semibold text-equine-navy">Mức đạt giáo án và khối lượng tuần</h3>
+      <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
+        <h3 className="font-semibold text-equine-navy">Giáo án & khối lượng tuần</h3>
         <p className="mt-2 text-sm text-slate-500">
           Khối lượng thực hiện gồm cả thời gian đã tập của phiên bị dừng. Mục tiêu tuần được phân bổ theo số ngày của giai đoạn trong khoảng báo cáo.
         </p>
@@ -188,7 +188,7 @@ export default function TrainingAnalysisPanel({
         )}
       </section>
 
-      <section className="rounded-2xl border border-equine-line bg-white p-5">
+      <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
         <h3 className="font-semibold text-equine-navy">Lịch sử chạy thử</h3>
         <p className="mt-2 text-sm text-slate-500">
           So với lần trước có cùng cự ly mục tiêu, cường độ và mặt sân trong khoảng báo cáo. Thời lượng gồm khởi động và hồi phục; điểm hồi phục là ước tính của mô hình.
@@ -227,11 +227,11 @@ export default function TrainingAnalysisPanel({
         loading={loading}
       />
 
-      <section className="rounded-2xl border border-equine-line bg-white p-5">
+      <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
         <h3 className="font-semibold text-equine-navy">Đánh giá từng buổi</h3>
         <div className="mt-4 space-y-4">
           {report?.sessions.map((session) => (
-            <article key={session.id} className="rounded-xl border border-equine-line p-4">
+            <article key={session.id} className="rounded-lg border border-equine-line p-4">
               <div className="flex flex-wrap justify-between gap-2">
                 <strong>
                   {session.event_date} · {session.start_time?.slice(0, 5)} · {session.session_type === "TrialRun" ? "Chạy thử" : session.session_type === "Rest" ? "Nghỉ" : "Huấn luyện"}
@@ -278,7 +278,7 @@ export default function TrainingAnalysisPanel({
       </section>
 
       {detail && (
-        <section className="rounded-2xl border border-equine-line bg-white p-5">
+        <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
           <div className="flex justify-between">
             <h3 className="font-semibold text-equine-navy">Chuỗi cảm biến · {detail.horses[0]?.horse_name}</h3>
             <button type="button" className="soft-button" onClick={() => { ++detailRequestRef.current; setDetail(null); }}>Đóng</button>
@@ -301,9 +301,9 @@ function WorkloadSummary({ weeks }: { weeks: Week[] }) {
   );
   const achievement = totals.target > 0 ? totals.actual / totals.target * 100 : null;
   const entries = [
-    { label: "Mục tiêu", amount: totals.target, color: "#64748b" },
-    { label: "Đã xếp lịch", amount: totals.planned, color: "#d49a38" },
-    { label: "Thực hiện", amount: totals.actual, color: "#287765" },
+    { label: "Mục tiêu", amount: totals.target, color: "#64748B" },
+    { label: "Đã xếp lịch", amount: totals.planned, color: "#0099CF" },
+    { label: "Thực hiện", amount: totals.actual, color: "#1040C5" },
   ];
   return (
     <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -325,9 +325,9 @@ function WeeklyWorkloadChart({ weeks }: { weeks: Week[] }) {
     return <p className="mt-4 rounded-xl border border-dashed border-equine-line p-5 text-center text-sm text-slate-500">Chưa có dữ liệu tuần trong khoảng ngày này.</p>;
   }
   const series = [
-    { key: "target_minutes" as const, label: "Mục tiêu", color: "#64748b" },
-    { key: "planned_minutes" as const, label: "Đã xếp lịch", color: "#d49a38" },
-    { key: "actual_minutes" as const, label: "Thực hiện", color: "#287765" },
+    { key: "target_minutes" as const, label: "Mục tiêu", color: "#64748B" },
+    { key: "planned_minutes" as const, label: "Đã xếp lịch", color: "#0099CF" },
+    { key: "actual_minutes" as const, label: "Thực hiện", color: "#1040C5" },
   ];
   const chart = { left: 48, top: 18, bottom: 174, height: 220, groupWidth: 64, right: 16 };
   const width = chart.left + weeks.length * chart.groupWidth + chart.right;
@@ -403,8 +403,8 @@ function TrialRunCharts({ runs }: { runs: TrainingAnalysis["trial_runs"] }) {
   if (speedPoints.length === 0 && recoveryPoints.length === 0) return null;
   return (
     <div className="mt-4 grid gap-4 lg:grid-cols-2">
-      {speedPoints.length > 0 && <TrendChart title="Tốc độ trung bình khi chạy thử" unit="km/h" color="#287765" points={speedPoints} />}
-      {recoveryPoints.length > 0 && <TrendChart title="Nhịp tim hồi phục sau chạy thử" unit="bpm" color="#c56545" points={recoveryPoints} />}
+      {speedPoints.length > 0 && <TrendChart title="Tốc độ trung bình khi chạy thử" unit="km/h" color="#1040C5" points={speedPoints} />}
+      {recoveryPoints.length > 0 && <TrendChart title="Nhịp tim hồi phục sau chạy thử" unit="bpm" color="#0099CF" points={recoveryPoints} />}
     </div>
   );
 }
@@ -433,7 +433,7 @@ function TrendChart({ title, unit, color, points: sourcePoints }: { title: strin
   const change = latest.value - first.value;
 
   return (
-    <article className="rounded-xl border border-equine-line p-3">
+    <article className="rounded-lg border border-equine-line p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <h4 className="text-sm font-semibold text-equine-navy">{title}</h4>
         <p className="text-right text-sm font-semibold text-equine-navy">{numberLabel(latest.value)} {unit}</p>
@@ -449,8 +449,8 @@ function TrendChart({ title, unit, color, points: sourcePoints }: { title: strin
           const tickY = y(amount);
           return (
             <g key={index}>
-              <line x1={chart.left} x2={chart.width - chart.right} y1={tickY} y2={tickY} stroke="#e5e7eb" />
-              <text x={chart.left - 7} y={tickY + 4} textAnchor="end" fill="#64748b" fontSize="10">{numberLabel(amount)}</text>
+              <line x1={chart.left} x2={chart.width - chart.right} y1={tickY} y2={tickY} stroke="#E2E8F0" />
+              <text x={chart.left - 7} y={tickY + 4} textAnchor="end" fill="#64748B" fontSize="10">{numberLabel(amount)}</text>
             </g>
           );
         })}
@@ -460,8 +460,8 @@ function TrendChart({ title, unit, color, points: sourcePoints }: { title: strin
             <title>{metricDate(point.recorded_at) + " · " + numberLabel(point.value) + " " + unit}</title>
           </circle>
         ))}
-        <text x={chart.left} y={chart.height - 6} fill="#64748b" fontSize="10">{shortDate(first.recorded_at)}</text>
-        <text x={chart.width - chart.right} y={chart.height - 6} textAnchor="end" fill="#64748b" fontSize="10">{shortDate(latest.recorded_at)}</text>
+        <text x={chart.left} y={chart.height - 6} fill="#64748B" fontSize="10">{shortDate(first.recorded_at)}</text>
+        <text x={chart.width - chart.right} y={chart.height - 6} textAnchor="end" fill="#64748B" fontSize="10">{shortDate(latest.recorded_at)}</text>
       </svg>
       <p className="mt-1 text-xs text-slate-500">
         {points.length} lần chạy · thay đổi từ lần đầu: {change > 0 ? "+" : ""}{numberLabel(change)} {unit}
@@ -472,10 +472,10 @@ function TrendChart({ title, unit, color, points: sourcePoints }: { title: strin
 
 type DevelopmentKey = "body_weight_kg" | "avg_speed_kmh" | "stamina_score" | "max_heart_rate";
 const developmentMeasures: { key: DevelopmentKey; title: string; unit: string; color: string }[] = [
-  { key: "body_weight_kg", title: "Cân nặng", unit: "kg", color: "#b87936" },
-  { key: "avg_speed_kmh", title: "Tốc độ trung bình", unit: "km/h", color: "#287765" },
-  { key: "stamina_score", title: "Điểm thể lực", unit: "/10", color: "#5475a8" },
-  { key: "max_heart_rate", title: "Nhịp tim tối đa", unit: "bpm", color: "#c56545" },
+  { key: "body_weight_kg", title: "Cân nặng", unit: "kg", color: "#1040C5" },
+  { key: "avg_speed_kmh", title: "Tốc độ trung bình", unit: "km/h", color: "#0099CF" },
+  { key: "stamina_score", title: "Điểm thể lực", unit: "/10", color: "#15803D" },
+  { key: "max_heart_rate", title: "Nhịp tim tối đa", unit: "bpm", color: "#B45309" },
 ];
 
 function HorseDevelopment({
@@ -497,7 +497,7 @@ function HorseDevelopment({
   const latestReview = ordered.slice().reverse().find((metric) => metric.trainer_review?.trim())?.trainer_review;
 
   return (
-    <section className="rounded-2xl border border-equine-line bg-white p-5">
+    <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-semibold text-equine-navy">Sự phát triển của ngựa</h3>
@@ -583,9 +583,9 @@ function HorseDevelopment({
 
 function DevelopmentStat({ label, value: amount, detail, warning = false }: { label: string; value: string; detail: string; warning?: boolean }) {
   return (
-    <article className={"rounded-xl border p-3 " + (warning ? "border-rose-200 bg-rose-50" : "border-equine-line bg-slate-50")}>
+    <article className={"rounded-lg border p-3 " + (warning ? "border-amber-200 bg-amber-50" : "border-equine-line bg-slate-50")}>
       <p className="text-xs text-slate-500">{label}</p>
-      <p className={"mt-1 text-lg font-semibold " + (warning ? "text-rose-800" : "text-equine-navy")}>{amount}</p>
+      <p className={"mt-1 text-lg font-semibold " + (warning ? "text-amber-800" : "text-equine-navy")}>{amount}</p>
       <p className="mt-1 text-xs text-slate-500">{detail}</p>
     </article>
   );

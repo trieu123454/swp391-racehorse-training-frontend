@@ -93,12 +93,8 @@ export default function HorseOwnerWorkspace() {
   const TabIcon = selectedTab.icon;
 
   return (
-    <section className="mt-5 space-y-6" aria-labelledby="owner-workspace-title">
-      <div className="flex flex-col gap-3 border-b border-equine-line pb-5 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 id="owner-workspace-title" className="font-sans text-3xl font-semibold text-equine-navy">Theo dõi ngựa của bạn</h2>
-          <p className="mt-1.5 text-sm text-slate-600">Sức khỏe, huấn luyện, thi đấu và chi phí theo từng ngựa.</p>
-        </div>
+    <section className="mt-5 space-y-6" aria-label="Theo dõi ngựa">
+      <div className="flex justify-end border-b border-equine-line pb-5">
         <div className="flex items-center gap-3 text-xs text-slate-500">
           <span>{updatedAt ? `Cập nhật ${formatDateTime(updatedAt.toISOString())}` : "Tự cập nhật mỗi 30 giây"}</span>
           <button type="button" className="soft-button h-10 px-3" disabled={!selectedId || loadingDashboard} onClick={() => void refreshDashboard()} aria-label="Làm mới thông tin">
@@ -110,7 +106,7 @@ export default function HorseOwnerWorkspace() {
       {error && <Notice error>{error}</Notice>}
       <NotificationCenter />
       {loadingHorses ? <Notice>Đang tải ngựa thuộc sở hữu của bạn...</Notice> : horses.length === 0 ? (
-        <div className="rounded-2xl border border-equine-line bg-white p-6 shadow-sm">
+        <div className="rounded-lg border border-equine-line bg-white p-6 shadow-sm">
           <Notice>Bạn chưa có ngựa được liên kết. Mở mục Hồ sơ ngựa ở thanh bên để gửi yêu cầu đăng ký hoặc liên kết.</Notice>
         </div>
       ) : (
@@ -119,8 +115,8 @@ export default function HorseOwnerWorkspace() {
             {horses.map((horse) => (
               <button key={horse.id} type="button" onClick={() => { setSelectedId(horse.id); selectTab("overview"); }}
                 aria-pressed={selectedId === horse.id}
-                className={`flex min-w-0 items-center gap-3 rounded-2xl border p-3 text-left shadow-sm transition ${selectedId === horse.id ? "border-equine-gold bg-[#fffaf2] ring-1 ring-equine-gold/40" : "border-equine-line bg-white hover:border-equine-gold/50"}`}>
-                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-equine-mist"><HorseImage horse={horse} /></div>
+                className={`flex min-w-0 items-center gap-3 rounded-lg border p-3 text-left shadow-sm transition ${selectedId === horse.id ? "border-equine-navy bg-slate-50 ring-1 ring-equine-navy/20" : "border-equine-line bg-white hover:border-equine-teal/50"}`}>
+                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-equine-mist"><HorseImage horse={horse} /></div>
                 <div className="min-w-0 flex-1"><p className="truncate font-semibold text-equine-navy">{horse.horse_name}</p><p className="truncate text-xs text-slate-500">{horse.breed ?? "Chưa cập nhật giống"} · {horse.box_code ?? "Chưa xếp chuồng"}</p></div>
                 <StatusBadge horse={horse} />
               </button>
@@ -128,20 +124,11 @@ export default function HorseOwnerWorkspace() {
           </div>
 
           {currentHorse && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-equine-line bg-white px-4 py-3 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-equine-line bg-white px-4 py-3 shadow-sm">
               <div className="text-sm text-slate-600"><strong className="text-equine-navy">{currentHorse.horse_name}</strong>{currentHorse.section ? ` · Khu ${currentHorse.section}` : ""}{updatedAt ? <span className="ml-2 text-xs text-slate-400">· Làm mới mỗi 30 giây</span> : null}</div>
               <Link href={Routes.horse(currentHorse.id)} className="text-sm font-semibold text-equine-navy underline underline-offset-4">Mở hồ sơ lý lịch</Link>
             </div>
           )}
-
-          <nav className="workspace-secondary-nav flex gap-2 overflow-x-auto rounded-2xl border border-equine-line bg-white p-2" aria-label="Thông tin Horse Owner">
-            {TABS.map(({ id, label, icon: Icon }) => (
-              <button key={id} type="button" onClick={() => selectTab(id)} aria-current={tab === id ? "page" : undefined}
-                className={`flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${tab === id ? "bg-equine-navy text-white" : "text-slate-600 hover:bg-equine-mist"}`}>
-                <Icon size={16} />{label}
-              </button>
-            ))}
-          </nav>
 
           {loadingDashboard && !dashboard ? <Notice>Đang tải dữ liệu của {currentHorse?.horse_name}...</Notice> : dashboard?.horse.id === selectedId ? (
             <div className="space-y-5">
@@ -260,7 +247,7 @@ function FinancePanel({ dashboard, year, onYearChange }: { dashboard: OwnerDashb
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Báo cáo định kỳ</p><h4 className="mt-1 font-sans text-xl font-semibold text-equine-navy">Thu chi theo tháng</h4></div><label className="text-sm font-medium text-slate-600">Năm báo cáo<select aria-label="Năm báo cáo" value={year} onChange={(event) => onYearChange(Number(event.target.value))} className="field-control ml-2 inline-flex h-10 w-28 px-3">{Array.from({ length: new Date().getFullYear() - 1999 }, (_, index) => new Date().getFullYear() - index).map((item) => <option key={item} value={item}>{item}</option>)}</select></label></div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><InfoTile label="Chi phí nuôi dưỡng" value={money(totals.care_cost)} /><InfoTile label="Chi phí y tế" value={money(totals.medical_cost)} /><InfoTile label="Tổng chi phí đã phân loại" value={money(totals.total_expenses)} /><InfoTile label="Doanh thu tiền thưởng" value={money(totals.prize_income)} /></div>
-      {totals.other_amount > 0 && <p className="rounded-xl border border-equine-line bg-white p-3 text-xs text-slate-500">Các khoản chưa nhận diện loại được ghi riêng: {money(totals.other_amount)}.</p>}
+      {totals.other_amount > 0 && <p className="rounded-xl border border-equine-line bg-white p-3 text-xs text-slate-500">Chưa phân loại: {money(totals.other_amount)}.</p>}
       <Panel title="Tổng hợp từng tháng" icon={Wallet}>
         {report.monthly.length === 0 ? <Empty>Chưa có giao dịch tài chính cho năm {year}.</Empty> : <div className="overflow-x-auto"><table className="w-full min-w-[600px] text-left text-sm"><thead className="text-xs uppercase text-slate-500"><tr><th className="pb-3 pr-4">Kỳ</th><th className="pb-3 pr-4">Nuôi dưỡng</th><th className="pb-3 pr-4">Y tế</th><th className="pb-3 pr-4">Tiền thưởng</th><th className="pb-3">Khác</th></tr></thead><tbody>{report.monthly.map((month) => <tr key={month.billing_period} className="border-t border-equine-line"><td className="py-3 pr-4 font-semibold">{month.billing_period}</td><td className="py-3 pr-4">{money(month.care_cost)}</td><td className="py-3 pr-4">{money(month.medical_cost)}</td><td className="py-3 pr-4">{money(month.prize_income)}</td><td className="py-3">{money(month.other_amount)}</td></tr>)}</tbody></table></div>}
       </Panel>
@@ -275,22 +262,22 @@ function VideoCard({ video }: { video: OwnerDashboard["training_videos"][number]
   const url = safeHttpUrl(video.video_url);
   const embed = url ? videoEmbedUrl(url) : null;
   const isFile = url ? /\.(mp4|webm|ogg)(\?.*)?$/i.test(url) : false;
-  return <article className="overflow-hidden rounded-xl border border-equine-line bg-white">
+  return <article className="overflow-hidden rounded-lg border border-equine-line bg-white shadow-sm">
     {embed ? <iframe className="aspect-video w-full bg-slate-950" src={embed} title={video.description ?? "Video tập luyện của ngựa"} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen /> : isFile ? <video className="aspect-video w-full bg-slate-950" controls preload="metadata"><source src={url!} /></video> : <div className="grid aspect-video place-items-center bg-equine-mist text-sm text-slate-500">Video buổi tập</div>}
     <div className="space-y-2 p-4"><p className="font-semibold text-equine-navy">{video.description ?? sessionLabel(video.session_type)}</p><p className="text-xs text-slate-500">{sessionLabel(video.session_type)} · {formatDateTime(video.uploaded_at)}{video.uploaded_by_name ? ` · ${video.uploaded_by_name}` : ""}</p>{url ? <a href={url} target="_blank" rel="noreferrer" className="inline-flex text-sm font-semibold text-equine-navy underline underline-offset-4">Mở video</a> : <p className="text-xs text-rose-700">Đường dẫn video không hợp lệ.</p>}</div>
   </article>;
 }
 
 function Panel({ title, icon: Icon, children }: { title: string; icon: typeof Activity; children: ReactNode }) {
-  return <section className="rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Icon size={18} />{title}</h3>{children}</section>;
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Icon size={18} />{title}</h3>{children}</section>;
 }
 
 function InfoTile({ label, value, detail }: { label: string; value: string; detail?: string }) {
-  return <div className="rounded-xl border border-equine-line bg-[#f7f9ff] p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 break-words text-sm font-semibold text-equine-navy">{value}</p>{detail && <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>}</div>;
+  return <div className="rounded-lg border border-equine-line bg-[#f8fafc] p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 break-words text-sm font-semibold text-equine-navy">{value}</p>{detail && <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>}</div>;
 }
 
 function Empty({ children }: { children: ReactNode }) {
-  return <p className="rounded-xl bg-[#f7f9ff] p-4 text-sm text-slate-500">{children}</p>;
+  return <p className="rounded-lg bg-[#f8fafc] p-4 text-sm text-slate-500">{children}</p>;
 }
 
 function healthLabel(value: string) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, AlertTriangle, ArrowUpRight, CalendarDays, Check, ClipboardList, Flag, Gauge, HeartPulse, Medal, Pencil, Play, Plus, RefreshCw, Search, Timer, Trash2, Users, Utensils, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowUpRight, CalendarDays, Check, CircleHelp, ClipboardList, Flag, Gauge, HeartPulse, Medal, Pencil, Play, Plus, RefreshCw, Search, Trash2, Users, Utensils, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import SessionTargetsEditor from "./SessionTargetsEditor";
@@ -37,17 +37,6 @@ function distanceOptionsWithCurrent(value?: number | null): [string, string][] {
   if (value == null || distanceOptions.some(([distance]) => distance === String(value))) return distanceOptions;
   return [...distanceOptions, [String(value), `${Number(value).toLocaleString("vi-VN")} m (hiện tại)`]];
 }
-const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
-  { id: "overview", label: "Tổng quan", icon: Activity },
-  { id: "plans", label: "Giáo án", icon: ClipboardList },
-  { id: "diet", label: "Khẩu phần ăn", icon: Utensils },
-  { id: "calendar", label: "Lịch tập", icon: CalendarDays },
-  { id: "simulation", label: "Giả lập", icon: Timer },
-  { id: "analysis", label: "Phân tích thể lực", icon: Gauge },
-  { id: "races", label: "Giải đấu", icon: Flag },
-  { id: "incidents", label: "Sự cố", icon: AlertTriangle },
-];
-
 function surfaceLabel(surface?: string | null) {
   const value = surface?.trim().toLowerCase();
   if (!value) return "Chưa chọn mặt sân";
@@ -477,11 +466,10 @@ export default function HeadTrainerWorkspace() {
     setFinishFailed(false); finishStartedRef.current = false; setSimulation(next);
   }
 
-  if (loading) return <div className="mt-10 rounded-2xl border border-equine-line bg-white p-6"><Notice>Đang tải dữ liệu huấn luyện…</Notice></div>;
+  if (loading) return <div className="mt-10 rounded-lg border border-equine-line bg-white p-6 shadow-sm"><Notice>Đang tải dữ liệu huấn luyện…</Notice></div>;
 
-  return <section className="head-trainer-workspace mt-5" aria-labelledby="head-trainer-title">
-    <div className="mb-4 flex items-center justify-between gap-3">
-      <div><h2 id="head-trainer-title" className="font-sans text-3xl font-semibold text-equine-navy">Điều phối huấn luyện</h2></div>
+  return <section className="head-trainer-workspace mt-5" aria-label="Điều phối huấn luyện">
+    <div className="mb-4 flex justify-end gap-3">
       <button type="button" onClick={() => void refresh()} className="soft-button" disabled={busy}><RefreshCw size={15} /> Làm mới</button>
     </div>
     <div className="training-hero" hidden={tab !== "overview"}>
@@ -489,7 +477,7 @@ export default function HeadTrainerWorkspace() {
       <div className="training-hero__copy">
         <p className="training-hero__eyebrow"><span className={featuredSimulation ? "training-live-dot" : "training-hero__dash"} />{featuredSimulation ? "ĐANG CÓ BUỔI TẬP TRỰC TIẾP" : "TỔNG QUAN HUẤN LUYỆN"}</p>
         <h3>{featuredSimulation ? `Theo dõi ${featuredSimulation.horses[0]?.horse_name ?? "buổi tập"}` : "Buổi tập mô phỏng"}</h3>
-        {featuredSimulation && <p>Vận tốc, cự ly và chỉ số cơ thể được cập nhật trực tiếp.</p>}
+
         <div className="training-hero__actions">
           <button type="button" className="training-hero__primary" onClick={() => { if (featuredSimulation) selectSimulation(featuredSimulation); selectTab("simulation"); setError(""); setNotice(""); }}>
             <Play size={16} />{featuredSimulation ? "Theo dõi buổi tập" : "Mở giả lập"}<ArrowUpRight size={16} />
@@ -506,20 +494,17 @@ export default function HeadTrainerWorkspace() {
         </> : <>
           <div className="training-hero__summary-top"><span>MẶT SÂN</span><span>03 LOẠI</span></div>
           <strong>Cỏ · Đất · Nhân tạo</strong>
-          <p>Hình ảnh trường đua thay đổi theo mặt sân của lịch tập.</p>
+
           <div className="training-surface-swatches"><i className="grass" /><i className="dirt" /><i className="synthetic" /></div>
         </>}
       </aside>
     </div>
     {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
     <div className="mt-4"><NotificationCenter /></div>
-    <div className="workspace-secondary-nav trainer-tabs mt-5" role="tablist" aria-label="Chức năng huấn luyện">
-      {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { selectTab(id); setError(""); setNotice(""); }} className={`trainer-tab ${tab === id ? "is-active" : ""} ${id === "incidents" && tab !== id ? "is-alert" : ""}`}><Icon size={16} />{label}{id === "incidents" && <span className="trainer-tab__count">{incidents.length}</span>}{id === "simulation" && featuredSimulation && <span className="trainer-tab__live">LIVE</span>}</button>)}
-    </div>
     <div className="mt-5 space-y-4">
       {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} />
         : !horses.length ? <Notice>Chưa có hồ sơ ngựa đang hoạt động.</Notice> : <>
-        {tab !== "simulation" && <div className="flex flex-wrap items-center gap-3 rounded-xl border border-equine-line bg-white p-3">
+        {tab !== "simulation" && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-equine-line bg-white p-3">
           <label className="text-xs font-bold uppercase tracking-wide text-slate-500" htmlFor="trainer-horse">Ngựa đang xem</label>
           <select id="trainer-horse" className="field-control max-w-sm px-3" value={horseId} onChange={(event) => setHorseId(event.target.value)}>{horses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}{horse.is_training_locked ? " · Đang khóa" : ""}</option>)}</select>
           {selectedOverview?.is_training_locked && <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700"><AlertTriangle size={14} /> Khóa huấn luyện · {selectedOverview.lock_reason}</span>}
@@ -549,9 +534,9 @@ function TrainerIncidentsPanel({ incidents, busy, onSubmit }: {
   busy: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>, incidentId: string) => void | Promise<void>;
 }) {
-  return <Section title="Sự cố được giao cho bạn" description="Xem hướng dẫn, gửi kết quả xử lý để Club Manager đóng sự cố." icon={AlertTriangle}>
+  return <Section title="Sự cố được giao cho bạn" help="Xem hướng dẫn, gửi kết quả xử lý để Club Manager đóng sự cố." icon={AlertTriangle}>
     {!incidents.length ? <p className="text-sm text-slate-500">Hiện chưa có sự cố nào được giao cho bạn.</p>
-      : <div className="space-y-3">{incidents.map((incident) => <article key={incident.id} className={`rounded-xl border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/40" : "border-equine-line bg-white"}`}>
+      : <div className="space-y-3">{incidents.map((incident) => <article key={incident.id} className={`rounded-lg border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/40" : "border-equine-line bg-white"}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h3 className="font-semibold text-equine-navy">{incident.horse_name}</h3>
             <p className="mt-1 text-xs text-slate-500">{incident.groom_name ?? "Groom"} · {new Date(incident.created_at).toLocaleString("vi-VN")}</p>
@@ -593,21 +578,21 @@ function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, co
       <StatCard icon={Activity} label="Có dữ liệu thể lực" value={String(overview.filter((item) => item.recorded_at).length)} />
     </div>
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-      <Section title="Ưu tiên theo dõi" description="Ngựa bị khóa hoặc có cảnh báo gần nhất được xếp lên trước." icon={AlertTriangle}>
+      <Section title="Ưu tiên theo dõi" help="Ngựa bị khóa hoặc có cảnh báo gần nhất được xếp lên trước." icon={AlertTriangle}>
         <label className="relative mb-3 block">
           <span className="sr-only">Tìm ngựa theo tên</span>
           <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input type="search" value={prioritySearch} onChange={(event) => setPrioritySearch(event.target.value)} placeholder="Tìm ngựa theo tên..." className="field-control pl-9 pr-3" />
         </label>
-        <div className="space-y-2">{visiblePriorityHorses.map((item) => <div key={item.horse_id} className="flex items-center gap-3 rounded-xl border border-equine-line p-3">
+        <div className="space-y-2">{visiblePriorityHorses.map((item) => <div key={item.horse_id} className="flex items-center gap-3 rounded-lg border border-equine-line p-3">
           <HorsePhoto id={item.horse_id} name={item.horse_name} image={item.image_url} />
           <div className="min-w-0 flex-1"><p className="truncate font-semibold text-equine-navy">{item.horse_name}</p><p className="text-xs text-slate-500">{metricDate(item.recorded_at)}</p></div>
           {item.is_training_locked && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Đang khóa</span>}
           {!item.is_training_locked && item.has_injury_alert && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">Cảnh báo</span>}
           <span className="text-right text-xs text-slate-600">{item.stamina_score ?? "—"}<small className="block">thể lực</small></span>
-        </div>)}{visiblePriorityHorses.length === 0 && <p className="rounded-xl border border-dashed border-equine-line p-4 text-center text-sm text-slate-500">Không tìm thấy ngựa phù hợp.</p>}</div>
+        </div>)}{visiblePriorityHorses.length === 0 && <p className="rounded-lg border border-dashed border-equine-line p-4 text-center text-sm text-slate-500">Không tìm thấy ngựa phù hợp.</p>}</div>
       </Section>
-      <Section title="So sánh chỉ số theo thời gian" description="Mỗi ngày là một nhóm cột; màu sắc đại diện cho từng ngựa." icon={Activity}>
+      <Section title="So sánh chỉ số theo thời gian" help="Mỗi ngày là một nhóm cột; màu sắc đại diện cho từng ngựa." icon={Activity}>
         <div className="grid gap-3 sm:grid-cols-2"><Field label="Từ ngày" name="from" type="date" value={from} onChange={setFrom} /><Field label="Đến ngày" name="to" type="date" value={to} onChange={setTo} /></div>
         <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={includeSimulated} onChange={(event) => setIncludeSimulated(event.target.checked)} />Gồm dữ liệu mô phỏng</label>
         <label className="mt-3 block max-w-sm"><span className="field-label">Chỉ số cần theo dõi</span><select className="field-control px-3" value={comparisonMetric} onChange={(event) => setComparisonMetric(event.target.value as ComparisonMetricKey)}>{comparisonMetrics.map((metric) => <option key={metric.key} value={metric.key}>{metric.label} ({metric.unit})</option>)}</select></label>
@@ -615,13 +600,13 @@ function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, co
         <ComparisonChart compare={compare} metricKey={comparisonMetric} />
       </Section>
     </div>
-    <Section title="Lần đo gần nhất" description={`${selected?.horse_name ?? "Các ngựa"} · dữ liệu sắp theo thời gian`} icon={Gauge}>
+    <Section title="Lần đo gần nhất" description={selected?.horse_name ?? "Các ngựa"} icon={Gauge}>
       <div className="overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead><tr className="border-b border-equine-line text-xs uppercase text-slate-500"><th className="py-2">Thời điểm</th><th>Cân nặng</th><th>Nhịp tim tối đa</th><th>Tốc độ TB</th><th>Thể lực</th><th>Cảnh báo</th></tr></thead><tbody>{metrics.slice().reverse().slice(0, 12).map((point, index) => <tr key={point.id ?? `${point.recorded_at}-${index}`} className="border-b border-equine-line/70"><td className="py-2">{metricDate(point.recorded_at)}{point.is_simulated && <small className="ml-1 text-violet-700">· Mô phỏng</small>}</td><td>{point.body_weight_kg ?? "—"} kg</td><td>{point.max_heart_rate ?? "—"} bpm</td><td>{point.avg_speed_kmh ?? "—"} km/h</td><td>{point.stamina_score ?? "—"}</td><td>{point.has_injury_alert ? <span className="text-rose-700">Cần lưu ý</span> : "—"}</td></tr>)}</tbody></table>{metrics.length === 0 && <p className="py-4 text-sm text-slate-500">Chưa có chỉ số trong khoảng thời gian này.</p>}</div>
     </Section>
   </div>;
 }
 
-const chartColors = ["#4169e1", "#d17a2b", "#2f855a", "#805ad5", "#d64545", "#159a9c", "#8c5a3c", "#c44b86"];
+const chartColors = ["#1040C5", "#0099CF", "#15803D", "#B45309", "#B91C1C", "#6366F1", "#8B5CF6", "#EC4899"];
 type ComparisonMetricKey = "avg_speed_kmh" | "stamina_score" | "max_heart_rate" | "body_weight_kg" | "bp_systolic" | "bp_diastolic";
 const comparisonMetrics: { key: ComparisonMetricKey; label: string; unit: string }[] = [
   { key: "avg_speed_kmh", label: "Tốc độ trung bình", unit: "km/h" },
@@ -668,12 +653,12 @@ function ComparisonChart({ compare, metricKey }: {
   }));
   const allPoints = rows.flatMap((row) => row.points);
   if (compare.length === 0) {
-    return <div className="mt-5 rounded-xl border border-dashed border-equine-line bg-slate-50 p-6 text-center text-sm text-slate-500">
+    return <div className="mt-5 rounded-lg border border-dashed border-equine-line bg-slate-50 p-6 text-center text-sm text-slate-500">
       Chọn ít nhất một ngựa để xem biểu đồ so sánh.
     </div>;
   }
   if (allPoints.length === 0) {
-    return <div className="mt-5 rounded-xl border border-dashed border-equine-line bg-slate-50 p-6 text-center text-sm text-slate-500">
+    return <div className="mt-5 rounded-lg border border-dashed border-equine-line bg-slate-50 p-6 text-center text-sm text-slate-500">
       Chưa có lần đo {definition.label.toLowerCase()} trong khoảng ngày này. Hãy mở rộng khoảng ngày, bật dữ liệu mô phỏng hoặc ghi chỉ số sau khi hoàn tất buổi tập.
     </div>;
   }
@@ -708,7 +693,7 @@ function ComparisonChart({ compare, metricKey }: {
       </span>)}
       <span className="ml-auto text-slate-500">Trục dọc: {definition.label} ({definition.unit})</span>
     </div>
-    <div className="overflow-x-auto rounded-xl border border-equine-line bg-[#f7f8fa] px-2 py-2">
+    <div className="overflow-x-auto rounded-lg border border-equine-line bg-[#f8fafc] px-2 py-2">
       <svg
         viewBox={"0 0 " + chartWidth + " " + chart.height}
         className="block h-[300px] w-full"
@@ -720,17 +705,17 @@ function ComparisonChart({ compare, metricKey }: {
         {yTicks.map((tick, index) => {
           const tickY = y(tick);
           return <g key={`y-${index}`}>
-            <line x1={chart.left} x2={chartWidth - chart.right} y1={tickY} y2={tickY} stroke={index === yTicks.length - 1 ? "#94a3b8" : "#d9dee7"} />
-            <text x={chart.left - 10} y={tickY + 4} textAnchor="end" fill="#6b7280" fontSize="11">{formatChartValue(tick)}</text>
+            <line x1={chart.left} x2={chartWidth - chart.right} y1={tickY} y2={tickY} stroke={index === yTicks.length - 1 ? "#CBD5E1" : "#E2E8F0"} />
+            <text x={chart.left - 10} y={tickY + 4} textAnchor="end" fill="#64748B" fontSize="11">{formatChartValue(tick)}</text>
           </g>;
         })}
-        <line x1={chart.left} x2={chartWidth - chart.right} y1={zeroY} y2={zeroY} stroke="#94a3b8" />
+        <line x1={chart.left} x2={chartWidth - chart.right} y1={zeroY} y2={zeroY} stroke="#CBD5E1" />
         {dateKeys.map((dateKey, index) => {
           const center = chart.left + index * effectiveGroupWidth + effectiveGroupWidth / 2;
           const clusterWidth = chartRows.length * barWidth + Math.max(chartRows.length - 1, 0) * barGap;
           const startX = center - clusterWidth / 2;
           return <g key={dateKey}>
-            <line x1={center} x2={center} y1={chart.top} y2={chart.bottom} stroke="#e5e7eb" />
+            <line x1={center} x2={center} y1={chart.top} y2={chart.bottom} stroke="#E2E8F0" />
             {chartRows.map((row, rowIndex) => {
               const point = row.dailyPoints.get(dateKey);
               if (!point) return null;
@@ -766,7 +751,7 @@ function ComparisonChart({ compare, metricKey }: {
         const first = row.points[0];
         const latest = row.points[row.points.length - 1];
         const change = first && latest ? latest.value - first.value : null;
-        return <details key={row.horse_id} className="rounded-xl border border-equine-line bg-slate-50 p-3">
+        return <details key={row.horse_id} className="rounded-lg border border-equine-line bg-slate-50 p-3">
           <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 text-sm">
             <span className="inline-flex min-w-0 items-center gap-2 font-semibold text-equine-navy"><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.color }} /><span className="truncate">{row.horse_name}</span></span>
             {latest ? <span className="text-right"><strong>{formatChartValue(latest.value)} {definition.unit}</strong><span className="ml-2 text-xs font-normal text-slate-500">{row.points.length} lần đo</span></span> : <span className="text-xs text-slate-500">Chưa có dữ liệu</span>}
@@ -798,7 +783,7 @@ function PlansPanel({ horse, horses, plans, activeOnly, setActiveOnly, editingPl
   const normalizedSearch = normalizeHorseSearch(horseSearch.trim());
   const visibleHorses = horses.filter((item) => normalizeHorseSearch(item.horse_name).includes(normalizedSearch));
   return <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
-    <Section title="Tạo giáo án theo giai đoạn" description="Chọn một hoặc nhiều ngựa để dùng chung giáo án." icon={Plus}>
+    <Section title="Tạo giáo án theo giai đoạn" help="Chọn một hoặc nhiều ngựa để dùng chung giáo án." icon={Plus}>
       <form onSubmit={onCreate} className="mt-3 grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <span className="field-label">Ngựa áp dụng *</span>
@@ -832,7 +817,7 @@ function PlansPanel({ horse, horses, plans, activeOnly, setActiveOnly, editingPl
       </form>
       <p className="mt-3 text-xs leading-5 text-slate-500">Giáo án được dùng chung cho các ngựa đã chọn. Để bắt đầu thực hiện, chọn giáo án ở danh sách bên cạnh rồi lên lịch từng buổi tập với ngày, giờ và Groom.</p>
     </Section>
-    <Section title={horse ? `Giáo án của ${horse.horse_name}` : "Giáo án của ngựa"} description="Giáo án mô tả mục tiêu giai đoạn; lên lịch từng buổi để thực hiện. Có thể sửa trước hạn của buổi tập gần nhất." icon={ClipboardList} action={<label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} />Chỉ đang hoạt động</label>}>
+    <Section title={horse ? `Giáo án của ${horse.horse_name}` : "Giáo án của ngựa"} help="Giáo án mô tả mục tiêu giai đoạn; lên lịch từng buổi để thực hiện. Có thể sửa trước hạn của buổi tập gần nhất." icon={ClipboardList} action={<label className="inline-flex items-center gap-2 text-xs"><input type="checkbox" checked={activeOnly} onChange={(event) => setActiveOnly(event.target.checked)} />Chỉ đang hoạt động</label>}>
       <div className="space-y-3">{plans.map((plan) => <article key={plan.id} className="rounded-xl border border-equine-line p-4">
         {editingPlan === plan.id ? <form onSubmit={(event) => onUpdate(event, plan.id)} className="grid gap-2 sm:grid-cols-2">
           <Field label="Tên giai đoạn" name="stage_name" required defaultValue={plan.stage_name} />
@@ -971,7 +956,7 @@ function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, sch
     return () => window.clearInterval(interval);
   }, []);
   return <div className="trainer-calendar space-y-5">
-    <Section title="Tạo buổi tập" description="Ngựa không thể có lịch tập chồng thời gian." icon={Plus}>
+    <Section title="Tạo buổi tập" help="Ngựa không thể có lịch tập chồng thời gian." icon={Plus}>
       <form ref={createFormRef} onSubmit={onCreate} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SelectField label="Ngựa" name="horse_id" value={createHorse} onChange={(id) => { setCreateHorse(id); setSelectedPlanId(""); onDraftUsed(); }} options={horses.map((horse) => [horse.id, horse.horse_name])} />
         <SelectField label="Giáo án" name="training_plan_id" required={sessionType !== "Rest"} value={selectedPlanId} onChange={setSelectedPlanId} options={[["", "Không gắn giáo án"], ...horsePlans.map((plan) => [plan.id, plan.stage_name] as [string, string])]} />
@@ -992,9 +977,9 @@ function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, sch
         <div className="flex items-end"><button className="gold-button w-full" disabled={busy}><CalendarDays size={15} /> Tạo lịch</button></div>
       </form>
     </Section>
-    <Section title="Lịch tập" description="Chỉ bắt đầu trong khung giờ đã đặt; chỉ ghi chỉ số sau khi buổi tập hoàn tất." icon={CalendarDays}>
+    <Section title="Lịch tập" help="Chỉ bắt đầu trong khung giờ đã đặt; chỉ ghi chỉ số sau khi buổi tập hoàn tất." icon={CalendarDays}>
       <div className="trainer-calendar__filters"><Field label="Từ ngày" name="from" type="date" value={from} onChange={setFrom} /><Field label="Đến ngày" name="to" type="date" value={to} onChange={setTo} /></div>
-      <div className="trainer-calendar__list-heading"><div><h4>Danh sách buổi tập</h4><p>Thông tin và thao tác được sắp xếp riêng cho từng buổi.</p></div><span>{sessions.length} buổi</span></div>
+      <div className="trainer-calendar__list-heading"><div><h4>Danh sách buổi tập</h4></div><span>{sessions.length} buổi</span></div>
       <div className="trainer-calendar__list">{sessions.map((session) => {
         const window = sessionWindow(session);
         const insideTimeWindow = Boolean(window && nowMs >= window.start && nowMs < window.end);
@@ -1112,7 +1097,7 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
   }
   const isReady = selectedHorse?.readiness_status === "Ready";
   return <div className="space-y-5">
-    <Section title="Mô phỏng thi đấu 3D" description="Dùng nguyên mô hình sân bạn gửi; chọn tối đa năm ngựa để chạy trong năm làn." icon={Flag}>
+    <Section title="Mô phỏng thi đấu 3D" help="Dùng nguyên mô hình sân bạn gửi; chọn tối đa năm ngựa để chạy trong năm làn." icon={Flag}>
       <div className="race-competition-layout">
         <div className="min-w-0">
           <RaceTrackScene3D surface={trackSurface} runners={raceRunners} targetDistanceMeters={targetDistance} isRunning={runStartTime != null} runStartTime={runStartTime} />
@@ -1144,18 +1129,18 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
           <button type="button" className="gold-button w-full justify-center" disabled={!raceRunners.length} onClick={() => setRunStartTime(Date.now())}>
             <Play size={15} />{runStartTime == null ? "Chạy mô phỏng 3D" : "Chạy lại mô phỏng"}
           </button>
-          <p className="text-xs leading-5 text-slate-500">Mô phỏng hiển thị trong mô hình 3D; việc đăng ký giải và lưu kết quả vẫn dùng biểu mẫu bên dưới.</p>
+
         </div>
       </div>
     </Section>
 
     <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
-      <Section title="Đăng ký vào giải" description={selectedHorse ? selectedHorse.horse_name + " · chỉ giải từ hôm nay trở đi" : "Chọn ngựa"} icon={Flag}>
+    <Section title="Đăng ký giải" description={selectedHorse?.horse_name ?? "Chọn ngựa"} help="Chỉ chọn giải từ hôm nay trở đi." icon={Flag}>
         {selectedHorse?.is_training_locked && <Notice error>Ngựa đang khóa huấn luyện và chưa thể đăng ký.</Notice>}
         {selectedHorse && !isReady && <Notice error>Vet cần đánh giá ngựa sẵn sàng thi đấu trước khi đăng ký giải.</Notice>}
         <p className="text-sm text-slate-600">Giải được chọn: <strong className="text-equine-navy">{selectedRace?.race_name ?? "Chưa chọn"}</strong></p>
         <button type="button" className="gold-button mt-3" disabled={busy || !raceId || !selectedHorse || selectedHorse.is_training_locked || !isReady} onClick={() => onRegister(raceId)}><Plus size={15} /> Đăng ký ngựa</button>
-        <p className="mt-2 text-xs text-slate-500">Hệ thống từ chối nếu ngựa đã có hoạt động khác cùng ngày.</p>
+        <p className="mt-2 text-xs text-slate-500">Mỗi ngựa chỉ có một hoạt động mỗi ngày.</p>
       </Section>
       <Section title="Lịch sử giải đấu" description={entries.length + " thành tích"} icon={Medal}>
         <div className="space-y-3">{entries.map((entry, index) => {
@@ -1193,7 +1178,7 @@ function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simu
       && window && nowMs >= window.start && nowMs < window.end;
   });
   return <div className="space-y-5">
-    {activeSimulations.length > 0 && <Section title="Buổi tập đang chạy" description="Chọn phiên để theo dõi; dữ liệu vẫn được ghi nhận khi bạn chuyển ngựa hoặc tải lại trang." icon={Activity}>
+    {activeSimulations.length > 0 && <Section title="Buổi tập đang chạy" help="Chọn phiên để theo dõi; dữ liệu vẫn được ghi nhận khi bạn chuyển ngựa hoặc tải lại trang." icon={Activity}>
       <div className="flex flex-wrap gap-2">{activeSimulations.map(item => <button key={item.simulation_id} type="button" className={item.simulation_id === simulation?.simulation_id ? "gold-button" : "soft-button"} disabled={busy} onClick={() => onSelectSimulation(item)}>
         {item.horses[0]?.horse_name} · {Math.round(item.elapsed_seconds / item.duration_seconds * 100)}%
       </button>)}</div>
@@ -1208,7 +1193,7 @@ function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simu
         <div className="training-live-card__percent"><strong>{Math.round(progress * 100)}%</strong><span>thời lượng</span></div>
       </header>
       <div className="training-live-card__progress"><span style={{ width: `${progress * 100}%` }} /></div>
-      {simulation.model_version != null && simulation.model_version < 5 && <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+      {simulation.model_version != null && simulation.model_version < 5 && <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
         <p className="text-sm font-semibold text-amber-950">Phiên này được tạo bằng công thức vận tốc cũ.</p>
         <p className="mt-1 text-xs text-amber-900">Có thể chạy lại ngay theo cường độ và vận tốc ngựa đua; dữ liệu phiên cũ vẫn được giữ trong lịch sử.</p>
         {simulation.status === "Running" && simulation.training_schedule_id && <button type="button" className="gold-button mt-3" disabled={busy} onClick={() => onRestartSimulation(simulation)}><RefreshCw size={14}/> Chạy lại theo công thức mới</button>}
@@ -1238,11 +1223,11 @@ function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simu
           Cường độ cao &gt; {simulation.alert_thresholds.high_intensity_heart_rate_bpm} bpm qua {simulation.alert_thresholds.high_intensity_sustained_samples} mẫu liên tiếp.
         </p>
       </details>}
-      {!!simulation.alerts?.length && <div role="alert" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+      {!!simulation.alerts?.length && <div role="alert" className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
         <p className="font-semibold">Cảnh báo chỉ số mô phỏng</p>
         <ul className="mt-1 list-inside list-disc space-y-1">{simulation.alerts.map(alert => <li key={alert.code}>{alert.message} ({alert.value} {alert.unit})</li>)}</ul>
       </div>}
-      <p className="mt-2 text-xs text-slate-500">Cảnh báo mô phỏng không tự khóa huấn luyện. Bác sĩ Thú y quyết định khóa hoặc mở khóa.</p>
+      <p className="mt-2 text-xs text-slate-500">Cảnh báo mô phỏng không tự khóa tập; bác sĩ thú y quyết định.</p>
       <div className="training-live-card__phase"><span>PHA TẬP</span><strong>{({Warmup:"Khởi động",Work:"Vận động chính",Cooldown:"Giảm cường độ",Recovery:"Hồi phục"} as Record<string,string>)[phase] ?? "Đang tải"}</strong>{simulation.distance_meters > 0 && <span>Đích đến {simulation.distance_meters.toLocaleString("vi-VN")} m</span>}</div>
       {simulation.status === "Running" && <p className="mt-3 text-sm text-slate-500">Có thể tải lại trang để tiếp tục theo dõi. Hủy lịch tại tab Lịch tập sẽ dừng giả lập và giữ dữ liệu đã thu.</p>}
       <details className="training-live-card__details"><summary>Biểu đồ cảm biến</summary><div className="pt-4"><SensorTimeline readings={readings}/></div></details>
@@ -1252,7 +1237,7 @@ function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simu
       {finishFailed && <button type="button" className="soft-button mt-3" onClick={onRetryFinish} disabled={busy}>Thử lưu kết quả lại</button>}
       {(ranking.length > 0 || simulation.status === "Completed") && <Notice>Đã hoàn tất buổi tập và lưu chỉ số vào biểu đồ phân tích.</Notice>}
     </section>}
-    <Section title="Chuẩn bị buổi tập mô phỏng" description="Chọn tối đa 5 buổi đã có lịch, Groom và đang trong khung giờ tập để mô phỏng riêng hoặc theo nhóm." icon={Play}>
+    <Section title="Chuẩn bị buổi tập mô phỏng" help="Chọn tối đa 5 buổi đã có lịch, Groom và đang trong khung giờ tập để mô phỏng riêng hoặc theo nhóm." icon={Play}>
       <form onSubmit={onStart} className="training-start-form">
         <SelectField label="Tình huống mô phỏng" name="scenario" options={[["Normal", "Phản ứng vận động bình thường"], ["Fatigue", "Phản ứng tải cao, hồi phục chậm"]]} />
         <fieldset className="training-session-options"><legend className="field-label">Buổi tập đang sẵn sàng</legend>{eligible.map(session => <label key={session.training_schedule_id} className="training-session-option">
@@ -1270,12 +1255,12 @@ function HorsePhoto({ id, name, image }: { id: string; name: string; image?: str
   return <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-equine-mist"><HorseImage horse={{ id, horse_name: name, image_url: image ?? null } as Horse} /></div>;
 }
 
-function Section({ title, description, icon: Icon, children, action }: { title: string; description?: string; icon: typeof Activity; children: ReactNode; action?: ReactNode }) {
-  return <section className="rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{description && <p className="mt-1 text-sm text-slate-500">{description}</p>}</div></div>{action}</div>{children}</section>;
+function Section({ title, description, help, icon: Icon, children, action }: { title: string; description?: string; help?: string; icon: typeof Activity; children: ReactNode; action?: ReactNode }) {
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{help && <details className="relative text-slate-500"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100" aria-label={`Giải thích ${title}`} title={`Giải thích ${title}`}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{help}</p></details>}</div>{description && <p className="mt-1 text-sm text-slate-500">{description}</p>}</div></div>{action}</div>{children}</section>;
 }
 
 function StatCard({ icon: Icon, label, value, warning = false }: { icon: typeof Activity; label: string; value: string; warning?: boolean }) {
-  return <article className={`rounded-xl border p-4 ${warning ? "border-rose-200 bg-rose-50" : "border-equine-line bg-white"}`}><Icon className={warning ? "text-rose-700" : "text-equine-gold"} size={18} /><p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 text-2xl font-semibold text-equine-navy">{value}</p></article>;
+  return <article className={`rounded-lg border p-4 ${warning ? "border-rose-200 bg-rose-50" : "border-equine-line bg-white"}`}><Icon className={warning ? "text-rose-700" : "text-equine-teal"} size={18} /><p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 text-2xl font-semibold text-equine-navy">{value}</p></article>;
 }
 
 function Field({ label, name, type = "text", required = false, defaultValue, value, onChange, maxLength, min, max, step, placeholder, pattern, inputMode, title }: {
@@ -1305,8 +1290,8 @@ function StandardDietPanel({ horseName, records, editing, busy, onEdit, onCancel
   onCancel: () => void;
   onSave: (event: FormEvent<HTMLFormElement>, dietId?: string) => void | Promise<void>;
 }) {
-  return <Section title="Duyệt khẩu phần thức ăn thường" description={`Head Trainer duyệt khẩu phần vận động cho ${horseName}. Khẩu phần điều trị và quyết định thuốc thuộc Veterinarian.`} icon={Utensils}>
-    <form key={editing?.id ?? `new-${horseName}`} onSubmit={(event) => void onSave(event, editing?.id)} className="grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-3">
+  return <Section title="Duyệt khẩu phần" description={horseName} help="HLV trưởng duyệt khẩu phần vận động; bác sĩ thú y phụ trách điều trị và thuốc." icon={Utensils}>
+    <form key={editing?.id ?? `new-${horseName}`} onSubmit={(event) => void onSave(event, editing?.id)} className="grid gap-3 rounded-lg border border-equine-line bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-3">
       <label className="block"><span className="field-label">Loại thức ăn</span><input className="field-control px-3" name="feed_type" maxLength={100} defaultValue={editing?.feed_type ?? ""} required placeholder="Cỏ khô, thức ăn viên..." /></label>
       <label className="block"><span className="field-label">Khẩu phần (kg)</span><input className="field-control px-3" name="quantity_kg" type="number" min="0.01" max="9999.99" step="0.01" defaultValue={editing?.quantity_kg ?? ""} required /></label>
       <label className="block"><span className="field-label">Tần suất / giờ ăn</span><input className="field-control px-3" name="feeding_frequency" maxLength={50} defaultValue={editing?.feeding_frequency ?? ""} placeholder="Ví dụ: 3 lần/ngày" /></label>
@@ -1315,6 +1300,6 @@ function StandardDietPanel({ horseName, records, editing, busy, onEdit, onCancel
       <label className="block sm:col-span-2 lg:col-span-3"><span className="field-label">Hướng dẫn cho Groom</span><textarea className="field-control min-h-20 px-3 py-2" name="special_instructions" /></label>
       <div className="flex gap-2 sm:col-span-2 lg:col-span-3"><button className="gold-button" disabled={busy}><Check size={15} />{editing ? "Lưu khẩu phần" : "Duyệt khẩu phần"}</button>{editing && <button type="button" className="soft-button" onClick={onCancel}>Hủy sửa</button>}</div>
     </form>
-    <div className="mt-4 space-y-2">{records.map((record) => <article key={record.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-equine-line p-3"><div><p className="font-semibold text-equine-navy">{record.feed_type} · {record.quantity_kg} kg{record.feeding_frequency ? ` · ${record.feeding_frequency}` : ""}</p><p className="mt-1 text-xs text-slate-500">{record.effective_date} → {record.end_date ?? "Đang áp dụng"}</p>{record.special_instructions && <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{record.special_instructions}</p>}</div><button type="button" className="soft-button" onClick={() => onEdit(record.id)}><Pencil size={14} /> Sửa khẩu phần</button></article>)}{!records.length && <p className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Ngựa này chưa có khẩu phần thường đang áp dụng. Hãy nhập và duyệt khẩu phần ở trên.</p>}</div>
+    <div className="mt-4 space-y-2">{records.map((record) => <article key={record.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-equine-line p-3"><div><p className="font-semibold text-equine-navy">{record.feed_type} · {record.quantity_kg} kg{record.feeding_frequency ? ` · ${record.feeding_frequency}` : ""}</p><p className="mt-1 text-xs text-slate-500">{record.effective_date} → {record.end_date ?? "Đang áp dụng"}</p>{record.special_instructions && <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{record.special_instructions}</p>}</div><button type="button" className="soft-button" onClick={() => onEdit(record.id)}><Pencil size={14} /> Sửa khẩu phần</button></article>)}{!records.length && <p className="rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-500">Ngựa này chưa có khẩu phần thường đang áp dụng. Hãy nhập và duyệt khẩu phần ở trên.</p>}</div>
   </Section>;
 }

@@ -68,10 +68,10 @@ export default function ChangePasswordPage() {
     <main className="grid min-h-screen place-items-center bg-equine-paper px-4 py-10">
       <section className="w-full max-w-xl rounded-[28px] border border-equine-line bg-white p-6 shadow-[0_30px_80px_-40px_rgba(11,25,44,0.5)] sm:p-10">
         <Link href={Routes.home} className="inline-flex"><Brand /></Link>
-        <h1 className="mt-8 font-sans text-3xl font-semibold text-equine-navy">Đổi mật khẩu lần đầu</h1>
+        <h1 className="mt-8 font-sans text-3xl font-semibold text-equine-navy">Đổi mật khẩu</h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
           {user
-            ? `Xin chào ${user.fullName}. Hãy nhập mật khẩu tạm thời Club Manager đã cấp và chọn mật khẩu mới để tiếp tục.`
+            ? `Xin chào ${user.fullName}. Dùng mật khẩu tạm để đặt mật khẩu mới.`
             : "Đang xác thực tài khoản..."}
         </p>
         <form className="mt-7 space-y-5" onSubmit={submit}>

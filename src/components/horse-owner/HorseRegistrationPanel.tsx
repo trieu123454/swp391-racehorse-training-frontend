@@ -112,13 +112,13 @@ export default function HorseRegistrationPanel() {
   }
 
   return (
-    <section className="overflow-hidden rounded-[26px] border border-[#eadfd2] bg-white shadow-[0_20px_55px_-35px_rgba(73,48,30,0.4)]" aria-labelledby="horse-registration-title">
-      <header className="border-b border-[#eee2d6] bg-gradient-to-br from-[#fff8ef] via-white to-[#fbf0e6] p-5 sm:p-6">
+    <section className="overflow-hidden rounded-lg border border-equine-line bg-white shadow-sm" aria-labelledby="horse-registration-title">
+      <header className="border-b border-equine-line bg-slate-50 p-5 sm:p-6">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_310px] lg:items-center">
           <div className="py-2">
-            <h2 id="horse-registration-title" className="font-sans text-2xl font-semibold tracking-tight text-equine-navy sm:text-3xl">Gửi yêu cầu</h2>
+            <h2 id="horse-registration-title" className="font-sans text-2xl font-semibold tracking-tight text-equine-navy sm:text-3xl">Gửi yêu cầu hồ sơ ngựa</h2>
           </div>
-          <div className="relative h-32 overflow-hidden rounded-2xl shadow-[0_14px_30px_-18px_rgba(32,26,20,0.6)] sm:h-36">
+          <div className="relative h-32 overflow-hidden rounded-lg shadow-sm sm:h-36">
             <Image src="/img/hero-racehorse.webp" alt="Ngựa đua trên đường tập" fill priority sizes="(max-width: 1024px) 100vw, 310px" className="object-cover object-center" />
           </div>
         </div>
@@ -135,12 +135,12 @@ export default function HorseRegistrationPanel() {
 
         <form onSubmit={(event) => void submit(event)}>
           <div className="space-y-4">
-            <section className="rounded-2xl border border-equine-line bg-[#fffdfa] p-4 sm:p-5">
+            <section className="rounded-lg border border-equine-line bg-white p-4 sm:p-5">
               <div className="mb-4 flex items-center gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#f8e7d8] text-[#a44e24]"><ClipboardList size={19} /></span>
+                <span className="grid h-10 w-10 place-items-center rounded-md bg-teal-50 text-equine-teal"><ClipboardList size={19} /></span>
                 <h4 className="font-sans text-lg font-semibold text-equine-navy">Thông tin ngựa</h4>
               </div>
-              <label className="mb-4 block rounded-xl border border-[#f0dfd1] bg-[#fff7f0] p-3">
+              <label className="mb-4 block rounded-md border border-equine-line bg-slate-50 p-3">
                 <span className="field-label">Loại yêu cầu</span>
                 <select className="field-control mt-1 bg-white px-3" value={requestType} onChange={(event) => setRequestType(event.target.value as HorseRegistrationSubmission["requestType"])}>
                   <option value="REGISTER">Đăng ký ngựa mới</option>
@@ -148,7 +148,7 @@ export default function HorseRegistrationPanel() {
                 </select>
               </label>
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block sm:col-span-2"><span className="field-label">Tên ngựa <span className="text-[#bf5d31]">*</span></span><input className="field-control px-3" name="horseName" maxLength={100} placeholder="Ví dụ: Golden Wind" required /></label>
+                <label className="block sm:col-span-2"><span className="field-label">Tên ngựa <span className="text-rose-600">*</span></span><input className="field-control px-3" name="horseName" maxLength={100} placeholder="Ví dụ: Golden Wind" required /></label>
                 <label className="block"><span className="field-label">Giống</span><input className="field-control px-3" name="breed" maxLength={50} placeholder="Thoroughbred, Arab…" /></label>
                 <label className="block"><span className="field-label">Năm sinh</span><input className="field-control px-3" name="birthYear" type="number" min="1900" max={new Date().getFullYear()} placeholder="2021" /></label>
                 <label className="block"><span className="field-label">Chiều cao (cm)</span><input className="field-control px-3" name="heightCm" type="number" min="50" max="250" step="0.1" placeholder="165" /></label>
@@ -160,20 +160,20 @@ export default function HorseRegistrationPanel() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-equine-line bg-white p-4 sm:p-5">
+            <section className="rounded-lg border border-equine-line bg-white p-4 sm:p-5">
               <div className="mb-4 flex items-center gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#f8e7d8] text-[#a44e24]"><ImagePlus size={19} /></span>
+                <span className="grid h-10 w-10 place-items-center rounded-md bg-teal-50 text-equine-teal"><ImagePlus size={19} /></span>
                 <h4 className="font-sans text-lg font-semibold text-equine-navy">Ảnh & giấy tờ</h4>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block rounded-xl border border-dashed border-[#dfc8b5] bg-[#fffaf5] p-3 transition hover:border-[#bd754b]">
-                  <span className="flex items-start gap-2"><ImagePlus size={17} className="mt-0.5 shrink-0 text-[#a45a34]" /><span><span className="block text-sm font-semibold text-equine-navy">Ảnh ngựa <span className="text-[#bf5d31]">*</span></span><span className="mt-1 block text-xs leading-5 text-slate-500">JPG, PNG hoặc WebP · tối đa 5 MB</span></span></span>
-                  <input className="mt-3 block w-full cursor-pointer text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-equine-navy file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white hover:file:bg-[#354954]" type="file" name="horseImage" accept="image/jpeg,image/png,image/webp" required onChange={(event) => setHorseImage(event.currentTarget.files?.[0] ?? null)} />
-                  {horseImagePreview && <div className="mt-3 h-36 overflow-hidden rounded-lg border border-equine-line bg-equine-paper"><HorseImage horse={{ id: "horse-registration-preview", horse_name: "Ảnh ngựa xem trước", image_url: horseImagePreview } as Horse} preview={horseImagePreview} /></div>}
+                <label className="block rounded-md border border-dashed border-equine-line bg-slate-50/50 p-3 transition hover:border-equine-teal">
+                  <span className="flex items-start gap-2"><ImagePlus size={17} className="mt-0.5 shrink-0 text-equine-teal" /><span><span className="block text-sm font-semibold text-equine-navy">Ảnh ngựa <span className="text-rose-600">*</span></span><span className="mt-1 block text-xs leading-5 text-slate-500">JPG, PNG hoặc WebP · tối đa 5 MB</span></span></span>
+                  <input className="mt-3 block w-full cursor-pointer text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-equine-navy file:px-3 file:py-2 file:text-xs file:font-semibold file:text-white hover:file:bg-[#1e3a5f]" type="file" name="horseImage" accept="image/jpeg,image/png,image/webp" required onChange={(event) => setHorseImage(event.currentTarget.files?.[0] ?? null)} />
+                  {horseImagePreview && <div className="mt-3 h-36 overflow-hidden rounded-md border border-equine-line bg-equine-paper"><HorseImage horse={{ id: "horse-registration-preview", horse_name: "Ảnh ngựa xem trước", image_url: horseImagePreview } as Horse} preview={horseImagePreview} /></div>}
                 </label>
-                <label className="block rounded-xl border border-dashed border-[#dfc8b5] bg-[#fffaf5] p-3 transition hover:border-[#bd754b]">
-                  <span className="flex items-start gap-2"><FileCheck2 size={17} className="mt-0.5 shrink-0 text-[#a45a34]" /><span><span className="block text-sm font-semibold text-equine-navy">Giấy tờ sở hữu <span className="text-[#bf5d31]">*</span></span><span className="mt-1 block text-xs leading-5 text-slate-500">PDF hoặc ảnh · tối đa 5 tệp, 10 MB mỗi tệp</span></span></span>
-                  <input className="mt-3 block w-full cursor-pointer text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-equine-navy file:ring-1 file:ring-equine-line hover:file:bg-equine-paper" type="file" name="documents" accept="application/pdf,image/jpeg,image/png,image/webp" multiple required />
+                <label className="block rounded-md border border-dashed border-equine-line bg-slate-50/50 p-3 transition hover:border-equine-teal">
+                  <span className="flex items-start gap-2"><FileCheck2 size={17} className="mt-0.5 shrink-0 text-equine-teal" /><span><span className="block text-sm font-semibold text-equine-navy">Giấy tờ sở hữu <span className="text-rose-600">*</span></span><span className="mt-1 block text-xs leading-5 text-slate-500">PDF hoặc ảnh · tối đa 5 tệp, 10 MB mỗi tệp</span></span></span>
+                  <input className="mt-3 block w-full cursor-pointer text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-white file:px-3 file:py-2 file:text-xs file:font-semibold file:text-equine-navy file:ring-1 file:ring-equine-line hover:file:bg-equine-paper" type="file" name="documents" accept="application/pdf,image/jpeg,image/png,image/webp" multiple required />
                 </label>
               </div>
               <label className="mt-4 block"><span className="field-label">Ghi chú thêm</span><textarea className="field-control min-h-24 px-3 py-2" name="ownerNote" maxLength={1000} placeholder="Thông tin bổ sung (nếu có)." /></label>
@@ -181,7 +181,7 @@ export default function HorseRegistrationPanel() {
 
             <div className="flex flex-col items-end gap-2 border-t border-equine-line pt-4">
               <button className="gold-button w-full justify-center px-5 py-3 sm:w-auto" disabled={saving}><FilePlus2 size={16} />{saving ? "Đang gửi…" : "Gửi yêu cầu"}<ArrowRight size={16} /></button>
-              {saving && <p className="text-right text-xs text-equine-muted" role="status" aria-live="polite">Đang tải ảnh và giấy tờ lên. Vui lòng đợi.</p>}
+              {saving && <p className="text-right text-xs text-equine-muted" role="status" aria-live="polite">Đang tải tệp…</p>}
             </div>
           </div>
 
@@ -193,20 +193,20 @@ export default function HorseRegistrationPanel() {
             <span className="rounded-full border border-equine-line bg-equine-paper px-3 py-1 text-xs font-semibold text-equine-muted">{requests.length} yêu cầu</span>
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
-            {requests.map((request) => <article key={request.id} className="rounded-2xl border border-equine-line bg-white p-4 shadow-[0_8px_24px_-22px_rgba(44,36,28,0.45)]">
+            {requests.map((request) => <article key={request.id} className="rounded-lg border border-equine-line bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div><p className="font-semibold text-equine-navy">{request.horse_name}</p><p className="mt-1 text-xs text-slate-500">{request.request_type === "LINK" ? "Liên kết hồ sơ" : "Đăng ký mới"} · {new Date(request.created_at).toLocaleDateString("vi-VN")}</p></div>
                 <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${request.status === "APPROVED" ? "bg-emerald-50 text-emerald-800" : request.status === "REJECTED" ? "bg-rose-50 text-rose-800" : "bg-amber-50 text-amber-900"}`}>{statusLabel[request.status]}</span>
               </div>
               {(request.microchip_number || request.passport_number) && <p className="mt-3 text-xs text-slate-500">{request.microchip_number ? `Chip ${request.microchip_number}` : ""}{request.microchip_number && request.passport_number ? " · " : ""}{request.passport_number ? `Hộ chiếu ${request.passport_number}` : ""}</p>}
-              {request.review_note && <p className="mt-3 rounded-lg bg-equine-paper px-3 py-2 text-sm text-slate-600">{request.review_note}</p>}
-              {request.horse_image_url && <div className="mt-3 h-36 w-full overflow-hidden rounded-xl border border-equine-line bg-equine-paper sm:w-56"><HorseImage horse={{ id: request.id, horse_name: request.horse_name, image_url: request.horse_image_url } as Horse} preview={request.horse_image_url} /></div>}
+              {request.review_note && <p className="mt-3 rounded-md bg-equine-paper px-3 py-2 text-sm text-slate-600">{request.review_note}</p>}
+              {request.horse_image_url && <div className="mt-3 h-36 w-full overflow-hidden rounded-md border border-equine-line bg-equine-paper sm:w-56"><HorseImage horse={{ id: request.id, horse_name: request.horse_name, image_url: request.horse_image_url } as Horse} preview={request.horse_image_url} /></div>}
               <div className="mt-3 flex flex-wrap gap-3">
                 {request.documents.map((document) => <a key={document.id} href={document.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-equine-navy underline underline-offset-2"><ExternalLink size={13} />{document.name}</a>)}
-                {request.status === "APPROVED" && request.approved_horse_id && <Link href={Routes.horse(request.approved_horse_id)} className="text-xs font-semibold text-[#a45a34] underline underline-offset-2">Mở hồ sơ ngựa</Link>}
+                {request.status === "APPROVED" && request.approved_horse_id && <Link href={Routes.horse(request.approved_horse_id)} className="text-xs font-semibold text-equine-teal underline underline-offset-2">Mở hồ sơ ngựa</Link>}
               </div>
             </article>)}
-            {!loading && requests.length === 0 && <div className="rounded-2xl border border-dashed border-equine-line bg-equine-paper/60 px-4 py-6 text-center lg:col-span-2"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-white text-equine-muted"><FileCheck2 size={18} /></span><p className="mt-2 text-sm font-semibold text-equine-navy">Chưa có yêu cầu nào</p></div>}
+            {!loading && requests.length === 0 && <div className="rounded-lg border border-dashed border-equine-line bg-equine-paper/60 px-4 py-6 text-center lg:col-span-2"><span className="mx-auto grid h-10 w-10 place-items-center rounded-full bg-white text-equine-muted"><FileCheck2 size={18} /></span><p className="mt-2 text-sm font-semibold text-equine-navy">Chưa có yêu cầu nào</p></div>}
           </div>
         </section>
       </div>

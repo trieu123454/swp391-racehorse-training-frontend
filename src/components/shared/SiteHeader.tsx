@@ -7,7 +7,6 @@ import { useState } from "react";
 import { Brand } from "./Brand";
 
 const links = [
-  ["Trang chủ", Routes.homeSection("top")],
   ["Nền tảng", Routes.homeSection("tong-quan")],
   ["Vai trò", Routes.homeSection("vai-tro")],
   ["Vận hành", Routes.homeSection("van-hanh")],

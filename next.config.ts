@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   eslint: { dirs: ["src"] },
-  images: { qualities: [80] },
+  images: { qualities: [75, 80, 95] },
   async headers() {
     // Keep the Google popup compatibility policy in production. In local dev,
     // the default browser policy avoids noisy COOP postMessage console warnings.

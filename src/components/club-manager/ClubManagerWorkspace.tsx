@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import {
   Activity,
   AlertTriangle,
-  Boxes,
   ClipboardList,
   FileText,
   History,
@@ -19,6 +18,7 @@ import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import InventoryManagerPanel from "@/components/club-manager/InventoryManagerPanel";
 import NotificationCenter from "@/components/shared/NotificationCenter";
+import { CompactId } from "@/components/shared/CompactId";
 import { authenticatedRequest, ApiRequestError } from "@/api/client";
 import { getHorseStables, type Horse, type Stable } from "@/api/horses/api";
 import {
@@ -126,9 +126,7 @@ function IncidentAssignmentForm({
       {selected && <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
         Đã chọn: <strong>{selected.full_name}</strong> · {selected.email}
       </p>}
-      {normalizedSearch.length < 2
-        ? <p className="mt-2 text-xs text-slate-500">Chọn vai trò rồi nhập tên hoặc email để tìm đúng người.</p>
-        : <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-equine-line" role="listbox" aria-label="Kết quả tìm người phụ trách">
+      {normalizedSearch.length >= 2 && <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-equine-line" role="listbox" aria-label="Kết quả tìm người phụ trách">
           {matches.map((person) => <button key={person.id} type="button" role="option" aria-selected={selectedId === String(person.id)}
             onClick={() => setSelectedId(String(person.id))}
             className={`block w-full px-3 py-2 text-left hover:bg-slate-50 ${selectedId === String(person.id) ? "bg-emerald-50" : "bg-white"}`}>
@@ -162,7 +160,7 @@ function requestError(reason: unknown) {
 
 export default function ClubManagerWorkspace() {
   const [date, setDate] = useState(today());
-  const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
+  const [tab] = useDashboardTab(workspaceTabIds, "overview");
   const [horses, setHorses] = useState<Option[]>([]);
   const [stables, setStables] = useState<Stable[]>([]);
   const [horseRequests, setHorseRequests] = useState<ManagerHorseRegistrationRequest[]>([]);
@@ -341,22 +339,8 @@ export default function ClubManagerWorkspace() {
       "Đã đóng sự cố sau khi ghi nhận kết quả.");
   }
 
-  const tabs: { key: WorkspaceTab; label: string; icon: ReactNode; count?: number }[] = [
-    { key: "overview", label: "Tổng quan", icon: <Activity size={16} /> },
-    { key: "care", label: "Giao việc chăm sóc", icon: <ClipboardList size={16} /> },
-    { key: "inventory", label: "Vật tư & thức ăn", icon: <Boxes size={16} /> },
-    { key: "incidents", label: "Sự cố", icon: <AlertTriangle size={16} />, count: incidents.length },
-    { key: "finance", label: "Thu chi", icon: <Wallet size={16} /> },
-    { key: "races", label: "Giải đấu", icon: <Trophy size={16} /> },
-    { key: "horse-requests", label: "Hồ sơ ngựa", icon: <FileText size={16} />, count: horseRequests.length },
-    { key: "audit", label: "Nhật ký thao tác", icon: <History size={16} /> },
-  ];
-
-  return <section className="mt-5 space-y-5" aria-labelledby="club-manager-workspace-title">
-    <div className="flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h2 id="club-manager-workspace-title" className="font-sans text-3xl font-semibold text-equine-navy">Điều hành câu lạc bộ</h2>
-      </div>
+  return <section className="mt-5 space-y-5" aria-label="Điều hành câu lạc bộ">
+    <div className="flex justify-end gap-3 border-b border-equine-line pb-4">
       <div className="flex gap-2">
         <input aria-label="Ngày báo cáo" type="date" className="field-control px-3" value={date} onChange={(event) => setDate(event.target.value)} />
         <button type="button" className="soft-button" onClick={() => void load()} disabled={busy}><RefreshCw size={15} /> Làm mới</button>
@@ -367,37 +351,7 @@ export default function ClubManagerWorkspace() {
     {notice && <Notice>{notice}</Notice>}
     <NotificationCenter />
 
-    <div role="tablist" aria-label="Các mục quản lý câu lạc bộ" className="workspace-secondary-nav flex gap-2 overflow-x-auto rounded-2xl border border-equine-line bg-white p-2 shadow-sm">
-      {tabs.map((item) => <button
-        key={item.key}
-        id={`manager-tab-${item.key}`}
-        type="button"
-        role="tab"
-        aria-selected={tab === item.key}
-        aria-controls={`manager-panel-${item.key}`}
-        tabIndex={tab === item.key ? 0 : -1}
-        onClick={() => selectTab(item.key)}
-        onKeyDown={(event) => {
-          const currentIndex = tabs.findIndex((candidate) => candidate.key === item.key);
-          let nextIndex = currentIndex;
-          if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % tabs.length;
-          else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-          else if (event.key === "Home") nextIndex = 0;
-          else if (event.key === "End") nextIndex = tabs.length - 1;
-          else return;
-          event.preventDefault();
-          const nextTab = tabs[nextIndex].key;
-          selectTab(nextTab);
-          document.getElementById(`manager-tab-${nextTab}`)?.focus();
-        }}
-        className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${tab === item.key ? "bg-equine-navy text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-equine-navy"}`}
-      >
-        {item.icon}<span>{item.label}</span>
-        {item.count ? <span className={`rounded-full px-2 py-0.5 text-xs ${tab === item.key ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800"}`}>{item.count}</span> : null}
-      </button>)}
-    </div>
-
-    <div role="tabpanel" id={`manager-panel-${tab}`} aria-labelledby={`manager-tab-${tab}`} className="space-y-5">
+    <div role="tabpanel" id={`manager-panel-${tab}`} className="space-y-5">
       {loadErrors[tab].map((item) => <Notice key={`${item.section}-${item.message}`} error>{item.section}: {item.message}</Notice>)}
 
       {tab === "overview" && <>
@@ -454,7 +408,7 @@ export default function ClubManagerWorkspace() {
       {tab === "inventory" && <InventoryManagerPanel />}
       {tab === "incidents" && <Panel title="Sự cố Groom" icon={AlertTriangle}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3">
-          <p className="text-sm text-slate-600">Xem xét báo cáo, giao người phụ trách, theo dõi kết quả và đóng sự cố.</p>
+
           <select aria-label="Lọc sự cố" className="field-control h-10 px-3" value={incidentFilter} onChange={(event) => setIncidentFilter(event.target.value)}>
             <option value="Open">Đang xử lý</option><option value="Resolved">Đã đóng</option><option value="All">Tất cả</option>
           </select>
@@ -505,11 +459,14 @@ export default function ClubManagerWorkspace() {
         </Panel>
         <Panel title="Danh sách giải đấu chính thức" icon={Trophy}>
           <div className="space-y-2">{officialRaces.map((race) => <article key={race.id} className="rounded-xl border border-equine-line p-3">
-            <p className="font-semibold text-equine-navy">{race.race_name}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-semibold text-equine-navy">{race.race_name}</p>
+              <CompactId id={race.id} />
+            </div>
             <p className="mt-1 text-sm text-slate-600">{race.race_date}{race.location ? ` · ${race.location}` : ""}</p>
             <p className="mt-1 text-xs text-slate-500">{race.distance_meters ? `${race.distance_meters} m` : "Chưa nhập cự ly"}{race.grade ? ` · Hạng ${race.grade}` : ""}{race.distance_category ? ` · ${race.distance_category}` : ""}</p>
             {race.description && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{race.description}</p>}
-          </article>)}{!officialRaces.length && <p className="text-sm text-slate-500">Chưa có giải đấu chính thức. Thêm giải để Head Trainer có thể đăng ký ngựa.</p>}</div>
+          </article>)}{!officialRaces.length && <p className="text-sm text-slate-500">Chưa có giải đấu.</p>}</div>
         </Panel>
       </div>}
 
@@ -530,13 +487,19 @@ export default function ClubManagerWorkspace() {
             <label className="block"><span className="field-label">Số tiền</span><input className="field-control px-3" name="amount" type="number" min="0.01" step="0.01" required /></label>
             <label className="block"><span className="field-label">Kỳ thanh toán</span><input className="field-control px-3" name="billing_period" type="month" required defaultValue={date.slice(0, 7)} /></label>
             <div className="sm:col-span-2"><button className="gold-button" disabled={busy}><Wallet size={15} /> Ghi nhận</button></div>
-          </form> : <p className="text-sm text-slate-500">Cần có hồ sơ ngựa để ghi nhận khoản thu chi.</p>}
+          </form> : <p className="text-sm text-slate-500">Chưa có hồ sơ ngựa.</p>}
         </Panel>
       </div>}
 
       {tab === "audit" && <Panel title="Nhật ký thao tác" icon={History}>
         <div className="max-h-[620px] space-y-2 overflow-y-auto">
-          {audit.map((entry) => <article key={entry.id} className="rounded-lg border border-equine-line p-3"><p className="text-sm font-semibold text-equine-navy">{entry.action_performed}</p><p className="mt-1 text-xs text-slate-500">{entry.user_name ?? entry.email ?? "Tài khoản đã xóa"} · {new Date(entry.created_at).toLocaleString("vi-VN")}</p></article>)}
+          {audit.map((entry) => <article key={entry.id} className="flex flex-col gap-1 rounded-lg border border-equine-line p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-equine-navy">{entry.action_performed}</p>
+              <p className="mt-1 text-xs text-slate-500">{entry.user_name ?? entry.email ?? "Tài khoản đã xóa"} · {new Date(entry.created_at).toLocaleString("vi-VN")}</p>
+            </div>
+            <CompactId id={entry.id} />
+          </article>)}
           {!audit.length && <p className="text-sm text-slate-500">Không có thao tác trong ngày này.</p>}
         </div>
       </Panel>}
@@ -545,11 +508,11 @@ export default function ClubManagerWorkspace() {
 }
 
 function Metric({ icon: Icon, label, value }: { icon: typeof Activity; label: string; value: string }) {
-  return <div className="rounded-xl border border-equine-line bg-white p-4"><Icon size={18} className="text-equine-gold" /><p className="mt-3 text-[10px] font-bold uppercase text-slate-500">{label}</p><p className="mt-1 text-sm font-semibold text-equine-navy">{value}</p></div>;
+  return <div className="rounded-lg border border-equine-line bg-white p-4 shadow-sm"><Icon size={18} className="text-equine-teal" /><p className="mt-3 text-[10px] font-bold uppercase text-slate-500">{label}</p><p className="mt-1 text-sm font-semibold text-equine-navy">{value}</p></div>;
 }
 
 function Panel({ title, icon: Icon, children }: { title: string; icon: typeof Activity; children: ReactNode }) {
-  return <section className="rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Icon size={18} />{title}</h3>{children}</section>;
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Icon size={18} />{title}</h3>{children}</section>;
 }
 
 function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onReview }: {
@@ -563,10 +526,13 @@ function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onRevie
     <div className="space-y-3">
       {requests.map((request) => {
         const candidateHorses = horses;
-        return <article key={request.id} className="rounded-xl border border-equine-line p-4">
+        return <article key={request.id} className="rounded-lg border border-equine-line p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h4 className="font-semibold text-equine-navy">{request.horse_name}</h4>
+              <div className="flex items-center gap-2">
+                <h4 className="font-semibold text-equine-navy">{request.horse_name}</h4>
+                <CompactId id={request.id} />
+              </div>
               <p className="mt-1 text-xs text-slate-500">{request.request_type === "LINK" ? "Liên kết hồ sơ có sẵn" : "Đăng ký hồ sơ mới"} · {new Date(request.created_at).toLocaleString("vi-VN")}</p>
             </div>
             <p className="text-sm font-medium text-equine-navy">{request.owner_name} <span className="font-normal text-slate-500">· {request.owner_email}</span></p>
@@ -595,7 +561,7 @@ function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onRevie
                 <option value="">Chọn hồ sơ ngựa</option>
                 {candidateHorses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}{horse.breed ? ` · ${horse.breed}` : ""}{horse.birth_year ? ` · ${horse.birth_year}` : ""} · {horse.owner_name ?? "Chưa có chủ"}</option>)}
               </select>
-              <p className="mt-1 text-xs text-slate-500">Duyệt sẽ gán hồ sơ cho Horse Owner gửi yêu cầu; chủ cũ và mới được lưu vào lịch sử.</p>
+              <p className="mt-1 text-xs text-slate-500">Duyệt sẽ gán chủ mới và lưu lịch sử.</p>
             </label>}
             <label className="block"><span className="field-label">Ghi chú duyệt / lý do từ chối</span><textarea className="field-control min-h-24 px-3 py-2" name="reviewNote" maxLength={1000} placeholder="Bắt buộc khi từ chối; nêu rõ giấy tờ cần bổ sung hoặc thông tin chưa hợp lệ." /></label>
             {request.request_type === "REGISTER" && !stables.length && <p className="text-sm text-rose-700 sm:col-span-2">Không có chuồng còn chỗ; thêm chuồng trước khi duyệt.</p>}

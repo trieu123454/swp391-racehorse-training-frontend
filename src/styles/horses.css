@@ -3,8 +3,8 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: #faf9f7;
-  color: #34312e;
+  background: #F4F7FB;
+  color: #101732;
 }
 
 .horse-access > * {
@@ -15,8 +15,8 @@
 .horse-app {
   display: flex;
   min-height: 100vh;
-  background: #faf9f7;
-  color: #34312e;
+  background: #F4F7FB;
+  color: #101732;
   font-family: "Be Vietnam Pro", "Segoe UI", Arial, sans-serif;
 }
 
@@ -25,7 +25,7 @@
 }
 
 .horse-app :where(h1, h2, h3) {
-  color: #292724;
+  color: #101732;
   font-weight: 650;
   letter-spacing: -0.025em;
   line-height: 1.25;
@@ -38,14 +38,34 @@
   width: clamp(280px, 19.5vw, 370px);
   height: 100vh;
   height: 100dvh;
-  overflow-y: auto;
-  background: linear-gradient(180deg, #ffffff 0%, #faf9f7 52%, #f5f3ef 100%);
-  color: #34312e;
-  padding: 24px 18px 18px;
+  overflow: hidden;
+  background: #FFFFFF;
+  color: #101732;
+  padding: 20px 18px 16px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #e8e4de;
-  animation: horse-sidebar-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  border-right: 1px solid #E2E8F0;
+}
+
+.horse-sidebar-header {
+  flex-shrink: 0;
+}
+
+.horse-sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+  margin-right: -4px;
+  scrollbar-width: thin;
+}
+
+.horse-sidebar-footer {
+  margin-top: auto;
+  flex-shrink: 0;
+  padding-top: 12px;
+  border-top: 1px solid #E2E8F0;
 }
 
 .horse-brand {
@@ -56,10 +76,10 @@
 }
 
 .horse-brand img {
-  width: 76px;
-  height: 76px;
-  border-radius: 12px;
-  object-fit: cover;
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: contain;
 }
 
 .horse-nav-label {
@@ -67,63 +87,62 @@
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.12em;
-  color: #807972;
+  color: #64748B;
 }
 
 .horse-sidebar nav {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .horse-sidebar nav a {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-radius: 12px;
-  padding: 12px 12px;
-  color: #706a64;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #475569;
   font-weight: 600;
   text-decoration: none;
   background: transparent;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
 .horse-sidebar nav a.active {
-  background: linear-gradient(135deg, #fff0e6, #fff7f0);
-  color: #292724;
-  box-shadow: inset 0 0 0 1px rgba(59, 131, 163, 0.22);
+  background: #1040C5 !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 1px 3px rgba(16, 64, 197, 0.2);
 }
 
-.horse-sidebar nav a:hover {
-  background: #f3f1ed;
+.horse-sidebar nav a:hover:not(.active) {
+  background: #F1F5F9;
+  color: #101732;
 }
 
 .horse-sidebar-note {
   margin-top: auto;
-  border: 1px solid #e8e4de;
-  background: rgba(255, 255, 255, 0.78);
-  border-radius: 18px;
-  padding: 16px 14px;
-}
-
-.horse-sidebar-note {
+  border: 1px solid #E2E8F0;
+  background: #F8FAFC;
+  border-radius: 8px;
+  padding: 14px 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .horse-sidebar-note p {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
   line-height: 1.35;
-  color: #292724;
+  color: #101732;
   font-weight: 600;
 }
 
 .horse-sidebar-note small {
-  color: #706a64;
+  color: #64748B;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .horse-account {
@@ -131,22 +150,22 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid #e8e4de;
-  border-radius: 16px;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
   padding: 10px 12px;
 }
 
 .horse-avatar {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #ffe8cc, #e6a66b);
-  color: #292724;
-  font-weight: 800;
-  font-size: 15px;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #1040C5, #0099CF);
+  color: #FFFFFF;
+  font-weight: 700;
+  font-size: 14px;
 }
 
 .horse-account div {
@@ -157,7 +176,7 @@
 .horse-account strong {
   display: block;
   font-size: 13px;
-  color: #292724;
+  color: #101732;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -165,8 +184,8 @@
 
 .horse-account small {
   display: block;
-  margin-top: 4px;
-  color: #807972;
+  margin-top: 2px;
+  color: #64748B;
   font-size: 11px;
 }
 
@@ -174,12 +193,18 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: #faf9f7;
-  border: 1px solid #e8e4de;
-  color: #292724;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  color: #475569;
+  transition: all 140ms ease;
+}
+
+.horse-account button:hover {
+  background: #F8FAFC;
+  color: #101732;
 }
 
 .horse-workspace {
@@ -195,13 +220,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 100px;
-  background: linear-gradient(100deg, #ffffff 0%, #ffffff 100%);
-  color: #34312e;
-  border-bottom: 1px solid #e8e4de;
+  min-height: 84px;
+  background: #FFFFFF;
+  color: #101732;
+  border-bottom: 1px solid #E2E8F0;
   padding: 14px clamp(18px, 2.4vw, 40px);
   gap: 20px;
-  animation: horse-slide-down 420ms ease-out both;
 }
 
 .horse-topbar-welcome {
@@ -214,12 +238,13 @@
 .horse-greeting-mark {
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
-  flex: 0 0 46px;
-  border-radius: 50%;
-  background: #fff2e9;
-  font-size: 23px;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 6px;
+  background: #EFF6FF;
+  color: #1040C5;
+  font-size: 20px;
 }
 
 .horse-greeting-copy {
@@ -229,8 +254,8 @@
 .horse-greeting-copy h1 {
   margin: 0;
   overflow: hidden;
-  color: #292724;
-  font-size: clamp(20px, 2vw, 28px);
+  color: #101732;
+  font-size: clamp(18px, 1.8vw, 24px);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -238,35 +263,37 @@
 
 .horse-greeting-copy p {
   margin: 4px 0 0;
-  color: #807972;
+  color: #64748B;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 .horse-topbar-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 10px;
   flex: 0 0 auto;
 }
 
 .horse-date-pill,
 .horse-profile-trigger {
   display: inline-flex;
-  min-height: 48px;
+  min-height: 40px;
   align-items: center;
-  gap: 10px;
-  border: 1px solid #e8e4de;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #292724;
+  gap: 8px;
+  border: 1px solid #E2E8F0;
+  border-radius: 6px;
+  background: #FFFFFF;
+  color: #101732;
+  transition: all 140ms ease;
 }
 
 .horse-date-pill {
-  padding: 0 16px;
+  padding: 0 14px;
   font-size: 12px;
   font-weight: 600;
+  color: #475569;
   white-space: nowrap;
 }
 
@@ -276,8 +303,13 @@
 
 .horse-profile-trigger {
   max-width: 245px;
-  padding: 4px 12px 4px 6px;
+  padding: 4px 10px 4px 5px;
   text-align: left;
+}
+
+.horse-profile-trigger:hover {
+  border-color: #CBD5E1;
+  background: #F8FAFC;
 }
 
 .horse-profile-trigger > svg {
@@ -286,14 +318,14 @@
 
 .horse-profile-avatar {
   display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   place-items: center;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #b77d57, #79583f);
+  border-radius: 6px;
+  background: #1040C5;
   color: white;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
 }
 
@@ -302,7 +334,7 @@
   min-width: 0;
   flex: 1;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .horse-profile-copy strong,
@@ -313,43 +345,45 @@
 }
 
 .horse-profile-copy strong {
-  color: #292724;
+  color: #101732;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .horse-profile-copy small {
-  color: #807972;
+  color: #64748B;
   font-size: 10px;
 }
 
 .horse-profile-popover {
   position: absolute;
   z-index: 80;
-  top: calc(100% + 8px);
+  top: calc(100% + 6px);
   right: 0;
   display: grid;
   width: min(275px, calc(100vw - 24px));
   min-width: 0;
-  gap: 4px;
+  gap: 6px;
   padding: 12px;
-  border: 1px solid #e8e4de;
-  border-radius: 16px;
-  background: white;
-  box-shadow: 0 16px 40px rgba(29, 78, 107, 0.16);
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  background: #FFFFFF;
+  box-shadow: 0 12px 30px rgba(16, 23, 50, 0.12);
+  animation: horse-popover-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .horse-profile-popover > strong {
   overflow: hidden;
-  color: #292724;
+  color: #101732;
   font-size: 13px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .horse-profile-popover > span {
   overflow: hidden;
-  color: #807972;
+  color: #64748B;
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -360,21 +394,26 @@
   width: 100%;
   align-items: center;
   gap: 8px;
-  padding: 9px 10px;
-  border: 0;
-  border-radius: 10px;
-  background: #fff1f0;
-  color: #b42332;
+  padding: 8px 10px;
+  border: 1px solid #FECACA;
+  border-radius: 6px;
+  background: #FEF2F2;
+  color: #B91C1C;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   text-align: left;
+  transition: all 140ms ease;
+}
+
+.horse-profile-popover > button:hover {
+  background: #FEE2E2;
 }
 
 .horse-main {
   flex: 1;
   min-width: 0;
   padding: 24px clamp(18px, 2.4vw, 40px) 36px;
-  animation: horse-content-in 520ms 80ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: horse-content-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .dashboard-workspace {
@@ -402,17 +441,16 @@
   justify-content: space-between;
   gap: 10px;
   padding: 14px 22px 16px;
-  background: #ffffff;
-  color: #807972;
-  border-top: 1px solid #e8e4de;
+  background: #FFFFFF;
+  color: #64748B;
+  border-top: 1px solid #E2E8F0;
   font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .horse-footer span {
-  color: #bf5018;
-  letter-spacing: 0.04em;
+  color: #0099CF;
+  font-weight: 600;
 }
 
 .horse-mobile-menu,
@@ -421,18 +459,27 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #e8e4de;
-  background: #ffffff;
-  color: #292724;
-  border-radius: 10px;
+  border: 1px solid #CBD5E1;
+  background: #FFFFFF;
+  color: #101732;
+  border-radius: 6px;
   width: 36px;
   height: 36px;
+  transition: all 140ms ease;
+}
+
+.horse-mobile-menu:hover,
+.horse-mobile-close:hover,
+.horse-icon-button:hover {
+  background: #F8FAFC;
+  border-color: #94A3B8;
 }
 
 .horse-nav-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(10, 16, 26, 0.38);
+  background: rgba(16, 23, 50, 0.4);
+  backdrop-filter: blur(2px);
   border: 0;
   z-index: 40;
 }
@@ -442,7 +489,7 @@
   inset: 0 auto 0 0;
   z-index: 50;
   width: min(82vw, 370px);
-  box-shadow: 12px 0 40px rgba(7, 16, 28, 0.35);
+  box-shadow: 8px 0 24px rgba(16, 23, 50, 0.2);
 }
 
 .horse-mobile-menu {
@@ -457,12 +504,12 @@
   display: block;
   width: 100%;
   height: 100%;
-  padding: 10px;
-  border-radius: 16px;
+  padding: 8px;
+  border-radius: 8px;
   object-fit: contain;
-  background: linear-gradient(135deg, #faf9f7, #eeeae4);
+  background: #F8FAFC;
   opacity: 0;
-  transition: opacity 420ms ease;
+  transition: opacity 200ms ease;
 }
 
 .horse-photo.is-loaded {
@@ -473,184 +520,193 @@
   height: 100%;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #faf9f7 0%, #eeeae4 100%);
-  color: #292724;
+  background: #F1F5F9;
+  color: #64748B;
   text-align: center;
-  padding: 18px;
-  border-radius: 16px;
-  animation: horse-placeholder-in 360ms ease-out both;
+  padding: 16px;
+  border-radius: 8px;
 }
 
 .horse-placeholder span {
   display: block;
   margin-top: 6px;
-  font-size: 14px;
-  letter-spacing: 0.14em;
-  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  color: #101732;
 }
 
 .horse-placeholder small {
   display: block;
   margin-top: 4px;
   font-size: 11px;
-  color: rgba(40, 95, 126, 0.72);
+  color: #64748B;
 }
 
 .horse-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border-radius: 999px;
-  padding: 7px 10px;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 4px 8px;
   font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   border: 1px solid transparent;
 }
 
 .horse-badge i {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
 }
 
 .horse-badge.healthy {
-  color: #14532d;
-  background: rgba(34, 197, 94, 0.12);
-  border-color: rgba(34, 197, 94, 0.25);
+  color: #15803D;
+  background: #F0FDF4;
+  border-color: #BBF7D0;
 }
 
 .horse-badge.healthy i {
-  background: #16a34a;
+  background: #15803D;
 }
 
 .horse-badge.attention {
-  color: #92400e;
-  background: rgba(251, 191, 36, 0.12);
-  border-color: rgba(251, 191, 36, 0.25);
+  color: #B45309;
+  background: #FFFBEB;
+  border-color: #FDE68A;
 }
 
 .horse-badge.attention i {
-  background: #f59e0b;
+  background: #B45309;
+}
+
+.horse-badge.critical {
+  color: #B91C1C;
+  background: #FEF2F2;
+  border-color: #FECACA;
+}
+
+.horse-badge.critical i {
+  background: #B91C1C;
 }
 
 .horse-notice {
   display: block;
-  border-radius: 14px;
-  background: #eef6ff;
-  border: 1px solid rgba(58, 122, 255, 0.18);
-  color: #1b2e4e;
-  padding: 14px 16px;
-  font-size: 14px;
-  line-height: 1.6;
+  border-radius: 8px;
+  background: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1D4ED8;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .horse-notice.error {
-  background: #fff0f0;
-  border-color: rgba(239, 68, 68, 0.2);
-  color: #8b1e1e;
+  background: #FEF2F2;
+  border-color: #FECACA;
+  color: #B91C1C;
 }
 
 .horse-dialog {
   width: min(92vw, 560px);
-  border: 0;
-  border-radius: 22px;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
   padding: 24px 24px 20px;
-  background: #fff;
-  box-shadow: 0 22px 70px rgba(9, 17, 30, 0.22);
-  color: #0f1b2b;
-  animation: horse-dialog-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  background: #FFFFFF;
+  box-shadow: 0 20px 40px rgba(16, 23, 50, 0.16);
+  color: #101732;
+  animation: horse-dialog-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 .horse-dialog::backdrop {
-  background: rgba(15, 27, 43, 0.48);
+  background: rgba(16, 23, 50, 0.45);
+  backdrop-filter: blur(2px);
 }
 
 .horse-dialog h2 {
   margin: 0 0 14px;
-  font-size: clamp(1.4rem, 3vw, 1.9rem);
+  font-size: clamp(1.2rem, 2.5vw, 1.5rem);
   font-weight: 700;
-  color: #292724;
+  color: #101732;
 }
 
 .horse-icon-button.modal-close {
   position: absolute;
   right: 16px;
   top: 16px;
-  width: 34px;
-  height: 34px;
-  color: #0f1b2b;
-  border-color: rgba(15, 27, 43, 0.12);
-  background: #f7f8fb;
+  width: 32px;
+  height: 32px;
+  color: #64748B;
+  border-color: #CBD5E1;
+  background: #FFFFFF;
+}
+
+.horse-icon-button.modal-close:hover {
+  color: #101732;
+  background: #F1F5F9;
 }
 
 .horse-card {
-  animation: horse-card-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+  border-radius: 8px;
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
 }
 
 .horse-card:hover {
-  transform: translateY(-5px);
-  border-color: rgba(226, 155, 93, 0.55);
-  box-shadow: 0 18px 34px -18px rgba(40, 95, 126, 0.24);
+  transform: translateY(-2px);
+  border-color: #CBD5E1;
+  box-shadow: 0 8px 20px -6px rgba(16, 23, 50, 0.08);
 }
 
-.horse-card:nth-child(2) { animation-delay: 70ms; }
-.horse-card:nth-child(3) { animation-delay: 140ms; }
-.horse-card:nth-child(4) { animation-delay: 210ms; }
-.horse-card:nth-child(5) { animation-delay: 280ms; }
-.horse-card:nth-child(6) { animation-delay: 350ms; }
-
 .horse-preview-image {
-  animation: horse-preview-in 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  border-radius: 8px;
 }
 
 progress {
   overflow: hidden;
   border: 0;
-  border-radius: 999px;
-  background: #eeeae4;
+  border-radius: 6px;
+  background: #E2E8F0;
+  height: 8px;
 }
 
-progress::-webkit-progress-bar { background: #eeeae4; border-radius: 999px; }
-progress::-webkit-progress-value { background: linear-gradient(90deg, #bf5018, #dd7139); border-radius: 999px; transition: width 260ms ease; }
-progress::-moz-progress-bar { background: linear-gradient(90deg, #bf5018, #dd7139); border-radius: 999px; }
+progress::-webkit-progress-bar {
+  background: #E2E8F0;
+  border-radius: 6px;
+}
+
+progress::-webkit-progress-value {
+  background: #1040C5;
+  border-radius: 6px;
+  transition: width 200ms ease;
+}
+
+progress::-moz-progress-bar {
+  background: #1040C5;
+  border-radius: 6px;
+}
 
 @keyframes horse-sidebar-in {
-  from { opacity: 0; transform: translateX(-18px); }
+  from { opacity: 0; transform: translateX(-10px); }
   to { opacity: 1; transform: translateX(0); }
 }
 
-@keyframes horse-slide-down {
-  from { opacity: 0; transform: translateY(-10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 @keyframes horse-content-in {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(48px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes horse-card-in {
-  from { opacity: 0; transform: translateY(18px); }
+@keyframes horse-popover-in {
+  from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes horse-placeholder-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 @keyframes horse-dialog-in {
-  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  from { opacity: 0; transform: translateY(6px) scale(0.99); }
   to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes horse-preview-in {
-  from { opacity: 0; transform: scale(0.97); }
-  to { opacity: 1; transform: scale(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -661,7 +717,8 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #bf5018, #dd713
   .horse-topbar,
   .horse-main,
   .horse-dialog,
-  .horse-placeholder {
+  .horse-placeholder,
+  .horse-profile-popover {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
@@ -678,7 +735,7 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #bf5018, #dd713
     position: fixed;
     inset: 0 auto 0 -100%;
     width: min(82vw, 320px);
-    transition: left 220ms ease;
+    transition: left 200ms ease;
     z-index: 60;
   }
 
@@ -692,7 +749,7 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #bf5018, #dd713
   }
 
   .horse-topbar {
-    min-height: 84px;
+    min-height: 72px;
     padding: 12px 16px;
   }
 
@@ -727,15 +784,15 @@ progress::-moz-progress-bar { background: linear-gradient(90deg, #bf5018, #dd713
   }
 
   .horse-profile-trigger {
-    min-height: 40px;
-    gap: 7px;
+    min-height: 36px;
+    gap: 6px;
     padding-right: 8px;
   }
 
   .horse-profile-avatar {
-    width: 31px;
-    height: 31px;
-    flex-basis: 31px;
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
   }
 
   .horse-profile-copy {

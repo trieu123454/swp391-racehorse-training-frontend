@@ -63,7 +63,7 @@ export function getUser(): AuthUser | null {
 }
 
 export function getRefreshToken() {
-  return read(REFRESH_TOKEN_KEY);
+  return isRemembered() ? read(REFRESH_TOKEN_KEY) : null;
 }
 
 export function getLogoutRefreshToken() {
