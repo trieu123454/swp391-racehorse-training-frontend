@@ -51,6 +51,7 @@ function numberLabel(number: number) {
 }
 
 type Week = TrainingAnalysis["weeks"][number];
+type TrainingSessionAnalysis = TrainingAnalysis["sessions"][number];
 
 export default function TrainingAnalysisPanel({
   horseId,
@@ -162,28 +163,33 @@ export default function TrainingAnalysisPanel({
         {report && (
           <>
             <WorkloadSummary weeks={report.weeks} />
-            <WeeklyWorkloadChart weeks={report.weeks} />
+            <RecentTrainingSessionsChart sessions={report.sessions} />
             <div className="mt-5 overflow-x-auto">
-              <table className="w-full min-w-[650px] text-left text-sm">
+              <table className="w-full min-w-[850px] text-left text-sm">
                 <thead>
                   <tr>
-                    <th>Tuần bắt đầu</th><th>Mục tiêu</th><th>Đã xếp lịch</th><th>Thực hiện</th><th>Đạt</th><th>Hoàn thành / bỏ lỡ / hủy</th>
+                    <th>Ngày</th><th>Loại buổi</th><th>Giáo án</th><th>Trạng thái</th><th>Mục tiêu</th><th>Thực hiện</th><th>Đạt</th><th>Groom</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {report.weeks.map((week) => (
-                    <tr key={week.week_start} className="border-t border-equine-line">
-                      <td className="py-3">{week.week_start}</td>
-                      <td>{value(week.target_minutes, " phút")}</td>
-                      <td>{value(week.planned_minutes, " phút")}</td>
-                      <td>{value(week.actual_minutes, " phút")}</td>
-                      <td>{value(week.workload_achievement_percent, "%")}</td>
-                      <td>{week.completed} / {week.missed} / {week.cancelled}</td>
+                  {report.sessions.map((session) => (
+                    <tr key={session.id} className="border-t border-equine-line">
+                      <td className="py-3">{session.event_date}{session.start_time ? ` · ${session.start_time.slice(0, 5)}` : ""}</td>
+                      <td>{sessionTypeLabel(session.session_type)}</td>
+                      <td>{session.snapshot_stage_name ?? "—"}</td>
+                      <td>{statuses[session.effective_status] ?? session.effective_status}</td>
+                      <td>{value(session.target_distance_meters, " m")}</td>
+                      <td>{value(session.actual_distance_meters, " m")}</td>
+                      <td>{value(session.distance_achievement_percent, "%")}</td>
+                      <td>{session.groom_name ?? "Chưa phân công"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {report.sessions.length === 0 && (
+              <p className="mt-3 text-sm text-slate-500">Chưa có buổi tập trong khoảng ngày này.</p>
+            )}
           </>
         )}
       </section>
@@ -320,6 +326,92 @@ function WorkloadSummary({ weeks }: { weeks: Week[] }) {
   );
 }
 
+function sessionTypeLabel(value: string) {
+  return ({ Training: "Huấn luyện", TrialRun: "Chạy thử", Rest: "Nghỉ" } as Record<string, string>)[value] ?? value;
+}
+
+function RecentTrainingSessionsChart({ sessions }: { sessions: TrainingSessionAnalysis[] }) {
+  const recentSessions = sessions
+    .filter((session) => Number.isFinite(new Date(`${session.event_date}T${session.start_time ?? "00:00"}`).getTime()))
+    .slice()
+    .sort((left, right) => {
+      const leftTime = new Date(`${left.event_date}T${left.start_time ?? "00:00"}`).getTime();
+      const rightTime = new Date(`${right.event_date}T${right.start_time ?? "00:00"}`).getTime();
+      return rightTime - leftTime;
+    })
+    .slice(0, 10)
+    .reverse();
+
+  if (recentSessions.length === 0) {
+    return <p className="mt-4 rounded-xl border border-dashed border-equine-line p-5 text-center text-sm text-slate-500">Chưa có buổi tập trong khoảng ngày này.</p>;
+  }
+
+  const series = [
+    { key: "target_distance_meters" as const, label: "Mục tiêu", color: "#64748B" },
+    { key: "actual_distance_meters" as const, label: "Thực hiện", color: "#1040C5" },
+  ];
+  const chart = { left: 48, top: 18, bottom: 174, height: 220, groupWidth: 76, right: 16 };
+  const width = chart.left + recentSessions.length * chart.groupWidth + chart.right;
+  const maximum = Math.max(1, ...recentSessions.flatMap((session) => series.map((item) => session[item.key] ?? 0)));
+  const y = (amount: number) => chart.bottom - amount / maximum * (chart.bottom - chart.top);
+  const ticks = [maximum, maximum / 2, 0];
+  const barWidth = Math.min(18, (chart.groupWidth - 12) / 2);
+
+  return (
+    <div className="mt-5">
+      <div className="mb-2 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600">
+        {series.map((item) => (
+          <span key={item.key} className="inline-flex items-center gap-2">
+            <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: item.color }} />{item.label}
+          </span>
+        ))}
+        <span className="text-slate-500">Đơn vị: mét · tối đa 10 buổi gần nhất</span>
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-equine-line bg-white px-2 py-3">
+        <svg
+          viewBox={`0 0 ${width} ${chart.height}`}
+          className="block h-[220px] w-full"
+          style={{ minWidth: Math.max(620, width) }}
+          role="img"
+          aria-label="Cự ly mục tiêu và cự ly thực hiện của 10 buổi tập gần nhất"
+        >
+          <desc>So sánh cự ly mục tiêu và cự ly thực hiện của tối đa 10 buổi tập gần nhất.</desc>
+          {ticks.map((tick, index) => {
+            const tickY = y(tick);
+            return (
+              <g key={index}>
+                <line x1={chart.left} x2={width - 8} y1={tickY} y2={tickY} stroke="#e5e7eb" />
+                <text x={chart.left - 7} y={tickY + 4} textAnchor="end" fill="#64748b" fontSize="10">{numberLabel(tick)}</text>
+              </g>
+            );
+          })}
+          {recentSessions.map((session, index) => {
+            const center = chart.left + index * chart.groupWidth + chart.groupWidth / 2;
+            const firstX = center - (barWidth * 2 + 3) / 2;
+            return (
+              <g key={session.id}>
+                {series.map((item, seriesIndex) => {
+                  const amount = session[item.key] ?? 0;
+                  const barHeight = amount > 0 ? Math.max(1, chart.bottom - y(amount)) : 0;
+                  const x = firstX + seriesIndex * (barWidth + 3);
+                  return (
+                    <rect key={item.key} x={x} y={chart.bottom - barHeight} width={barWidth} height={barHeight} rx="2" fill={item.color}>
+                      <title>{session.event_date + " · " + sessionTypeLabel(session.session_type) + " · " + item.label + ": " + numberLabel(amount) + " m"}</title>
+                    </rect>
+                  );
+                })}
+                <text x={center} y={chart.bottom + 18} textAnchor="middle" fill="#64748b" fontSize="9">{shortDate(session.event_date)}</text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// Kept for reference while the session-based chart rolls out; the panel uses RecentTrainingSessionsChart.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function WeeklyWorkloadChart({ weeks }: { weeks: Week[] }) {
   if (weeks.length === 0) {
     return <p className="mt-4 rounded-xl border border-dashed border-equine-line p-5 text-center text-sm text-slate-500">Chưa có dữ liệu tuần trong khoảng ngày này.</p>;
