@@ -1,22 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FAF8F5"/>
-      <stop offset="100%" stop-color="#F3EFEA"/>
-    </linearGradient>
-    <linearGradient id="primaryOrange" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#EA6D2D"/>
-      <stop offset="100%" stop-color="#C24E14"/>
+    <linearGradient id="primaryBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1040C5"/>
+      <stop offset="100%" stop-color="#0099CF"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" rx="100" fill="url(#bgGrad)"/>
-  <rect x="4" y="4" width="504" height="504" rx="96" fill="none" stroke="#D95D1E" stroke-opacity="0.12" stroke-width="2"/>
-  <path d="M120 320C80 260 90 170 160 120C230 70 340 75 390 135C430 185 425 260 380 310" fill="none" stroke="url(#primaryOrange)" stroke-width="14" stroke-linecap="round" stroke-dasharray="8 6"/>
-  <path d="M150 338C115 285 125 205 180 160C240 115 330 120 370 170C400 210 395 270 360 312" fill="none" stroke="#D95D1E" stroke-opacity="0.3" stroke-width="4" stroke-linecap="round"/>
-  <path d="M230 135L265 175L225 185L260 220L215 235L235 295" fill="none" stroke="#D95D1E" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M260 145L305 130L300 165L345 205L375 255L345 268L310 240L290 285L245 285L230 355L190 355L215 265L260 215Z" fill="url(#primaryOrange)"/>
-  <circle cx="318" cy="208" r="6" fill="#FAF8F5"/>
-  <circle cx="395" cy="275" r="7" fill="#D95D1E"/>
-  <circle cx="418" cy="255" r="4.5" fill="#D95D1E" opacity="0.6"/>
-  <circle cx="434" cy="240" r="3" fill="#D95D1E" opacity="0.35"/>
+  <rect x="4" y="4" width="504" height="504" rx="0" fill="none" stroke="#1040C5" stroke-opacity="0.25" stroke-width="6"/>
+  <path d="M120 320C80 260 90 170 160 120C230 70 340 75 390 135C430 185 425 260 380 310" fill="none" stroke="url(#primaryBlue)" stroke-width="14" stroke-linecap="square" stroke-dasharray="8 6"/>
+  <path d="M150 338C115 285 125 205 180 160C240 115 330 120 370 170C400 210 395 270 360 312" fill="none" stroke="#0099CF" stroke-opacity="0.4" stroke-width="4" stroke-linecap="square"/>
+  <path d="M230 135L265 175L225 185L260 220L215 235L235 295" fill="none" stroke="#1040C5" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M260 145L305 130L300 165L345 205L375 255L345 268L310 240L290 285L245 285L230 355L190 355L215 265L260 215Z" fill="#1040C5"/>
+  <rect x="312" y="202" width="12" height="12" fill="#FFFFFF"/>
+  <rect x="388" y="268" width="14" height="14" fill="#0099CF"/>
+  <rect x="413" y="250" width="9" height="9" fill="#0099CF" opacity="0.6"/>
+  <rect x="431" y="237" width="6" height="6" fill="#0099CF" opacity="0.35"/>
 </svg>
