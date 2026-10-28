@@ -287,7 +287,7 @@ export default function HomePage() {
             <video
               aria-label={`Video trang chủ: ${activeVideo.label}`}
               autoPlay
-              className="h-full w-full object-cover object-center brightness-[1.06] contrast-[1.03] saturate-[1.06]"
+              className="vf-sharp-video h-full w-full object-cover object-center"
               data-testid="hero-background-video"
               key={activeVideo.id}
               loop
@@ -299,8 +299,8 @@ export default function HomePage() {
               preload="auto"
               ref={heroVideoRef}
             >
-              <source src={activeVideo.webm} type="video/webm" />
               <source src={activeVideo.mp4} type="video/mp4" />
+              <source src={activeVideo.webm} type="video/webm" />
             </video>
             <div className="vf-hero-scrim absolute inset-0" />
           </div>
@@ -442,12 +442,12 @@ export default function HomePage() {
               </div>
 
               <div className="lg:col-span-6">
-                <div className="overflow-hidden rounded-[6px] border border-slate-200 bg-[#F5F7FA]">
-                  <div className="aspect-[16/10] w-full overflow-hidden bg-slate-100">
+                <div className="overflow-hidden rounded-[8px] border border-slate-200 bg-slate-900 shadow-sm">
+                  <div className="aspect-[16/10] w-full overflow-hidden">
                     <video
                       aria-label="Video thực tế huấn luyện và vận hành ngựa đua"
                       autoPlay
-                      className="h-full w-full object-cover brightness-[1.04]"
+                      className="vf-sharp-video h-full w-full object-cover"
                       data-testid="overview-showcase-video"
                       loop
                       muted
@@ -455,16 +455,16 @@ export default function HomePage() {
                       poster="/img/hero-racehorse.webp"
                       preload="metadata"
                     >
-                      <source src="/video/equine-training.webm" type="video/webm" />
                       <source src="/video/equine-training.mp4" type="video/mp4" />
+                      <source src="/video/equine-training.webm" type="video/webm" />
                     </video>
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-5 py-3.5 text-sm font-normal text-slate-600">
-                    <span className="font-normal text-[#1F2125]">
-                      Ghi hình thực tế huấn luyện thể lực &amp; giám sát vận động
-                    </span>
-                    <span className="text-slate-500">Chuồng trại · Phòng khám · Đường đua</span>
-                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-sm font-normal text-slate-600">
+                  <span className="font-normal text-[#1F2125]">
+                    Ghi hình thực tế huấn luyện thể lực &amp; giám sát vận động
+                  </span>
+                  <span className="text-slate-500">Chuồng trại · Phòng khám · Đường đua</span>
                 </div>
               </div>
             </div>
@@ -472,14 +472,14 @@ export default function HomePage() {
         </section>
 
         {/* 3. TẦM NHÌN – SỨ MỆNH – TRIẾT LÝ VẬN HÀNH */}
-        <section id="tam-nhin" className="border-y border-slate-200/80 bg-[#F5F7FA] py-16 md:py-20 lg:py-24">
+        <section id="tam-nhin" className="bg-[#F5F7FA] py-16 md:py-20 lg:py-24">
           <div className="mx-auto max-w-7xl px-6 sm:px-8 lg:px-12">
             <div className="max-w-3xl">
               <p className="vf-section-label">Định hướng chiến lược</p>
               <h2 className="mt-2.5 text-2xl font-normal leading-[1.22] tracking-[-0.015em] text-[#1F2125] sm:text-3xl lg:text-[36px] [text-wrap:balance]">
                 Tầm nhìn, Sứ mệnh &amp; Triết lý vận&nbsp;hành
               </h2>
-              <p className="mt-3.5 text-base font-normal leading-[1.7] text-[#475569]">
+              <p className="mt-3.5 max-w-[55ch] text-base font-normal leading-[1.7] text-[#475569]">
                 Nền tảng định hướng mọi quy chuẩn kỹ thuật, quy trình chăm sóc và cơ chế bảo mật phân quyền trên toàn hệ thống.
               </p>
             </div>
@@ -487,7 +487,7 @@ export default function HomePage() {
             <div className="mt-10 grid gap-6 md:grid-cols-3 lg:mt-12 lg:gap-8">
               {visionPillars.map((pillar) => (
                 <article
-                  className="flex flex-col justify-between rounded-[6px] border border-slate-200 border-t-2 border-t-[#1464F4] bg-white p-7 lg:p-8"
+                  className="flex flex-col justify-between rounded-[8px] border border-slate-200 bg-white p-7 shadow-sm transition-colors hover:border-slate-300 lg:p-8"
                   key={pillar.index}
                 >
                   <div>
@@ -519,7 +519,7 @@ export default function HomePage() {
               <h2 className="mt-2.5 text-2xl font-normal leading-[1.22] tracking-[-0.015em] text-[#1F2125] sm:text-3xl lg:text-[36px] [text-wrap:balance]">
                 3 trụ cột kiến tạo chuẩn mực quản&nbsp;trị
               </h2>
-              <p className="mt-3.5 text-base font-normal leading-[1.7] text-[#475569]">
+              <p className="mt-3.5 max-w-[55ch] text-base font-normal leading-[1.7] text-[#475569]">
                 Kết hợp công nghệ mô phỏng 3D, cơ chế kiểm soát rủi ro y tế tự động và hệ thống kế toán minh bạch.
               </p>
             </div>
@@ -527,7 +527,7 @@ export default function HomePage() {
             <div className="mt-10 grid gap-6 md:grid-cols-3 lg:mt-12 lg:gap-8">
               {coreValues.map((item) => (
                 <article
-                  className="flex flex-col justify-between rounded-[6px] border border-slate-200 bg-[#F8FAFC] p-7 lg:p-8"
+                  className="flex flex-col justify-between rounded-[8px] border border-slate-200 bg-[#F8FAFC] p-7 transition-colors hover:border-slate-300 lg:p-8"
                   key={item.number}
                 >
                   <div>
@@ -552,7 +552,7 @@ export default function HomePage() {
         </section>
 
         {/* 5. HỆ SINH THÁI 5 VAI TRÒ CHUYÊN BIỆT */}
-        <section id="vai-tro" className="border-y border-slate-200/80 bg-[#F5F7FA] py-16 md:py-20 lg:py-24">
+        <section id="vai-tro" className="bg-[#F5F7FA] py-16 md:py-20 lg:py-24">
           <div className="mx-auto max-w-7xl px-6 sm:px-8 lg:px-12">
             <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
               <div className="max-w-3xl">
@@ -560,7 +560,7 @@ export default function HomePage() {
                 <h2 className="mt-2.5 text-2xl font-normal leading-[1.22] tracking-[-0.015em] text-[#1F2125] sm:text-3xl lg:text-[36px] [text-wrap:balance]">
                   Không gian làm việc chuyên biệt cho 5&nbsp;vai&nbsp;trò
                 </h2>
-                <p className="mt-3.5 text-base font-normal leading-[1.7] text-[#475569]">
+                <p className="mt-3.5 max-w-[55ch] text-base font-normal leading-[1.7] text-[#475569]">
                   Mỗi vị trí được thiết kế giao diện và quyền hạn riêng biệt, liên thông dữ liệu tức thời trên cùng một nền tảng.
                 </p>
               </div>
@@ -657,8 +657,8 @@ export default function HomePage() {
               </div>
 
               <div className="lg:col-span-6">
-                <div className="overflow-hidden rounded-[6px] border border-slate-200 bg-[#F5F7FA]">
-                  <div className="relative aspect-[16/11] w-full overflow-hidden">
+                <div className="overflow-hidden rounded-[8px] border border-slate-200 shadow-sm">
+                  <div className="relative aspect-[16/11] w-full overflow-hidden bg-slate-100">
                     <Image
                       alt={activeRole.title}
                       className="object-cover object-center brightness-[1.03]"
@@ -667,10 +667,8 @@ export default function HomePage() {
                       src={activeRole.image}
                     />
                   </div>
-                  <div className="border-t border-slate-200 bg-white px-5 py-3.5">
-                    <p className="text-sm font-normal text-slate-600">{activeRole.focus}</p>
-                  </div>
                 </div>
+                <p className="mt-3 px-1 text-sm font-normal text-slate-600">{activeRole.focus}</p>
               </div>
             </div>
           </div>
@@ -684,7 +682,7 @@ export default function HomePage() {
               <h2 className="mt-2.5 text-2xl font-normal leading-[1.22] tracking-[-0.015em] text-[#1F2125] sm:text-3xl lg:text-[36px] [text-wrap:balance]">
                 6 phân hệ nghiệp vụ liên&nbsp;thông khép&nbsp;kín
               </h2>
-              <p className="mt-3.5 text-base font-normal leading-[1.7] text-[#475569]">
+              <p className="mt-3.5 max-w-[55ch] text-base font-normal leading-[1.7] text-[#475569]">
                 Mọi thao tác nghiệp vụ tại chuồng trại, đường đua và phòng khám thú y đều được đồng bộ tức thời trên toàn hệ thống.
               </p>
             </div>

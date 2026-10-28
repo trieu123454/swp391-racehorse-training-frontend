@@ -87,7 +87,7 @@
 
 .horse-nav-label {
   margin: 18px 8px 10px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 400;
   letter-spacing: 0.12em;
   color: #64748B;
@@ -189,7 +189,7 @@
   display: block;
   margin-top: 2px;
   color: #64748B;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .horse-account button {
@@ -355,7 +355,7 @@
 
 .horse-profile-copy small {
   color: #64748B;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .horse-profile-popover {

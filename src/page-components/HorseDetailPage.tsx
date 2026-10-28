@@ -137,7 +137,7 @@ export default function HorseDetailPage() {
             <ArrowLeft size={16} /> Quay lại danh sách
           </button>
           <div className="flex flex-wrap gap-2">
-            {user.roleName !== "HORSE_OWNER" && (
+            {user.roleName === "CLUB_MANAGER" && (
               <Link className="gold-button" href={Routes.horseEdit(horse.id)}>
                 <Pencil size={15} /> Chỉnh sửa hồ sơ
               </Link>
@@ -169,6 +169,8 @@ export default function HorseDetailPage() {
               <div className="mt-4 space-y-2 border-t border-slate-100 pt-3 text-xs text-slate-600">
                 <p><strong>Giống:</strong> {horse.breed ?? "Chưa cập nhật"}</p>
                 <p><strong>Năm sinh:</strong> {horse.birth_year ?? "—"}</p>
+                <p><strong>Microchip:</strong> {horse.microchip_number ?? "Chưa cập nhật"}</p>
+                <p><strong>Hộ chiếu:</strong> {horse.passport_number ?? "Chưa cập nhật"}</p>
                 <p><strong>Chuồng trại:</strong> {horse.box_code ?? horse.stable_box_id ?? "Chưa xếp"}</p>
                 <p><strong>Chủ sở hữu:</strong> {horse.owner_name ?? "Chưa xác định"}</p>
               </div>
@@ -182,6 +184,8 @@ export default function HorseDetailPage() {
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <InfoCard label="Tên cha (Sire)" value={horse.pedigree_father ?? "Chưa cập nhật"} />
                 <InfoCard label="Tên mẹ (Dam)" value={horse.pedigree_mother ?? "Chưa cập nhật"} />
+                <InfoCard label="Microchip" value={horse.microchip_number ?? "Chưa cập nhật"} />
+                <InfoCard label="Hộ chiếu ngựa" value={horse.passport_number ?? "Chưa cập nhật"} />
                 <InfoCard label="Chiều cao vai" value={horse.height_cm == null ? "Chưa cập nhật" : `${horse.height_cm} cm`} />
                 <InfoCard label="Cân nặng gần nhất" value={horse.current_weight_kg == null ? "Chưa có dữ liệu" : `${horse.current_weight_kg} kg`} />
                 <InfoCard label="Trạng thái sức khỏe" value={horse.current_status} />
@@ -313,7 +317,7 @@ export default function HorseDetailPage() {
 function InfoCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
-      <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">{label}</span>
+      <span className="block text-xs font-normal uppercase tracking-wider text-slate-400">{label}</span>
       <strong className="mt-1 block truncate text-xs font-semibold text-slate-800">{value}</strong>
     </div>
   );

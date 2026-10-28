@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Filter,
   Pencil,
-  Plus,
   Search,
   ShieldAlert,
   Trash2,
@@ -44,14 +43,19 @@ export default function HorsesPage() {
 
   useEffect(() => {
     let active = true;
+    const isOwner = user.roleName === "HORSE_OWNER";
     setLoading(true);
     setError("");
     Promise.all([
-      listHorses({
-        search: search || undefined,
-        stableBoxId: stableFilter === "ALL" ? undefined : stableFilter,
-        currentStatus: statusFilter === "ALL" ? undefined : statusFilter,
-      }),
+      listHorses(
+        isOwner
+          ? {}
+          : {
+              search: search || undefined,
+              stableBoxId: stableFilter === "ALL" ? undefined : stableFilter,
+              currentStatus: statusFilter === "ALL" ? undefined : statusFilter,
+            }
+      ),
       getHorseStables(),
     ]).then(([page, stables]) => {
       if (!active) return;
@@ -63,7 +67,7 @@ export default function HorsesPage() {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [search, stableFilter, statusFilter]);
+  }, [search, stableFilter, statusFilter, user.roleName]);
 
   const visibleHorses = useMemo(() => {
     const personalOnly = user.roleName === "HORSE_OWNER";
@@ -109,8 +113,7 @@ export default function HorsesPage() {
           {/* Header */}
           <div className="mb-6 flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="eyebrow">Hồ sơ chiến mã</p>
-              <h1 className="mt-1 font-sans text-2xl font-normal tracking-tight text-slate-900 sm:text-3xl">
+              <h1 className="font-sans text-2xl font-normal tracking-tight text-slate-900 sm:text-3xl">
                 {user.roleName === "HORSE_OWNER" ? "Hồ sơ ngựa của bạn" : "Quản lý hồ sơ & lý lịch ngựa"}
               </h1>
               <p className="mt-1 text-sm text-slate-500">
@@ -120,8 +123,8 @@ export default function HorsesPage() {
               </p>
             </div>
             {user.roleName === "CLUB_MANAGER" && (
-              <Link className="gold-button self-start sm:self-center" href={Routes.horseNew}>
-                <Plus size={16} /> Thêm ngựa mới
+              <Link className="gold-button self-start sm:self-center" href={Routes.dashboardTab(Routes.dashboardRole("club-manager"), "horse-requests")}>
+                Xem yêu cầu đăng ký
               </Link>
             )}
           </div>
@@ -165,7 +168,6 @@ export default function HorsesPage() {
                   <option value="Monitoring">Cần theo dõi</option>
                   <option value="Quarantine">Cách ly</option>
                   <option value="Injured">Chấn thương</option>
-                  <option value="Sick">Đang bệnh</option>
                 </select>
               </label>
 
@@ -225,23 +227,23 @@ export default function HorsesPage() {
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-                        <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
-                          <span className="block text-[10px] font-normal uppercase tracking-wider text-slate-400">Chuồng</span>
-                          <strong className="block truncate font-normal text-slate-800 mt-0.5">{horse.box_code ?? horse.stable_box_id ?? "—"}</strong>
+                        <div className="rounded-lg bg-slate-50 p-2.5">
+                          <span className="block text-xs font-normal uppercase tracking-wider text-slate-400">Chuồng</span>
+                          <span className="block truncate font-normal text-slate-800 mt-0.5">{horse.box_code ?? horse.stable_box_id ?? "—"}</span>
                         </div>
-                        <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
-                          <span className="block text-[10px] font-normal uppercase tracking-wider text-slate-400">Chủ sở hữu</span>
-                          <strong className="block truncate font-normal text-slate-800 mt-0.5">{owner?.full_name ?? "Chưa có"}</strong>
+                        <div className="rounded-lg bg-slate-50 p-2.5">
+                          <span className="block text-xs font-normal uppercase tracking-wider text-slate-400">Chủ sở hữu</span>
+                          <span className="block truncate font-normal text-slate-800 mt-0.5">{owner?.full_name ?? "Chưa có"}</span>
                         </div>
-                        <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
-                          <span className="block text-[10px] font-normal uppercase tracking-wider text-slate-400">Cân nặng</span>
-                          <strong className="block truncate font-normal text-slate-800 mt-0.5">{horse.current_weight_kg == null ? "—" : `${horse.current_weight_kg} kg`}</strong>
+                        <div className="rounded-lg bg-slate-50 p-2.5">
+                          <span className="block text-xs font-normal uppercase tracking-wider text-slate-400">Cân nặng</span>
+                          <span className="block truncate font-normal text-slate-800 mt-0.5">{horse.current_weight_kg == null ? "—" : `${horse.current_weight_kg} kg`}</span>
                         </div>
-                        <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
-                          <span className="block text-[10px] font-normal uppercase tracking-wider text-slate-400">Tập luyện</span>
-                          <strong className={`block truncate font-normal mt-0.5 ${horse.is_training_locked ? "text-amber-700" : "text-emerald-700"}`}>
+                        <div className="rounded-lg bg-slate-50 p-2.5">
+                          <span className="block text-xs font-normal uppercase tracking-wider text-slate-400">Tập luyện</span>
+                          <span className={`block truncate font-normal mt-0.5 ${horse.is_training_locked ? "text-amber-700" : "text-emerald-700"}`}>
                             {horse.is_training_locked ? "Đang khóa" : "Sẵn sàng"}
-                          </strong>
+                          </span>
                         </div>
                       </div>
 
