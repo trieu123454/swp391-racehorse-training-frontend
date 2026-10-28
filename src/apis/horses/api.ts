@@ -16,6 +16,8 @@ export type HorseRegistrationDocument = {
   name: string;
   content_type: string;
   file_size: number;
+  document_type: "OWNERSHIP_PROOF" | "HORSE_CERTIFICATE" | "HEALTH_DOCUMENT" | "OTHER";
+  revision_no: number;
   uploaded_at: string;
   url: string;
   download_url: string;
@@ -31,6 +33,8 @@ export type Horse = {
   current_weight_kg: number | null;
   pedigree_father: string | null;
   pedigree_mother: string | null;
+  microchip_number: string | null;
+  passport_number: string | null;
   image_url: string | null;
   stable_box_id: string;
   box_code: string | null;
@@ -63,6 +67,8 @@ export type HorseInput = {
   currentWeightKg: number | null;
   pedigreeFather: string | null;
   pedigreeMother: string | null;
+  microchipNumber: string | null;
+  passportNumber: string | null;
   stableBoxId: string;
   ownerId: number | null;
   imagePath: string | null;

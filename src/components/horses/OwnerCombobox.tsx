@@ -126,63 +126,63 @@ export function OwnerCombobox({ value, onChange, required = false }: Props) {
         aria-labelledby="owner-selector-label owner-selector-value"
         aria-expanded={open}
         onClick={() => open ? setOpen(false) : startSearch()}
-        className="field-control flex min-h-[52px] items-center justify-between gap-3 text-left"
+        className="field-control flex min-h-[44px] w-full items-center justify-between gap-3 text-left"
       >
         <span id="owner-selector-value" className="min-w-0">
-          <span className="block truncate text-sm font-medium text-equine-navy">
+          <span className="block truncate text-sm font-semibold text-slate-900">
             {selectedOwner?.full_name ?? (value === null ? (required ? "Chọn Horse Owner" : "Không gán chủ sở hữu") : `Chủ sở hữu #${value}`)}
           </span>
           <span className="block truncate text-xs text-slate-500">
             {selectedOwner ? `${selectedOwner.email} · Mã #${selectedOwner.user_id}` : value !== null ? (loadingSelection ? "Đang tải thông tin chủ sở hữu..." : `Mã #${value}`) : required ? "Bắt buộc chọn một chủ sở hữu chính" : "Chọn để tìm theo tên, email, số điện thoại hoặc mã chủ"}
           </span>
         </span>
-        <ChevronDown size={18} className={`shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown size={16} className={`shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
-        <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-xl border border-equine-line bg-white shadow-xl">
-          <div className="flex items-center gap-2 border-b border-equine-line px-3">
-            <Search size={17} className="shrink-0 text-slate-400" />
+        <div className="absolute z-30 mt-2 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+          <div className="flex items-center gap-2 border-b border-slate-200 px-3">
+            <Search size={16} className="shrink-0 text-slate-400" />
             <input
               autoFocus
               value={query}
               onChange={(event) => { setQuery(event.target.value); setPage(0); setOwners([]); setError(""); }}
-              className="min-w-0 flex-1 border-0 bg-transparent py-3 text-sm outline-none placeholder:text-slate-400"
+              className="min-w-0 flex-1 border-0 bg-transparent py-2.5 text-sm outline-none placeholder:text-slate-400 text-slate-800"
               placeholder="Nhập tên, email, số điện thoại hoặc mã #..."
               aria-label="Tìm chủ sở hữu"
             />
-            {loading && <LoaderCircle size={17} className="animate-spin text-slate-400" />}
+            {loading && <LoaderCircle size={16} className="animate-spin text-slate-400" />}
           </div>
 
           <div className="max-h-72 overflow-y-auto p-1">
             <div id="owner-selector-options" role="listbox" aria-label="Kết quả chủ sở hữu">
-            {!required && <button type="button" role="option" aria-selected={value === null} onClick={() => choose(null)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-slate-50">
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500"><UserRound size={16} /></span>
+            {!required && <button type="button" role="option" aria-selected={value === null} onClick={() => choose(null)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-slate-50">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-500"><UserRound size={15} /></span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-equine-navy">Không gán chủ sở hữu</span>
-                <span className="block text-xs text-slate-500">Có thể gán chủ sau</span>
+                <span className="block text-xs font-semibold text-slate-800">Không gán chủ sở hữu</span>
+                <span className="block text-[11px] text-slate-400">Có thể gán chủ sau</span>
               </span>
-              {value === null && <Check size={16} className="text-equine-gold" />}
+              {value === null && <Check size={15} className="text-teal-700" />}
             </button>}
 
             {owners.map((owner) => (
-              <button key={owner.user_id} type="button" role="option" aria-selected={value === owner.user_id} onClick={() => choose(owner)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-[#f7f9ff]">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#eef2ff] text-equine-navy"><UserRound size={16} /></span>
+              <button key={owner.user_id} type="button" role="option" aria-selected={value === owner.user_id} onClick={() => choose(owner)} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-slate-50">
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-teal-50 text-teal-800"><UserRound size={15} /></span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-equine-navy">{owner.full_name}</span>
-                  <span className="block truncate text-xs text-slate-500">{owner.email}{owner.phone ? ` · ${owner.phone}` : ""} · Mã #{owner.user_id}</span>
+                  <span className="block truncate text-xs font-semibold text-slate-900">{owner.full_name}</span>
+                  <span className="block truncate text-[11px] text-slate-500">{owner.email}{owner.phone ? ` · ${owner.phone}` : ""} · Mã #{owner.user_id}</span>
                 </span>
-                {value === owner.user_id && <Check size={16} className="shrink-0 text-equine-gold" />}
+                {value === owner.user_id && <Check size={15} className="shrink-0 text-teal-700" />}
               </button>
             ))}
             </div>
 
-            {!canSearch && <p className="px-3 py-4 text-sm text-slate-500">Nhập ít nhất 3 ký tự để tìm, hoặc nhập mã chủ sở hữu.</p>}
-            {canSearch && !loading && !error && owners.length === 0 && <p className="px-3 py-4 text-sm text-slate-500">Không tìm thấy chủ sở hữu phù hợp.</p>}
-            {error && <p role="alert" className="px-3 py-3 text-sm text-red-600">{error}</p>}
+            {!canSearch && <p className="px-3 py-3 text-xs text-slate-400">Nhập ít nhất 3 ký tự để tìm, hoặc nhập mã chủ sở hữu (#123).</p>}
+            {canSearch && !loading && !error && owners.length === 0 && <p className="px-3 py-3 text-xs text-slate-400">Không tìm thấy chủ sở hữu phù hợp.</p>}
+            {error && <p role="alert" className="px-3 py-2.5 text-xs text-red-600">{error}</p>}
 
             {hasMore && (
-              <button type="button" onClick={() => setPage((current) => current + 1)} disabled={loading} className="w-full rounded-lg px-3 py-2.5 text-sm font-medium text-equine-navy hover:bg-[#f7f9ff] disabled:opacity-50">
+              <button type="button" onClick={() => setPage((current) => current + 1)} disabled={loading} className="w-full rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
                 {loading ? "Đang tải..." : "Tải thêm kết quả"}
               </button>
             )}

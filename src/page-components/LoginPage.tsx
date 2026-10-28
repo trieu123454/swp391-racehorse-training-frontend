@@ -92,11 +92,9 @@ export default function LoginPage() {
           <div className="auth-form-content">
             <div className="auth-form-brand"><Brand /></div>
             <h1 className="auth-title">
-              Đăng nhập hệ thống
+              Đăng nhập
             </h1>
-            <p className="auth-subtitle">
-              Nhập email và mật khẩu để tiếp tục.
-            </p>
+
 
             <form className="auth-form" onSubmit={handleSubmit}>
               <label className="block">
@@ -158,7 +156,7 @@ export default function LoginPage() {
                   onChange={(event) => setRemember(event.target.checked)}
                   type="checkbox"
                 />
-                Ghi nhớ đăng nhập trong tab này
+                Ghi nhớ đăng nhập
               </label>
 
               {error ? (

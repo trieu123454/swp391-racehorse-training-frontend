@@ -51,6 +51,7 @@ function numberLabel(number: number) {
 }
 
 type Week = TrainingAnalysis["weeks"][number];
+type TrainingSessionAnalysis = TrainingAnalysis["sessions"][number];
 
 export default function TrainingAnalysisPanel({
   horseId,
@@ -141,8 +142,8 @@ export default function TrainingAnalysisPanel({
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl border border-equine-line bg-white p-5">
-        <h3 className="font-semibold text-equine-navy">Mức đạt giáo án và khối lượng tuần</h3>
+      <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
+        <h3 className="font-semibold text-equine-navy">Giáo án & khối lượng tuần</h3>
         <p className="mt-2 text-sm text-slate-500">
           Khối lượng thực hiện gồm cả thời gian đã tập của phiên bị dừng. Mục tiêu tuần được phân bổ theo số ngày của giai đoạn trong khoảng báo cáo.
         </p>
@@ -162,33 +163,38 @@ export default function TrainingAnalysisPanel({
         {report && (
           <>
             <WorkloadSummary weeks={report.weeks} />
-            <WeeklyWorkloadChart weeks={report.weeks} />
+            <RecentTrainingSessionsChart sessions={report.sessions} />
             <div className="mt-5 overflow-x-auto">
-              <table className="w-full min-w-[650px] text-left text-sm">
+              <table className="w-full min-w-[850px] text-left text-sm">
                 <thead>
                   <tr>
-                    <th>Tuần bắt đầu</th><th>Mục tiêu</th><th>Đã xếp lịch</th><th>Thực hiện</th><th>Đạt</th><th>Hoàn thành / bỏ lỡ / hủy</th>
+                    <th>Ngày</th><th>Loại buổi</th><th>Giáo án</th><th>Trạng thái</th><th>Mục tiêu</th><th>Thực hiện</th><th>Đạt</th><th>Groom</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {report.weeks.map((week) => (
-                    <tr key={week.week_start} className="border-t border-equine-line">
-                      <td className="py-3">{week.week_start}</td>
-                      <td>{value(week.target_minutes, " phút")}</td>
-                      <td>{value(week.planned_minutes, " phút")}</td>
-                      <td>{value(week.actual_minutes, " phút")}</td>
-                      <td>{value(week.workload_achievement_percent, "%")}</td>
-                      <td>{week.completed} / {week.missed} / {week.cancelled}</td>
+                  {report.sessions.map((session) => (
+                    <tr key={session.id} className="border-t border-equine-line">
+                      <td className="py-3">{session.event_date}{session.start_time ? ` · ${session.start_time.slice(0, 5)}` : ""}</td>
+                      <td>{sessionTypeLabel(session.session_type)}</td>
+                      <td>{session.snapshot_stage_name ?? "—"}</td>
+                      <td>{statuses[session.effective_status] ?? session.effective_status}</td>
+                      <td>{value(session.target_distance_meters, " m")}</td>
+                      <td>{value(session.actual_distance_meters, " m")}</td>
+                      <td>{value(session.distance_achievement_percent, "%")}</td>
+                      <td>{session.groom_name ?? "Chưa phân công"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {report.sessions.length === 0 && (
+              <p className="mt-3 text-sm text-slate-500">Chưa có buổi tập trong khoảng ngày này.</p>
+            )}
           </>
         )}
       </section>
 
-      <section className="rounded-2xl border border-equine-line bg-white p-5">
+      <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
         <h3 className="font-semibold text-equine-navy">Lịch sử chạy thử</h3>
         <p className="mt-2 text-sm text-slate-500">
           So với lần trước có cùng cự ly mục tiêu, cường độ và mặt sân trong khoảng báo cáo. Thời lượng gồm khởi động và hồi phục; điểm hồi phục là ước tính của mô hình.
@@ -227,11 +233,11 @@ export default function TrainingAnalysisPanel({
         loading={loading}
       />
 
-      <section className="rounded-2xl border border-equine-line bg-white p-5">
+      <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
         <h3 className="font-semibold text-equine-navy">Đánh giá từng buổi</h3>
         <div className="mt-4 space-y-4">
           {report?.sessions.map((session) => (
-            <article key={session.id} className="rounded-xl border border-equine-line p-4">
+            <article key={session.id} className="rounded-lg border border-equine-line p-4">
               <div className="flex flex-wrap justify-between gap-2">
                 <strong>
                   {session.event_date} · {session.start_time?.slice(0, 5)} · {session.session_type === "TrialRun" ? "Chạy thử" : session.session_type === "Rest" ? "Nghỉ" : "Huấn luyện"}
@@ -278,7 +284,7 @@ export default function TrainingAnalysisPanel({
       </section>
 
       {detail && (
-        <section className="rounded-2xl border border-equine-line bg-white p-5">
+        <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
           <div className="flex justify-between">
             <h3 className="font-semibold text-equine-navy">Chuỗi cảm biến · {detail.horses[0]?.horse_name}</h3>
             <button type="button" className="soft-button" onClick={() => { ++detailRequestRef.current; setDetail(null); }}>Đóng</button>
@@ -301,9 +307,9 @@ function WorkloadSummary({ weeks }: { weeks: Week[] }) {
   );
   const achievement = totals.target > 0 ? totals.actual / totals.target * 100 : null;
   const entries = [
-    { label: "Mục tiêu", amount: totals.target, color: "#64748b" },
-    { label: "Đã xếp lịch", amount: totals.planned, color: "#d49a38" },
-    { label: "Thực hiện", amount: totals.actual, color: "#287765" },
+    { label: "Mục tiêu", amount: totals.target, color: "#64748B" },
+    { label: "Đã xếp lịch", amount: totals.planned, color: "#0099CF" },
+    { label: "Thực hiện", amount: totals.actual, color: "#1040C5" },
   ];
   return (
     <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -320,14 +326,100 @@ function WorkloadSummary({ weeks }: { weeks: Week[] }) {
   );
 }
 
+function sessionTypeLabel(value: string) {
+  return ({ Training: "Huấn luyện", TrialRun: "Chạy thử", Rest: "Nghỉ" } as Record<string, string>)[value] ?? value;
+}
+
+function RecentTrainingSessionsChart({ sessions }: { sessions: TrainingSessionAnalysis[] }) {
+  const recentSessions = sessions
+    .filter((session) => Number.isFinite(new Date(`${session.event_date}T${session.start_time ?? "00:00"}`).getTime()))
+    .slice()
+    .sort((left, right) => {
+      const leftTime = new Date(`${left.event_date}T${left.start_time ?? "00:00"}`).getTime();
+      const rightTime = new Date(`${right.event_date}T${right.start_time ?? "00:00"}`).getTime();
+      return rightTime - leftTime;
+    })
+    .slice(0, 10)
+    .reverse();
+
+  if (recentSessions.length === 0) {
+    return <p className="mt-4 rounded-xl border border-dashed border-equine-line p-5 text-center text-sm text-slate-500">Chưa có buổi tập trong khoảng ngày này.</p>;
+  }
+
+  const series = [
+    { key: "target_distance_meters" as const, label: "Mục tiêu", color: "#64748B" },
+    { key: "actual_distance_meters" as const, label: "Thực hiện", color: "#1040C5" },
+  ];
+  const chart = { left: 48, top: 18, bottom: 174, height: 220, groupWidth: 76, right: 16 };
+  const width = chart.left + recentSessions.length * chart.groupWidth + chart.right;
+  const maximum = Math.max(1, ...recentSessions.flatMap((session) => series.map((item) => session[item.key] ?? 0)));
+  const y = (amount: number) => chart.bottom - amount / maximum * (chart.bottom - chart.top);
+  const ticks = [maximum, maximum / 2, 0];
+  const barWidth = Math.min(18, (chart.groupWidth - 12) / 2);
+
+  return (
+    <div className="mt-5">
+      <div className="mb-2 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600">
+        {series.map((item) => (
+          <span key={item.key} className="inline-flex items-center gap-2">
+            <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: item.color }} />{item.label}
+          </span>
+        ))}
+        <span className="text-slate-500">Đơn vị: mét · tối đa 10 buổi gần nhất</span>
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-equine-line bg-white px-2 py-3">
+        <svg
+          viewBox={`0 0 ${width} ${chart.height}`}
+          className="block h-[220px] w-full"
+          style={{ minWidth: Math.max(620, width) }}
+          role="img"
+          aria-label="Cự ly mục tiêu và cự ly thực hiện của 10 buổi tập gần nhất"
+        >
+          <desc>So sánh cự ly mục tiêu và cự ly thực hiện của tối đa 10 buổi tập gần nhất.</desc>
+          {ticks.map((tick, index) => {
+            const tickY = y(tick);
+            return (
+              <g key={index}>
+                <line x1={chart.left} x2={width - 8} y1={tickY} y2={tickY} stroke="#e5e7eb" />
+                <text x={chart.left - 7} y={tickY + 4} textAnchor="end" fill="#64748b" fontSize="10">{numberLabel(tick)}</text>
+              </g>
+            );
+          })}
+          {recentSessions.map((session, index) => {
+            const center = chart.left + index * chart.groupWidth + chart.groupWidth / 2;
+            const firstX = center - (barWidth * 2 + 3) / 2;
+            return (
+              <g key={session.id}>
+                {series.map((item, seriesIndex) => {
+                  const amount = session[item.key] ?? 0;
+                  const barHeight = amount > 0 ? Math.max(1, chart.bottom - y(amount)) : 0;
+                  const x = firstX + seriesIndex * (barWidth + 3);
+                  return (
+                    <rect key={item.key} x={x} y={chart.bottom - barHeight} width={barWidth} height={barHeight} rx="2" fill={item.color}>
+                      <title>{session.event_date + " · " + sessionTypeLabel(session.session_type) + " · " + item.label + ": " + numberLabel(amount) + " m"}</title>
+                    </rect>
+                  );
+                })}
+                <text x={center} y={chart.bottom + 18} textAnchor="middle" fill="#64748b" fontSize="9">{shortDate(session.event_date)}</text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+// Kept for reference while the session-based chart rolls out; the panel uses RecentTrainingSessionsChart.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function WeeklyWorkloadChart({ weeks }: { weeks: Week[] }) {
   if (weeks.length === 0) {
     return <p className="mt-4 rounded-xl border border-dashed border-equine-line p-5 text-center text-sm text-slate-500">Chưa có dữ liệu tuần trong khoảng ngày này.</p>;
   }
   const series = [
-    { key: "target_minutes" as const, label: "Mục tiêu", color: "#64748b" },
-    { key: "planned_minutes" as const, label: "Đã xếp lịch", color: "#d49a38" },
-    { key: "actual_minutes" as const, label: "Thực hiện", color: "#287765" },
+    { key: "target_minutes" as const, label: "Mục tiêu", color: "#64748B" },
+    { key: "planned_minutes" as const, label: "Đã xếp lịch", color: "#0099CF" },
+    { key: "actual_minutes" as const, label: "Thực hiện", color: "#1040C5" },
   ];
   const chart = { left: 48, top: 18, bottom: 174, height: 220, groupWidth: 64, right: 16 };
   const width = chart.left + weeks.length * chart.groupWidth + chart.right;
@@ -403,8 +495,8 @@ function TrialRunCharts({ runs }: { runs: TrainingAnalysis["trial_runs"] }) {
   if (speedPoints.length === 0 && recoveryPoints.length === 0) return null;
   return (
     <div className="mt-4 grid gap-4 lg:grid-cols-2">
-      {speedPoints.length > 0 && <TrendChart title="Tốc độ trung bình khi chạy thử" unit="km/h" color="#287765" points={speedPoints} />}
-      {recoveryPoints.length > 0 && <TrendChart title="Nhịp tim hồi phục sau chạy thử" unit="bpm" color="#c56545" points={recoveryPoints} />}
+      {speedPoints.length > 0 && <TrendChart title="Tốc độ trung bình khi chạy thử" unit="km/h" color="#1040C5" points={speedPoints} />}
+      {recoveryPoints.length > 0 && <TrendChart title="Nhịp tim hồi phục sau chạy thử" unit="bpm" color="#0099CF" points={recoveryPoints} />}
     </div>
   );
 }
@@ -433,7 +525,7 @@ function TrendChart({ title, unit, color, points: sourcePoints }: { title: strin
   const change = latest.value - first.value;
 
   return (
-    <article className="rounded-xl border border-equine-line p-3">
+    <article className="rounded-lg border border-equine-line p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <h4 className="text-sm font-semibold text-equine-navy">{title}</h4>
         <p className="text-right text-sm font-semibold text-equine-navy">{numberLabel(latest.value)} {unit}</p>
@@ -449,8 +541,8 @@ function TrendChart({ title, unit, color, points: sourcePoints }: { title: strin
           const tickY = y(amount);
           return (
             <g key={index}>
-              <line x1={chart.left} x2={chart.width - chart.right} y1={tickY} y2={tickY} stroke="#e5e7eb" />
-              <text x={chart.left - 7} y={tickY + 4} textAnchor="end" fill="#64748b" fontSize="10">{numberLabel(amount)}</text>
+              <line x1={chart.left} x2={chart.width - chart.right} y1={tickY} y2={tickY} stroke="#E2E8F0" />
+              <text x={chart.left - 7} y={tickY + 4} textAnchor="end" fill="#64748B" fontSize="10">{numberLabel(amount)}</text>
             </g>
           );
         })}
@@ -460,8 +552,8 @@ function TrendChart({ title, unit, color, points: sourcePoints }: { title: strin
             <title>{metricDate(point.recorded_at) + " · " + numberLabel(point.value) + " " + unit}</title>
           </circle>
         ))}
-        <text x={chart.left} y={chart.height - 6} fill="#64748b" fontSize="10">{shortDate(first.recorded_at)}</text>
-        <text x={chart.width - chart.right} y={chart.height - 6} textAnchor="end" fill="#64748b" fontSize="10">{shortDate(latest.recorded_at)}</text>
+        <text x={chart.left} y={chart.height - 6} fill="#64748B" fontSize="10">{shortDate(first.recorded_at)}</text>
+        <text x={chart.width - chart.right} y={chart.height - 6} textAnchor="end" fill="#64748B" fontSize="10">{shortDate(latest.recorded_at)}</text>
       </svg>
       <p className="mt-1 text-xs text-slate-500">
         {points.length} lần chạy · thay đổi từ lần đầu: {change > 0 ? "+" : ""}{numberLabel(change)} {unit}
@@ -472,10 +564,10 @@ function TrendChart({ title, unit, color, points: sourcePoints }: { title: strin
 
 type DevelopmentKey = "body_weight_kg" | "avg_speed_kmh" | "stamina_score" | "max_heart_rate";
 const developmentMeasures: { key: DevelopmentKey; title: string; unit: string; color: string }[] = [
-  { key: "body_weight_kg", title: "Cân nặng", unit: "kg", color: "#b87936" },
-  { key: "avg_speed_kmh", title: "Tốc độ trung bình", unit: "km/h", color: "#287765" },
-  { key: "stamina_score", title: "Điểm thể lực", unit: "/10", color: "#5475a8" },
-  { key: "max_heart_rate", title: "Nhịp tim tối đa", unit: "bpm", color: "#c56545" },
+  { key: "body_weight_kg", title: "Cân nặng", unit: "kg", color: "#1040C5" },
+  { key: "avg_speed_kmh", title: "Tốc độ trung bình", unit: "km/h", color: "#0099CF" },
+  { key: "stamina_score", title: "Điểm thể lực", unit: "/10", color: "#15803D" },
+  { key: "max_heart_rate", title: "Nhịp tim tối đa", unit: "bpm", color: "#B45309" },
 ];
 
 function HorseDevelopment({
@@ -497,7 +589,7 @@ function HorseDevelopment({
   const latestReview = ordered.slice().reverse().find((metric) => metric.trainer_review?.trim())?.trainer_review;
 
   return (
-    <section className="rounded-2xl border border-equine-line bg-white p-5">
+    <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-semibold text-equine-navy">Sự phát triển của ngựa</h3>
@@ -583,9 +675,9 @@ function HorseDevelopment({
 
 function DevelopmentStat({ label, value: amount, detail, warning = false }: { label: string; value: string; detail: string; warning?: boolean }) {
   return (
-    <article className={"rounded-xl border p-3 " + (warning ? "border-rose-200 bg-rose-50" : "border-equine-line bg-slate-50")}>
+    <article className={"rounded-lg border p-3 " + (warning ? "border-amber-200 bg-amber-50" : "border-equine-line bg-slate-50")}>
       <p className="text-xs text-slate-500">{label}</p>
-      <p className={"mt-1 text-lg font-semibold " + (warning ? "text-rose-800" : "text-equine-navy")}>{amount}</p>
+      <p className={"mt-1 text-lg font-semibold " + (warning ? "text-amber-800" : "text-equine-navy")}>{amount}</p>
       <p className="mt-1 text-xs text-slate-500">{detail}</p>
     </article>
   );

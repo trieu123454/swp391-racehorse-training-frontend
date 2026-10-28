@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   Activity,
+  AlertCircle,
   AlertTriangle,
-  Boxes,
+  CheckCircle2,
   ClipboardList,
+  ExternalLink,
   FileText,
   History,
   Package,
@@ -14,11 +16,13 @@ import {
   ShieldCheck,
   Trophy,
   Wallet,
+  XCircle,
 } from "lucide-react";
 import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import InventoryManagerPanel from "@/components/club-manager/InventoryManagerPanel";
 import NotificationCenter from "@/components/shared/NotificationCenter";
+import { CompactId } from "@/components/shared/CompactId";
 import { authenticatedRequest, ApiRequestError } from "@/api/client";
 import { getHorseStables, type Horse, type Stable } from "@/api/horses/api";
 import {
@@ -28,7 +32,7 @@ import {
 } from "@/api/club-manager/api";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 
-type Option = { id: string | number; full_name?: string; horse_name?: string; breed?: string | null; birth_year?: number | null; owner_id?: number | null; owner_name?: string | null };
+type Option = { id: string | number; full_name?: string; horse_name?: string; breed?: string | null; birth_year?: number | null; microchip_number?: string | null; passport_number?: string | null; owner_id?: number | null; owner_name?: string | null };
 type ManagerTask = { id: string; horse_name: string; groom_name: string | null; task_type: string; task_date: string; status: string };
 type IncidentAssignee = { id: number; full_name: string; email: string; role_name: "HEAD_TRAINER" | "VETERINARIAN" | "GROOM" };
 type AssignmentRole = IncidentAssignee["role_name"] | "CLUB_MANAGER";
@@ -126,9 +130,7 @@ function IncidentAssignmentForm({
       {selected && <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
         Đã chọn: <strong>{selected.full_name}</strong> · {selected.email}
       </p>}
-      {normalizedSearch.length < 2
-        ? <p className="mt-2 text-xs text-slate-500">Chọn vai trò rồi nhập tên hoặc email để tìm đúng người.</p>
-        : <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-equine-line" role="listbox" aria-label="Kết quả tìm người phụ trách">
+      {normalizedSearch.length >= 2 && <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-equine-line" role="listbox" aria-label="Kết quả tìm người phụ trách">
           {matches.map((person) => <button key={person.id} type="button" role="option" aria-selected={selectedId === String(person.id)}
             onClick={() => setSelectedId(String(person.id))}
             className={`block w-full px-3 py-2 text-left hover:bg-slate-50 ${selectedId === String(person.id) ? "bg-emerald-50" : "bg-white"}`}>
@@ -162,7 +164,7 @@ function requestError(reason: unknown) {
 
 export default function ClubManagerWorkspace() {
   const [date, setDate] = useState(today());
-  const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
+  const [tab] = useDashboardTab(workspaceTabIds, "overview");
   const [horses, setHorses] = useState<Option[]>([]);
   const [stables, setStables] = useState<Stable[]>([]);
   const [horseRequests, setHorseRequests] = useState<ManagerHorseRegistrationRequest[]>([]);
@@ -277,17 +279,17 @@ export default function ClubManagerWorkspace() {
     if (saved) form.reset();
   }
 
-  async function reviewHorseRequest(id: string, action: "APPROVE" | "REJECT", form: HTMLFormElement) {
+  async function reviewHorseRequest(id: string, action: "APPROVE" | "REQUEST_INFORMATION" | "REJECT", form: HTMLFormElement) {
     if (action === "APPROVE" && !form.reportValidity()) return;
     const values = new FormData(form);
     const reviewNote = String(values.get("reviewNote") ?? "").trim();
-    if (action === "REJECT" && !reviewNote) {
-      setError("Vui lòng nhập lý do từ chối để Horse Owner biết cần bổ sung gì.");
+    if (action !== "APPROVE" && !reviewNote) {
+      setError(action === "REJECT" ? "Vui lòng nhập lý do từ chối." : "Vui lòng nêu rõ thông tin hoặc giấy tờ cần bổ sung.");
       const reviewNoteField = form.elements.namedItem("reviewNote");
       if (reviewNoteField instanceof HTMLElement) reviewNoteField.focus();
       return;
     }
-    const body: { action: "APPROVE" | "REJECT"; stableBoxId?: string; horseId?: string; reviewNote?: string } = {
+    const body: { action: "APPROVE" | "REQUEST_INFORMATION" | "REJECT"; stableBoxId?: string; horseId?: string; reviewNote?: string } = {
       action,
       reviewNote: reviewNote || undefined,
     };
@@ -301,7 +303,7 @@ export default function ClubManagerWorkspace() {
     setNotice("");
     try {
       await reviewHorseRegistrationRequest(id, body);
-      setNotice(action === "APPROVE" ? "Đã duyệt hồ sơ ngựa; dữ liệu đã gửi được đưa vào hồ sơ." : "Đã từ chối yêu cầu và gửi kết quả cho Horse Owner.");
+      setNotice(action === "APPROVE" ? "Đã duyệt hồ sơ; nếu ngựa đang có chủ, yêu cầu đang chờ chủ hiện tại xác nhận." : action === "REQUEST_INFORMATION" ? "Đã yêu cầu Horse Owner bổ sung thông tin." : "Đã từ chối yêu cầu và gửi lý do cho Horse Owner.");
       await load();
     } catch (reason) {
       setError(requestError(reason));
@@ -341,22 +343,8 @@ export default function ClubManagerWorkspace() {
       "Đã đóng sự cố sau khi ghi nhận kết quả.");
   }
 
-  const tabs: { key: WorkspaceTab; label: string; icon: ReactNode; count?: number }[] = [
-    { key: "overview", label: "Tổng quan", icon: <Activity size={16} /> },
-    { key: "care", label: "Giao việc chăm sóc", icon: <ClipboardList size={16} /> },
-    { key: "inventory", label: "Vật tư & thức ăn", icon: <Boxes size={16} /> },
-    { key: "incidents", label: "Sự cố", icon: <AlertTriangle size={16} />, count: incidents.length },
-    { key: "finance", label: "Thu chi", icon: <Wallet size={16} /> },
-    { key: "races", label: "Giải đấu", icon: <Trophy size={16} /> },
-    { key: "horse-requests", label: "Hồ sơ ngựa", icon: <FileText size={16} />, count: horseRequests.length },
-    { key: "audit", label: "Nhật ký thao tác", icon: <History size={16} /> },
-  ];
-
-  return <section className="mt-5 space-y-5" aria-labelledby="club-manager-workspace-title">
-    <div className="flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <h2 id="club-manager-workspace-title" className="font-sans text-3xl font-semibold text-equine-navy">Điều hành câu lạc bộ</h2>
-      </div>
+  return <section className="mt-5 space-y-5" aria-label="Điều hành câu lạc bộ">
+    <div className="flex justify-end gap-3 border-b border-equine-line pb-4">
       <div className="flex gap-2">
         <input aria-label="Ngày báo cáo" type="date" className="field-control px-3" value={date} onChange={(event) => setDate(event.target.value)} />
         <button type="button" className="soft-button" onClick={() => void load()} disabled={busy}><RefreshCw size={15} /> Làm mới</button>
@@ -367,37 +355,7 @@ export default function ClubManagerWorkspace() {
     {notice && <Notice>{notice}</Notice>}
     <NotificationCenter />
 
-    <div role="tablist" aria-label="Các mục quản lý câu lạc bộ" className="workspace-secondary-nav flex gap-2 overflow-x-auto rounded-2xl border border-equine-line bg-white p-2 shadow-sm">
-      {tabs.map((item) => <button
-        key={item.key}
-        id={`manager-tab-${item.key}`}
-        type="button"
-        role="tab"
-        aria-selected={tab === item.key}
-        aria-controls={`manager-panel-${item.key}`}
-        tabIndex={tab === item.key ? 0 : -1}
-        onClick={() => selectTab(item.key)}
-        onKeyDown={(event) => {
-          const currentIndex = tabs.findIndex((candidate) => candidate.key === item.key);
-          let nextIndex = currentIndex;
-          if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % tabs.length;
-          else if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-          else if (event.key === "Home") nextIndex = 0;
-          else if (event.key === "End") nextIndex = tabs.length - 1;
-          else return;
-          event.preventDefault();
-          const nextTab = tabs[nextIndex].key;
-          selectTab(nextTab);
-          document.getElementById(`manager-tab-${nextTab}`)?.focus();
-        }}
-        className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${tab === item.key ? "bg-equine-navy text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-equine-navy"}`}
-      >
-        {item.icon}<span>{item.label}</span>
-        {item.count ? <span className={`rounded-full px-2 py-0.5 text-xs ${tab === item.key ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800"}`}>{item.count}</span> : null}
-      </button>)}
-    </div>
-
-    <div role="tabpanel" id={`manager-panel-${tab}`} aria-labelledby={`manager-tab-${tab}`} className="space-y-5">
+    <div role="tabpanel" id={`manager-panel-${tab}`} className="space-y-5">
       {loadErrors[tab].map((item) => <Notice key={`${item.section}-${item.message}`} error>{item.section}: {item.message}</Notice>)}
 
       {tab === "overview" && <>
@@ -410,16 +368,16 @@ export default function ClubManagerWorkspace() {
         <div className="grid gap-5 xl:grid-cols-2">
           <Panel title="Hiệu suất huấn luyện" icon={Activity}>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Metric icon={Activity} label="Buổi đã lên lịch" value={String(report?.training_performance.scheduled ?? 0)} />
-              <Metric icon={Activity} label="Đang diễn ra" value={String(report?.training_performance.in_progress ?? 0)} />
-              <Metric icon={ShieldCheck} label="Hoàn tất / bị khóa" value={`${report?.training_performance.completed ?? 0} / ${report?.training_performance.blocked ?? 0}`} />
-              <Metric icon={ClipboardList} label="Đã hủy" value={String(report?.training_performance.cancelled ?? 0)} />
-              <Metric icon={Package} label="Giải đấu đã đăng ký" value={String(report?.official_competition.registered ?? 0)} />
+              <Metric flat icon={Activity} label="Buổi đã lên lịch" value={String(report?.training_performance.scheduled ?? 0)} />
+              <Metric flat icon={Activity} label="Đang diễn ra" value={String(report?.training_performance.in_progress ?? 0)} />
+              <Metric flat icon={ShieldCheck} label="Hoàn tất / bị khóa" value={`${report?.training_performance.completed ?? 0} / ${report?.training_performance.blocked ?? 0}`} />
+              <Metric flat icon={ClipboardList} label="Đã hủy" value={String(report?.training_performance.cancelled ?? 0)} />
+              <Metric flat className="sm:col-span-2" icon={Package} label="Giải đấu đã đăng ký" value={String(report?.official_competition.registered ?? 0)} />
             </div>
           </Panel>
           <Panel title="Nhân sự đang hoạt động" icon={ShieldCheck}>
             <div className="space-y-2">
-              {report?.approved_staff_by_role.map((item) => <div key={item.role_name} className="flex justify-between rounded-lg bg-slate-50 p-3 text-sm"><span>{item.role_name}</span><strong>{item.total}</strong></div>)}
+              {report?.approved_staff_by_role.map((item) => <div key={item.role_name} className="flex justify-between rounded-lg bg-slate-50 p-3 text-sm"><span>{item.role_name}</span><span className="font-normal text-equine-navy tabular-nums">{item.total}</span></div>)}
               {!report?.approved_staff_by_role.length && <p className="text-sm text-slate-500">Chưa có dữ liệu nhân sự.</p>}
             </div>
           </Panel>
@@ -435,7 +393,7 @@ export default function ClubManagerWorkspace() {
           <div className="sm:col-span-2"><button className="gold-button" disabled={busy}><Plus size={15} /> Giao việc</button></div>
         </form>}
         <div className="mt-5 space-y-2">
-          {tasks.map((task) => <div key={task.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-equine-line p-3 text-sm">
+          {tasks.map((task) => <div key={task.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 text-sm">
             <span>{task.task_type} · {task.horse_name}{task.groom_name ? ` · ${task.groom_name}` : ""}</span>
             <div className="flex items-center gap-2"><span className="text-slate-500">{task.status}</span>{task.status === "Pending" && <button type="button" className="soft-button h-8 px-2 text-xs text-rose-700" disabled={busy} onClick={() => void send(`/api/club-manager/groom-tasks/${task.id}`, "PATCH", { action: "Cancel" }, "Đã hủy công việc để có thể giao lại.")}>Hủy việc</button>}</div>
           </div>)}
@@ -454,7 +412,7 @@ export default function ClubManagerWorkspace() {
       {tab === "inventory" && <InventoryManagerPanel />}
       {tab === "incidents" && <Panel title="Sự cố Groom" icon={AlertTriangle}>
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3">
-          <p className="text-sm text-slate-600">Xem xét báo cáo, giao người phụ trách, theo dõi kết quả và đóng sự cố.</p>
+
           <select aria-label="Lọc sự cố" className="field-control h-10 px-3" value={incidentFilter} onChange={(event) => setIncidentFilter(event.target.value)}>
             <option value="Open">Đang xử lý</option><option value="Resolved">Đã đóng</option><option value="All">Tất cả</option>
           </select>
@@ -504,23 +462,26 @@ export default function ClubManagerWorkspace() {
           </form>
         </Panel>
         <Panel title="Danh sách giải đấu chính thức" icon={Trophy}>
-          <div className="space-y-2">{officialRaces.map((race) => <article key={race.id} className="rounded-xl border border-equine-line p-3">
-            <p className="font-semibold text-equine-navy">{race.race_name}</p>
-            <p className="mt-1 text-sm text-slate-600">{race.race_date}{race.location ? ` · ${race.location}` : ""}</p>
-            <p className="mt-1 text-xs text-slate-500">{race.distance_meters ? `${race.distance_meters} m` : "Chưa nhập cự ly"}{race.grade ? ` · Hạng ${race.grade}` : ""}{race.distance_category ? ` · ${race.distance_category}` : ""}</p>
-            {race.description && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">{race.description}</p>}
-          </article>)}{!officialRaces.length && <p className="text-sm text-slate-500">Chưa có giải đấu chính thức. Thêm giải để Head Trainer có thể đăng ký ngựa.</p>}</div>
+          <div className="space-y-2">{officialRaces.map((race) => <article key={race.id} className="rounded-lg bg-slate-50 p-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-normal text-equine-navy">{race.race_name}</p>
+              <CompactId id={race.id} />
+            </div>
+            <p className="mt-1 text-sm font-normal text-slate-600">{race.race_date}{race.location ? ` · ${race.location}` : ""}</p>
+            <p className="mt-1 text-xs font-normal text-slate-500">{race.distance_meters ? `${race.distance_meters} m` : "Chưa nhập cự ly"}{race.grade ? ` · Hạng ${race.grade}` : ""}{race.distance_category ? ` · ${race.distance_category}` : ""}</p>
+            {race.description && <p className="mt-2 whitespace-pre-wrap text-sm font-normal text-slate-600">{race.description}</p>}
+          </article>)}{!officialRaces.length && <p className="text-sm text-slate-500">Chưa có giải đấu.</p>}</div>
         </Panel>
       </div>}
 
       {tab === "finance" && <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Tổng hợp thu chi" icon={Wallet}>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Metric icon={Wallet} label="Chi phí chăm sóc" value={money(report?.operating_costs_and_prize_income.care_cost)} />
-            <Metric icon={Wallet} label="Chi phí y tế" value={money(report?.operating_costs_and_prize_income.medical_cost)} />
-            <Metric icon={ShieldCheck} label="Tiền thưởng giải đấu" value={money(report?.operating_costs_and_prize_income.prize_income)} />
-            <Metric icon={Activity} label="Khoản khác" value={money(report?.operating_costs_and_prize_income.other_amount)} />
-            <Metric icon={Activity} label="Kết quả thi đấu" value={`${report?.official_competition.completed ?? 0} hoàn thành`} />
+            <Metric flat icon={Wallet} label="Chi phí chăm sóc" value={money(report?.operating_costs_and_prize_income.care_cost)} />
+            <Metric flat icon={Wallet} label="Chi phí y tế" value={money(report?.operating_costs_and_prize_income.medical_cost)} />
+            <Metric flat icon={ShieldCheck} label="Tiền thưởng giải đấu" value={money(report?.operating_costs_and_prize_income.prize_income)} />
+            <Metric flat icon={Activity} label="Khoản khác" value={money(report?.operating_costs_and_prize_income.other_amount)} />
+            <Metric flat className="sm:col-span-2" icon={Activity} label="Kết quả thi đấu" value={`${report?.official_competition.completed ?? 0} hoàn thành`} />
           </div>
         </Panel>
         <Panel title="Ghi nhận khoản thu chi" icon={FileText}>
@@ -530,13 +491,19 @@ export default function ClubManagerWorkspace() {
             <label className="block"><span className="field-label">Số tiền</span><input className="field-control px-3" name="amount" type="number" min="0.01" step="0.01" required /></label>
             <label className="block"><span className="field-label">Kỳ thanh toán</span><input className="field-control px-3" name="billing_period" type="month" required defaultValue={date.slice(0, 7)} /></label>
             <div className="sm:col-span-2"><button className="gold-button" disabled={busy}><Wallet size={15} /> Ghi nhận</button></div>
-          </form> : <p className="text-sm text-slate-500">Cần có hồ sơ ngựa để ghi nhận khoản thu chi.</p>}
+          </form> : <p className="text-sm text-slate-500">Chưa có hồ sơ ngựa.</p>}
         </Panel>
       </div>}
 
       {tab === "audit" && <Panel title="Nhật ký thao tác" icon={History}>
         <div className="max-h-[620px] space-y-2 overflow-y-auto">
-          {audit.map((entry) => <article key={entry.id} className="rounded-lg border border-equine-line p-3"><p className="text-sm font-semibold text-equine-navy">{entry.action_performed}</p><p className="mt-1 text-xs text-slate-500">{entry.user_name ?? entry.email ?? "Tài khoản đã xóa"} · {new Date(entry.created_at).toLocaleString("vi-VN")}</p></article>)}
+          {audit.map((entry) => <article key={entry.id} className="flex flex-col gap-1 rounded-lg bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-normal text-equine-navy">{entry.action_performed}</p>
+              <p className="mt-1 text-xs text-slate-500">{entry.user_name ?? entry.email ?? "Tài khoản đã xóa"} · {new Date(entry.created_at).toLocaleString("vi-VN")}</p>
+            </div>
+            <CompactId id={entry.id} />
+          </article>)}
           {!audit.length && <p className="text-sm text-slate-500">Không có thao tác trong ngày này.</p>}
         </div>
       </Panel>}
@@ -544,12 +511,41 @@ export default function ClubManagerWorkspace() {
   </section>;
 }
 
-function Metric({ icon: Icon, label, value }: { icon: typeof Activity; label: string; value: string }) {
-  return <div className="rounded-xl border border-equine-line bg-white p-4"><Icon size={18} className="text-equine-gold" /><p className="mt-3 text-[10px] font-bold uppercase text-slate-500">{label}</p><p className="mt-1 text-sm font-semibold text-equine-navy">{value}</p></div>;
+function Metric({
+  icon: Icon,
+  label,
+  value,
+  flat = false,
+  className = "",
+}: {
+  icon: typeof Activity;
+  label: string;
+  value: string;
+  flat?: boolean;
+  className?: string;
+}) {
+  if (flat) {
+    return (
+      <div className={`rounded-lg bg-slate-50 p-3.5 transition-colors ${className}`}>
+        <div className="flex items-center gap-2">
+          <Icon size={16} className="shrink-0 text-equine-teal" />
+          <p className="text-xs font-normal uppercase tracking-wide text-slate-500">{label}</p>
+        </div>
+        <p className="mt-2 text-base font-normal text-equine-navy">{value}</p>
+      </div>
+    );
+  }
+  return (
+    <div className={`rounded-lg border border-equine-line bg-white p-4 shadow-sm ${className}`}>
+      <Icon size={18} className="text-equine-teal" />
+      <p className="mt-3 text-xs font-normal uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-base font-normal text-equine-navy">{value}</p>
+    </div>
+  );
 }
 
 function Panel({ title, icon: Icon, children }: { title: string; icon: typeof Activity; children: ReactNode }) {
-  return <section className="rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Icon size={18} />{title}</h3>{children}</section>;
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h2 className="mb-4 flex items-center gap-2 font-sans text-lg font-normal text-equine-navy"><Icon size={18} />{title}</h2>{children}</section>;
 }
 
 function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onReview }: {
@@ -557,63 +553,267 @@ function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onRevie
   horses: Option[];
   stables: Stable[];
   busy: boolean;
-  onReview: (id: string, action: "APPROVE" | "REJECT", form: HTMLFormElement) => void;
+  onReview: (id: string, action: "APPROVE" | "REQUEST_INFORMATION" | "REJECT", form: HTMLFormElement) => void;
 }) {
-  return <Panel title={`Yêu cầu hồ sơ ngựa · ${requests.length} chờ duyệt`} icon={FileText}>
-    <div className="space-y-3">
-      {requests.map((request) => {
-        const candidateHorses = horses;
-        return <article key={request.id} className="rounded-xl border border-equine-line p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h4 className="font-semibold text-equine-navy">{request.horse_name}</h4>
-              <p className="mt-1 text-xs text-slate-500">{request.request_type === "LINK" ? "Liên kết hồ sơ có sẵn" : "Đăng ký hồ sơ mới"} · {new Date(request.created_at).toLocaleString("vi-VN")}</p>
-            </div>
-            <p className="text-sm font-medium text-equine-navy">{request.owner_name} <span className="font-normal text-slate-500">· {request.owner_email}</span></p>
+  return (
+    <Panel title={`Yêu cầu hồ sơ ngựa · ${requests.length} chờ duyệt`} icon={FileText}>
+      <div className="space-y-5">
+        {requests.map((request) => {
+          const candidateHorses = horses;
+          return (
+            <article key={request.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
+              {/* Header Dossier */}
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <div className="flex items-center gap-2.5">
+                    <h3 className="font-sans text-xl font-bold text-slate-900">{request.horse_name}</h3>
+                    <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
+                      {request.request_type === "LINK" ? "Yêu cầu liên kết" : "Đăng ký hồ sơ mới"}
+                    </span>
+                    <CompactId id={request.id} />
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Thời gian gửi: {new Date(request.created_at).toLocaleString("vi-VN")}
+                  </p>
+                </div>
+
+                {/* Owner info chip */}
+                <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/80 px-3.5 py-2 text-xs">
+                  <div className="grid size-8 place-items-center rounded-full bg-teal-50 text-teal-700 font-bold border border-teal-200">
+                    {request.owner_name ? request.owner_name.charAt(0).toUpperCase() : "U"}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-900">{request.owner_name}</p>
+                    <p className="text-[11px] text-slate-500">{request.owner_email}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dossier Body */}
+              <div className="mt-4 grid gap-5 lg:grid-cols-[240px_1fr]">
+                {/* Photo or thumbnail */}
+                <div>
+                  {request.horse_image_url ? (
+                    <div className="h-44 w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                      <HorseImage
+                        horse={{ id: request.id, horse_name: request.horse_name, image_url: request.horse_image_url } as Horse}
+                        preview={request.horse_image_url}
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid h-44 w-full place-items-center rounded-lg border border-dashed border-slate-200 bg-slate-50 text-xs text-slate-400">
+                      Không có ảnh đính kèm
+                    </div>
+                  )}
+                </div>
+
+                {/* Specs Details */}
+                <div className="space-y-3">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
+                      <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Giống</span>
+                      <strong className="block text-xs font-semibold text-slate-800 mt-0.5">{request.breed || "Chưa cập nhật"}</strong>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
+                      <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Năm sinh</span>
+                      <strong className="block text-xs font-semibold text-slate-800 mt-0.5">{request.birth_year ?? "—"}</strong>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
+                      <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Chiều cao</span>
+                      <strong className="block text-xs font-semibold text-slate-800 mt-0.5">{request.height_cm ? `${request.height_cm} cm` : "—"}</strong>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
+                      <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Cân nặng</span>
+                      <strong className="block text-xs font-semibold text-slate-800 mt-0.5">{request.current_weight_kg ? `${request.current_weight_kg} kg` : "—"}</strong>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
+                      <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Số Microchip</span>
+                      <strong className="block text-xs font-semibold text-slate-800 mt-0.5">{request.microchip_number || "Chưa có"}</strong>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
+                      <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Số hộ chiếu</span>
+                      <strong className="block text-xs font-semibold text-slate-800 mt-0.5">{request.passport_number || "Chưa có"}</strong>
+                    </div>
+                  </div>
+
+                  {(request.pedigree_father || request.pedigree_mother) && (
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100 text-xs">
+                      <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Phả hệ (Sire / Dam)</span>
+                      <strong className="block font-semibold text-slate-800 mt-0.5">
+                        {[request.pedigree_father, request.pedigree_mother].filter(Boolean).join("  /  ") || "Chưa cập nhật"}
+                      </strong>
+                    </div>
+                  )}
+
+                  {/* Owner Note */}
+                  {request.owner_note && (
+                    <div className="rounded-lg bg-amber-50/70 border border-amber-200/80 p-3 text-xs">
+                      <span className="font-semibold text-amber-900 block mb-0.5">Ghi chú từ chủ sở hữu:</span>
+                      <p className="text-amber-800 leading-relaxed whitespace-pre-wrap">{request.owner_note}</p>
+                    </div>
+                  )}
+
+                  {/* Documents */}
+                  {request.documents.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                        Hồ sơ & giấy tờ kiểm định ({request.documents.length})
+                      </span>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {request.documents.map((document) => (
+                          <div key={document.id} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white p-2.5 text-xs">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="grid size-6 shrink-0 place-items-center rounded bg-slate-100 text-teal-700">
+                                <FileText size={13} />
+                              </span>
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold text-slate-800" title={document.name}>{document.name}</p>
+                                <p className="text-[11px] text-slate-500">
+                                  {documentTypeLabel(document.document_type)} · Lần {document.revision_no}
+                                </p>
+                              </div>
+                            </div>
+                            <a
+                              href={document.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="shrink-0 soft-button !min-h-[26px] !px-2.5 !text-[11px]"
+                            >
+                              Xem <ExternalLink size={10} />
+                            </a>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Review & Decision Box */}
+              <form className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+                <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                  <CheckCircle2 size={16} className="text-teal-700" />
+                  <h4 className="font-sans text-sm font-bold text-slate-900">Quyết định phê duyệt của Quản lý</h4>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {request.request_type === "REGISTER" ? (
+                    <label className="block">
+                      <span className="field-label">Xếp chuồng trại khi tạo hồ sơ <span className="text-rose-600">*</span></span>
+                      <select
+                        className="field-control px-3 bg-white"
+                        name="stableBoxId"
+                        defaultValue={stables[0]?.id ?? ""}
+                        required
+                        disabled={!stables.length}
+                      >
+                        {stables.map((stable) => (
+                          <option key={stable.id} value={stable.id}>
+                            {stable.box_code} · {stable.section}
+                          </option>
+                        ))}
+                      </select>
+                      {!stables.length && (
+                        <p className="mt-1 text-xs text-rose-600">Không có chuồng còn chỗ; hãy thêm chuồng trước khi duyệt.</p>
+                      )}
+                    </label>
+                  ) : (
+                    <label className="block">
+                      <span className="field-label">Chọn hồ sơ ngựa cần liên kết <span className="text-rose-600">*</span></span>
+                      <select
+                        className="field-control px-3 bg-white"
+                        name="horseId"
+                        defaultValue=""
+                        required
+                        disabled={!candidateHorses.length}
+                      >
+                        <option value="">-- Chọn hồ sơ ngựa trong hệ thống --</option>
+                        {candidateHorses.map((horse) => (
+                          <option key={horse.id} value={horse.id}>
+                            {horse.horse_name}
+                            {horse.breed ? ` · ${horse.breed}` : ""}
+                            {horse.birth_year ? ` · ${horse.birth_year}` : ""}
+                            {horse.microchip_number ? ` · Chip ${horse.microchip_number}` : ""}
+                            {horse.passport_number ? ` · HC ${horse.passport_number}` : ""} · {horse.owner_name ?? "Chưa có chủ"}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-1 text-xs text-slate-500">Nếu hồ sơ đã có chủ, yêu cầu sẽ cần chủ hiện tại xác nhận.</p>
+                    </label>
+                  )}
+
+                  <label className="block">
+                    <span className="field-label">Ghi chú duyệt / Lý do từ chối</span>
+                    <textarea
+                      className="field-control min-h-[42px] max-h-32 px-3 py-2 bg-white"
+                      name="reviewNote"
+                      maxLength={1000}
+                      rows={2}
+                      placeholder="Nhập lý do khi yêu cầu bổ sung hoặc từ chối..."
+                    />
+                  </label>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-slate-200">
+                  <button
+                    type="button"
+                    className="soft-button !min-h-[36px] !px-4 !text-xs !border-rose-200 !bg-rose-50 !text-rose-700 hover:!bg-rose-100"
+                    disabled={busy}
+                    onClick={(event) => {
+                      const form = event.currentTarget.form;
+                      if (form) onReview(request.id, "REJECT", form);
+                    }}
+                  >
+                    <XCircle size={14} /> Từ chối hồ sơ
+                  </button>
+                  <button
+                    type="button"
+                    className="soft-button !min-h-[36px] !px-4 !text-xs !border-sky-200 !bg-sky-50 !text-sky-700 hover:!bg-sky-100"
+                    disabled={busy}
+                    onClick={(event) => {
+                      const form = event.currentTarget.form;
+                      if (form) onReview(request.id, "REQUEST_INFORMATION", form);
+                    }}
+                  >
+                    <AlertCircle size={14} /> Yêu cầu bổ sung
+                  </button>
+                  <button
+                    type="button"
+                    className="gold-button !min-h-[36px] !px-4 !text-xs"
+                    disabled={busy || (request.request_type === "REGISTER" ? !stables.length : !candidateHorses.length)}
+                    onClick={(event) => {
+                      const form = event.currentTarget.form;
+                      if (form) onReview(request.id, "APPROVE", form);
+                    }}
+                  >
+                    <CheckCircle2 size={14} /> Duyệt và {request.request_type === "LINK" ? "liên kết hồ sơ" : "tạo hồ sơ"}
+                  </button>
+                </div>
+              </form>
+            </article>
+          );
+        })}
+        {!requests.length && (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-8 text-center text-sm text-slate-500">
+            <CheckCircle2 size={24} className="mx-auto text-emerald-500 mb-2" />
+            <p className="font-semibold text-slate-700">Tất cả yêu cầu đã được xử lý</p>
+            <p className="mt-1 text-xs text-slate-400">Không có yêu cầu đăng ký hồ sơ ngựa nào đang chờ duyệt.</p>
           </div>
-          <dl className="mt-3 grid gap-x-4 gap-y-1 rounded-lg bg-equine-paper p-3 text-sm sm:grid-cols-2">
-            <Fact label="Giống" value={request.breed} />
-            <Fact label="Năm sinh" value={request.birth_year == null ? null : String(request.birth_year)} />
-            <Fact label="Microchip" value={request.microchip_number} />
-            <Fact label="Hộ chiếu" value={request.passport_number} />
-            <Fact label="Chiều cao" value={request.height_cm == null ? null : `${request.height_cm} cm`} />
-            <Fact label="Cân nặng" value={request.current_weight_kg == null ? null : `${request.current_weight_kg} kg`} />
-            <Fact label="Cha / mẹ" value={[request.pedigree_father, request.pedigree_mother].filter(Boolean).join(" / ")} />
-          </dl>
-          {request.horse_image_url && <div className="mt-3 h-40 w-60 overflow-hidden rounded-xl border border-equine-line bg-equine-paper"><HorseImage horse={{ id: request.id, horse_name: request.horse_name, image_url: request.horse_image_url } as Horse} preview={request.horse_image_url} /></div>}
-          {request.owner_note && <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">{request.owner_note}</p>}
-          <div className="mt-3 flex flex-wrap gap-2">
-            {request.documents.map((document) => <a key={document.id} href={document.url} target="_blank" rel="noreferrer" className="rounded-lg border border-equine-line bg-white px-3 py-2 text-xs font-medium text-equine-navy underline">Xem {document.name}</a>)}
-          </div>
-          <form className="mt-4 grid gap-3 border-t border-equine-line pt-4 sm:grid-cols-2">
-            {request.request_type === "REGISTER" ? <label className="block"><span className="field-label">Chuồng khi tạo hồ sơ</span>
-              <select className="field-control px-3" name="stableBoxId" defaultValue={stables[0]?.id ?? ""} required disabled={!stables.length}>
-                {stables.map((stable) => <option key={stable.id} value={stable.id}>{stable.box_code} · {stable.section}</option>)}
-              </select>
-            </label> : <label className="block"><span className="field-label">Hồ sơ ngựa cần liên kết</span>
-              <select className="field-control px-3" name="horseId" defaultValue="" required disabled={!candidateHorses.length}>
-                <option value="">Chọn hồ sơ ngựa</option>
-                {candidateHorses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}{horse.breed ? ` · ${horse.breed}` : ""}{horse.birth_year ? ` · ${horse.birth_year}` : ""} · {horse.owner_name ?? "Chưa có chủ"}</option>)}
-              </select>
-              <p className="mt-1 text-xs text-slate-500">Duyệt sẽ gán hồ sơ cho Horse Owner gửi yêu cầu; chủ cũ và mới được lưu vào lịch sử.</p>
-            </label>}
-            <label className="block"><span className="field-label">Ghi chú duyệt / lý do từ chối</span><textarea className="field-control min-h-24 px-3 py-2" name="reviewNote" maxLength={1000} placeholder="Bắt buộc khi từ chối; nêu rõ giấy tờ cần bổ sung hoặc thông tin chưa hợp lệ." /></label>
-            {request.request_type === "REGISTER" && !stables.length && <p className="text-sm text-rose-700 sm:col-span-2">Không có chuồng còn chỗ; thêm chuồng trước khi duyệt.</p>}
-            {request.request_type === "LINK" && !candidateHorses.length && <p className="text-sm text-rose-700 sm:col-span-2">Chưa có hồ sơ ngựa để liên kết.</p>}
-            <div className="flex flex-wrap gap-2 sm:col-span-2">
-              <button type="button" className="gold-button" disabled={busy || (request.request_type === "REGISTER" ? !stables.length : !candidateHorses.length)} onClick={(event) => { const form = event.currentTarget.form; if (form) onReview(request.id, "APPROVE", form); }}>Duyệt và {request.request_type === "LINK" ? "liên kết hồ sơ" : "tạo hồ sơ"}</button>
-              <button type="button" className="soft-button border-rose-200 bg-rose-50 text-rose-800" disabled={busy} onClick={(event) => { const form = event.currentTarget.form; if (form) onReview(request.id, "REJECT", form); }}>Từ chối</button>
-            </div>
-          </form>
-        </article>;
-      })}
-      {!requests.length && <p className="text-sm text-slate-500">Không có yêu cầu đăng ký ngựa đang chờ.</p>}
-    </div>
-  </Panel>;
+        )}
+      </div>
+    </Panel>
+  );
 }
 
-function Fact({ label, value }: { label: string; value: string | null | undefined }) {
-  return <div className="flex gap-1"><dt className="text-slate-500">{label}:</dt><dd className="font-medium text-equine-navy">{value || "—"}</dd></div>;
+
+
+function documentTypeLabel(type: string) {
+  switch (type) {
+    case "OWNERSHIP_PROOF": return "Chứng minh sở hữu";
+    case "HORSE_CERTIFICATE": return "Chứng nhận ngựa";
+    case "HEALTH_DOCUMENT": return "Hồ sơ sức khỏe";
+    default: return "Tài liệu khác";
+  }
 }
 
 function Select({ name, label, options }: { name: string; label: string; options: [string, string][] }) {

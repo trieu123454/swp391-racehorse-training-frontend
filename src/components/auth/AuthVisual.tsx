@@ -6,11 +6,11 @@ export function AuthVisual() {
       <div className="auth-visual-image">
         <Image
           alt="Ngựa đua được chăm sóc tại chuồng trại"
-          className="object-cover"
+          className="object-cover object-[center_22%]"
           fill
           priority
-          quality={80}
-          sizes="(max-width: 1200px) 42vw, 650px"
+          quality={95}
+          sizes="(max-width: 1200px) 48vw, 650px"
           src="/img/stable-horse.webp"
         />
       </div>

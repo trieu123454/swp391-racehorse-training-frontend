@@ -185,7 +185,7 @@ export function listPendingHorseRegistrationRequests() {
 }
 
 export function reviewHorseRegistrationRequest(id: string, input: {
-  action: "APPROVE" | "REJECT";
+  action: "APPROVE" | "REQUEST_INFORMATION" | "REJECT";
   stableBoxId?: string;
   horseId?: string;
   reviewNote?: string;

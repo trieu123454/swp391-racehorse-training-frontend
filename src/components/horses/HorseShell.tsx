@@ -41,13 +41,13 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpiredSession);
   }, [router]);
   useEffect(() => {
-    const sync = () => {
+    const sync = (event?: Event) => {
       setActiveTab(new URLSearchParams(window.location.search).get("tab") ?? "overview");
       setOpen(false);
-      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (event && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         document.querySelector(".horse-main")?.animate(
-          [{ opacity: 0.55, transform: "translateY(5px)" }, { opacity: 1, transform: "translateY(0)" }],
-          { duration: 220, easing: "ease-out" },
+          [{ opacity: 0, transform: "translateY(48px)" }, { opacity: 1, transform: "translateY(0)" }],
+          { duration: 200, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
         );
       }
     };
@@ -147,44 +147,50 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     <a className="skip-link" href="#workspace-content">Đến nội dung chính</a>
     {open && <button className="horse-nav-overlay" aria-label="Đóng menu" onClick={() => setOpen(false)} />}
     <aside className={`horse-sidebar ${open ? "is-open" : ""}`}>
-      <Link href={Routes.home} className="horse-brand"><Brand compact /></Link>
-      <button className="horse-mobile-close horse-icon-button" aria-label="Đóng menu" onClick={() => setOpen(false)}><X /></button>
-      <div className="workspace-role"><span>KHÔNG GIAN LÀM VIỆC</span><strong>{roleLabels[user.roleName]}</strong></div>
-      <p className="horse-nav-label">CÔNG VIỆC</p>
-      <nav aria-label="Điều hướng quản lý">
-        {navigation.map(item => {
-          const Icon = icons[item.id] ?? LayoutDashboard;
-          const selected = isDashboard && (navigation.some(entry => entry.id === activeTab) ? activeTab : "overview") === item.id;
-          const href = Routes.dashboardTab(dashboardRoute, item.id);
-          return <Link key={item.id} href={href} className={selected ? "active" : ""} aria-current={selected ? "page" : undefined} onClick={event => {
-            if (!isDashboard || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
-            event.preventDefault();
-            if (window.location.pathname + window.location.search !== href) window.history.pushState(null, "", href);
-            window.dispatchEvent(new Event("workspace-tab-change"));
-          }}><Icon size={18} /><span>{item.label}</span></Link>;
-        })}
-      </nav>
-      <p className="horse-nav-label">QUẢN LÝ CHUNG</p>
-      <nav aria-label="Hồ sơ và hệ thống">
-        {user.roleName === "HORSE_OWNER" ? (
-          <Link href={Routes.horses} className={`owner-registration-nav ${currentPathname.startsWith(Routes.horses) ? "active" : ""}`} aria-current={currentPathname.startsWith(Routes.horses) ? "page" : undefined}>
-            <span className="owner-registration-nav-icon"><FilePlus2 size={17} /></span>
-            <span className="owner-registration-nav-copy"><strong>Gửi yêu cầu hồ sơ</strong><small>Đăng ký hoặc liên kết ngựa</small></span>
-            <ArrowUpRight className="owner-registration-nav-arrow" size={15} />
-          </Link>
-        ) : (
-          <Link href={Routes.horses} className={currentPathname.startsWith(Routes.horses) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.horses) ? "page" : undefined}><BookOpen size={18} />Hồ sơ ngựa</Link>
-        )}
-        {user.roleName === "CLUB_MANAGER" && <Link href={Routes.clubManagerUsers} className={currentPathname.startsWith(Routes.clubManagerUsers) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.clubManagerUsers) ? "page" : undefined}><Users size={18} />Quản lý tài khoản</Link>}
-        <Link href={Routes.home}><House size={18} />Trang chủ</Link>
-      </nav>
-      <div className="horse-account"><span className="horse-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span><div><strong>{user.fullName}</strong><small>{roleLabels[user.roleName]}</small></div><button aria-label={signingOut ? "Đang đăng xuất" : "Đăng xuất"} title={signingOut ? "Đang đăng xuất" : "Đăng xuất"} disabled={signingOut} onClick={signOut}><LogOut size={18} /></button></div>
+      <div className="horse-sidebar-header shrink-0">
+        <Link href={Routes.home} className="horse-brand" aria-label="Equine - Về trang chủ"><Brand /></Link>
+        <button className="horse-mobile-close horse-icon-button" aria-label="Đóng menu" onClick={() => setOpen(false)}><X /></button>
+        <div className="workspace-role"><strong>{roleLabels[user.roleName]}</strong></div>
+      </div>
+      <div className="horse-sidebar-scroll flex-1 min-h-0 overflow-y-auto">
+        <p className="horse-nav-label">CÔNG VIỆC</p>
+        <nav aria-label="Điều hướng quản lý">
+          {navigation.map(item => {
+            const Icon = icons[item.id] ?? LayoutDashboard;
+            const selected = isDashboard && (navigation.some(entry => entry.id === activeTab) ? activeTab : "overview") === item.id;
+            const href = Routes.dashboardTab(dashboardRoute, item.id);
+            return <Link key={item.id} href={href} className={selected ? "active" : ""} aria-current={selected ? "page" : undefined} onClick={event => {
+              if (!isDashboard || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+              event.preventDefault();
+              if (window.location.pathname + window.location.search !== href) window.history.pushState(null, "", href);
+              window.dispatchEvent(new Event("workspace-tab-change"));
+            }}><Icon size={18} /><span>{item.label}</span></Link>;
+          })}
+        </nav>
+        <p className="horse-nav-label">QUẢN LÝ CHUNG</p>
+        <nav aria-label="Hồ sơ và hệ thống">
+          {user.roleName === "HORSE_OWNER" ? (
+            <Link href={Routes.horses} className={`owner-registration-nav ${currentPathname.startsWith(Routes.horses) ? "active" : ""}`} aria-current={currentPathname.startsWith(Routes.horses) ? "page" : undefined}>
+              <span className="owner-registration-nav-icon"><FilePlus2 size={17} /></span>
+              <span className="owner-registration-nav-copy"><strong>Yêu cầu hồ sơ</strong></span>
+              <ArrowUpRight className="owner-registration-nav-arrow" size={15} />
+            </Link>
+          ) : (
+            <Link href={Routes.horses} className={currentPathname.startsWith(Routes.horses) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.horses) ? "page" : undefined}><BookOpen size={18} />Hồ sơ ngựa</Link>
+          )}
+          {user.roleName === "CLUB_MANAGER" && <Link href={Routes.clubManagerUsers} className={currentPathname.startsWith(Routes.clubManagerUsers) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.clubManagerUsers) ? "page" : undefined}><Users size={18} />Quản lý tài khoản</Link>}
+          <Link href={Routes.home}><House size={18} />Trang chủ</Link>
+        </nav>
+      </div>
+      <div className="horse-sidebar-footer shrink-0 mt-auto">
+        <div className="horse-account"><span className="horse-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span><div><strong>{user.fullName}</strong><small>{roleLabels[user.roleName]}</small></div><button aria-label={signingOut ? "Đang đăng xuất" : "Đăng xuất"} title={signingOut ? "Đang đăng xuất" : "Đăng xuất"} disabled={signingOut} onClick={signOut}><LogOut size={18} /></button></div>
+      </div>
     </aside>
     <div className="horse-workspace">
       <header className="horse-topbar">
         <div className="horse-topbar-welcome">
           <button className="horse-mobile-menu horse-icon-button" aria-label="Mở menu" aria-expanded={open} onClick={() => setOpen(true)}><Menu /></button>
-          <div className="horse-greeting-copy"><p>{roleLabels[user.roleName]}</p><h1>{currentLabel}</h1></div>
+          <div className="horse-greeting-copy"><h1>{currentLabel}</h1></div>
         </div>
         <div className="horse-topbar-actions">
           <span className="horse-date-pill"><CalendarDays size={16} /><span>{todayLabel || "Hôm nay"}</span></span>
@@ -199,7 +205,6 @@ export default function HorseShell({ children }: { children: ReactNode }) {
         </div>
       </header>
       <main id="workspace-content" className="horse-main" key={pathname}>{children}</main>
-      <footer className="horse-footer">Equine <span>Chăm sóc tận tâm. Vươn xa trên đường đua.</span></footer>
     </div>
   </div></UserContext.Provider>;
 }

@@ -4,19 +4,15 @@ import { Routes } from "@/routes/Routes";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
-  ArrowRight,
   Filter,
   Pencil,
-  Plus,
   Search,
   ShieldAlert,
   Trash2,
-  User,
 } from "lucide-react";
 import { useHorseUser } from "@/components/horses/HorseShell";
 import { HorseImage, Modal, Notice, StatusBadge } from "@/components/horses/HorseUI";
 import HorseRegistrationPanel from "@/components/horse-owner/HorseRegistrationPanel";
-import { routeForRole } from "@/lib/roles";
 import {
   deleteHorse as deleteHorseApi,
   errorMessage,
@@ -47,14 +43,19 @@ export default function HorsesPage() {
 
   useEffect(() => {
     let active = true;
+    const isOwner = user.roleName === "HORSE_OWNER";
     setLoading(true);
     setError("");
     Promise.all([
-      listHorses({
-        search: search || undefined,
-        stableBoxId: stableFilter === "ALL" ? undefined : stableFilter,
-        currentStatus: statusFilter === "ALL" ? undefined : statusFilter,
-      }),
+      listHorses(
+        isOwner
+          ? {}
+          : {
+              search: search || undefined,
+              stableBoxId: stableFilter === "ALL" ? undefined : stableFilter,
+              currentStatus: statusFilter === "ALL" ? undefined : statusFilter,
+            }
+      ),
       getHorseStables(),
     ]).then(([page, stables]) => {
       if (!active) return;
@@ -66,7 +67,7 @@ export default function HorsesPage() {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [search, stableFilter, statusFilter]);
+  }, [search, stableFilter, statusFilter, user.roleName]);
 
   const visibleHorses = useMemo(() => {
     const personalOnly = user.roleName === "HORSE_OWNER";
@@ -107,156 +108,162 @@ export default function HorsesPage() {
 
   return (
     <>
-      <main className="min-h-screen bg-equine-paper p-4 sm:p-6 lg:p-8">
-        <div className="mx-auto max-w-[1200px]">
-          {user.roleName === "HORSE_OWNER" ? (
-            <header className="relative mb-4 overflow-hidden rounded-[24px] border border-[#eadfd2] bg-[radial-gradient(ellipse_at_100%_0%,rgba(234,190,150,0.34),transparent_42%),linear-gradient(115deg,#fffaf5_0%,#ffffff_55%,#f8eee5_100%)] p-5 shadow-[0_18px_45px_-38px_rgba(72,47,30,0.5)] sm:p-6">
-              <div aria-hidden="true" className="absolute -right-10 -top-16 h-48 w-48 rounded-full border border-[#e7cbb4]/70" />
-              <div aria-hidden="true" className="absolute -right-1 top-8 h-24 w-24 rounded-full border border-[#e7cbb4]/50" />
-              <div className="relative">
-                <h1 className="font-sans text-3xl font-semibold tracking-tight text-equine-navy sm:text-[2.1rem]">Hồ sơ ngựa</h1>
-                <p className="mt-1.5 text-sm text-slate-600">Đăng ký ngựa mới hoặc liên kết hồ sơ có sẵn.</p>
-              </div>
-            </header>
-          ) : (
-            <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-equine-line bg-white p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className="eyebrow">Flow 1</p>
-                <h1 className="mt-2 font-sans text-3xl font-semibold text-equine-navy">
-                  Quản lý hồ sơ & lý lịch ngựa
-                </h1>
-              </div>
-              {user.roleName === "CLUB_MANAGER" && (
-                <Link className="gold-button" href={Routes.horseNew}>
-                  <Plus size={17} /> Thêm ngựa mới
-                </Link>
+      <main className="min-h-screen bg-slate-50 p-4 sm:p-6 lg:p-8">
+        <div className="mx-auto max-w-[1240px]">
+          {/* Header */}
+          <div className="mb-6 flex flex-col gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="font-sans text-2xl font-normal tracking-tight text-slate-900 sm:text-3xl">
+                {user.roleName === "HORSE_OWNER" ? "Hồ sơ ngựa của bạn" : "Quản lý hồ sơ & lý lịch ngựa"}
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                {user.roleName === "HORSE_OWNER"
+                  ? "Theo dõi thông tin, cân nặng và trạng thái huấn luyện ngựa của bạn."
+                  : "Tra cứu danh sách, trạng thái sức khỏe và phân bổ chuồng trại toàn hệ thống."}
+              </p>
+            </div>
+            {user.roleName === "CLUB_MANAGER" && (
+              <Link className="gold-button self-start sm:self-center" href={Routes.dashboardTab(Routes.dashboardRole("club-manager"), "horse-requests")}>
+                Xem yêu cầu đăng ký
+              </Link>
+            )}
+          </div>
+
+          {user.roleName === "HORSE_OWNER" && <div className="mb-6"><HorseRegistrationPanel /></div>}
+
+          {/* Filter Bar */}
+          <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-normal uppercase tracking-wider text-slate-500">Bộ lọc tìm kiếm</span>
+              {(searchInput || statusFilter !== "ALL" || stableFilter !== "ALL") && (
+                <button
+                  type="button"
+                  className="text-xs font-normal text-teal-700 hover:underline"
+                  onClick={() => { setSearchInput(""); setSearch(""); setStatusFilter("ALL"); setStableFilter("ALL"); }}
+                >
+                  Xóa bộ lọc
+                </button>
               )}
             </div>
-          )}
-
-          {user.roleName === "HORSE_OWNER" && <div className="mb-4"><HorseRegistrationPanel /></div>}
-
-          {user.roleName !== "HORSE_OWNER" && <div className="mb-6 rounded-2xl border border-equine-line bg-white p-4 shadow-sm">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold text-equine-navy">Tìm hồ sơ ngựa</p>
-              </div>
-              {(searchInput || statusFilter !== "ALL" || stableFilter !== "ALL") && <button type="button" className="text-sm font-semibold text-equine-navy underline" onClick={() => { setSearchInput(""); setSearch(""); setStatusFilter("ALL"); setStableFilter("ALL"); }}>Xóa bộ lọc</button>}
-            </div>
             <div className="grid gap-3 md:grid-cols-3">
-            <label className="flex items-center gap-3 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2.5">
-              <Search size={16} className="text-slate-500" />
-              <input
-                value={searchInput}
-                onChange={(event) => setSearchInput(event.target.value)}
-                className="w-full border-0 bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-500"
-                placeholder="Tìm theo tên hoặc giống..."
-              />
-            </label>
+              <label className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus-within:border-slate-800 focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-800/10">
+                <Search size={16} className="text-slate-400 shrink-0" />
+                <input
+                  value={searchInput}
+                  onChange={(event) => setSearchInput(event.target.value)}
+                  className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                  placeholder="Tìm theo tên hoặc giống..."
+                />
+              </label>
 
-            <label className="flex items-center gap-3 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2.5">
-              <Filter size={16} className="text-slate-500" />
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-                className="w-full border-0 bg-transparent text-sm text-slate-700 outline-none"
-              >
-                <option value="ALL">Tất cả trạng thái</option>
-                <option value="Healthy">Khỏe mạnh</option>
-                <option value="Monitoring">Cần theo dõi</option>
-                <option value="Quarantine">Cách ly</option>
-                <option value="Injured">Chấn thương</option>
-                <option value="Sick">Đang bệnh</option>
-              </select>
-            </label>
+              <label className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus-within:border-slate-800 focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-800/10">
+                <Filter size={16} className="text-slate-400 shrink-0" />
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none cursor-pointer"
+                >
+                  <option value="ALL">Tất cả trạng thái</option>
+                  <option value="Healthy">Khỏe mạnh</option>
+                  <option value="Monitoring">Cần theo dõi</option>
+                  <option value="Quarantine">Cách ly</option>
+                  <option value="Injured">Chấn thương</option>
+                </select>
+              </label>
 
-            <label className="flex items-center gap-3 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2.5">
-              <ShieldAlert size={16} className="text-slate-500" />
-              <select
-                value={stableFilter}
-                onChange={(event) => setStableFilter(event.target.value)}
-                className="w-full border-0 bg-transparent text-sm text-slate-700 outline-none"
-              >
-                <option value="ALL">Tất cả chuồng</option>
-                {stableOptions.map((stable) => (
-                  <option key={stable.id} value={stable.id}>
-                    {stable.box_code} - {stable.section}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <label className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus-within:border-slate-800 focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-800/10">
+                <ShieldAlert size={16} className="text-slate-400 shrink-0" />
+                <select
+                  value={stableFilter}
+                  onChange={(event) => setStableFilter(event.target.value)}
+                  className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none cursor-pointer"
+                >
+                  <option value="ALL">Tất cả chuồng</option>
+                  {stableOptions.map((stable) => (
+                    <option key={stable.id} value={stable.id}>
+                      {stable.box_code} - {stable.section}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-          </div>}
+          </div>
 
-          <div className="mb-5 flex items-center justify-between">
-            <p className="text-sm text-slate-600">
-              Hiển thị <strong>{visibleHorses.length}</strong> hồ sơ
+          <div className="mb-4 flex items-center justify-between">
+            <p className="text-xs font-normal text-slate-500">
+              Hiển thị <strong className="text-slate-800 font-normal">{visibleHorses.length}</strong> hồ sơ ngựa
             </p>
           </div>
 
           {error && <div className="mb-5"><Notice error>{error}</Notice></div>}
+
           {loading ? (
-            <Notice>Đang tải danh sách hồ sơ ngựa...</Notice>
+            <Notice>Đang tải danh sách hồ sơ ngựa…</Notice>
           ) : visibleHorses.length === 0 ? (
             <Notice>
-              Không có ngựa phù hợp. Hãy thử tìm kiếm với từ khóa khác hoặc thêm ngựa mới.
+              Không tìm thấy ngựa phù hợp với tiêu chí lọc. Vui lòng thử từ khóa khác hoặc xóa bộ lọc.
             </Notice>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
               {visibleHorses.map((horse) => {
-                        const owner = horse.owner_name ? { full_name: horse.owner_name } : undefined;
+                const owner = horse.owner_name ? { full_name: horse.owner_name } : undefined;
                 return (
                   <article
                     key={horse.id}
-                    className="horse-card overflow-hidden rounded-2xl border border-equine-line bg-white shadow-sm"
+                    className="horse-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
                   >
-                    <div className="h-52 overflow-hidden rounded-t-2xl bg-[#f7f3ec]">
+                    <div className="relative h-48 w-full overflow-hidden bg-slate-100">
                       <HorseImage horse={horse} />
                     </div>
-                    <div className="space-y-4 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h2 className="font-sans text-xl font-semibold text-equine-navy">
+                    <div className="space-y-3.5 p-4">
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="min-w-0">
+                          <h2 className="truncate font-sans text-lg font-normal text-slate-900">
                             {horse.horse_name}
                           </h2>
-                          <p className="text-sm text-slate-600">{horse.breed ?? "Chưa cập nhật"}</p>
+                          <p className="truncate text-xs text-slate-500">{horse.breed ?? "Chưa cập nhật giống"}</p>
                         </div>
                         <StatusBadge horse={horse} />
                       </div>
 
-                      <div className="space-y-2 text-sm text-slate-600">
-                        <p>
-                          <strong>Chuồng:</strong> {horse.box_code ?? horse.stable_box_id}
-                        </p>
-                        <p>
-                          <strong>Chủ sở hữu:</strong> {owner?.full_name ?? "Chưa có"}
-                        </p>
-                        <p>
-                          <strong>Chiều cao:</strong> {horse.height_cm == null ? "Chưa cập nhật" : `${horse.height_cm} cm`}
-                          <span className="px-2 text-slate-300">·</span>
-                          <strong>Cân nặng:</strong> {horse.current_weight_kg == null ? "Chưa có dữ liệu" : `${horse.current_weight_kg} kg`}
-                        </p>
-                        <p>
-                          <strong>Khóa huấn luyện:</strong>{" "}
-                          {horse.is_training_locked ? "Có" : "Không"}
-                        </p>
+                      <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                        <div className="rounded-lg bg-slate-50 p-2.5">
+                          <span className="block text-xs font-normal uppercase tracking-wider text-slate-400">Chuồng</span>
+                          <span className="block truncate font-normal text-slate-800 mt-0.5">{horse.box_code ?? horse.stable_box_id ?? "—"}</span>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-2.5">
+                          <span className="block text-xs font-normal uppercase tracking-wider text-slate-400">Chủ sở hữu</span>
+                          <span className="block truncate font-normal text-slate-800 mt-0.5">{owner?.full_name ?? "Chưa có"}</span>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-2.5">
+                          <span className="block text-xs font-normal uppercase tracking-wider text-slate-400">Cân nặng</span>
+                          <span className="block truncate font-normal text-slate-800 mt-0.5">{horse.current_weight_kg == null ? "—" : `${horse.current_weight_kg} kg`}</span>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-2.5">
+                          <span className="block text-xs font-normal uppercase tracking-wider text-slate-400">Tập luyện</span>
+                          <span className={`block truncate font-normal mt-0.5 ${horse.is_training_locked ? "text-amber-700" : "text-emerald-700"}`}>
+                            {horse.is_training_locked ? "Đang khóa" : "Sẵn sàng"}
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-2 pt-2">
-                        <Link className="soft-button border-equine-line bg-[#f7f9ff] text-equine-navy" href={Routes.horse(horse.id)}>
+                      <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                        <Link className="gold-button flex-1 !min-h-[36px] !text-xs" href={Routes.horse(horse.id)}>
                           Xem chi tiết
                         </Link>
                         {user.roleName === "CLUB_MANAGER" && (
                           <>
-                            <Link className="soft-button border-equine-line bg-white text-slate-700" href={Routes.horseEdit(horse.id)}>
-                              <Pencil size={15} /> Sửa
+                            <Link className="soft-button !min-h-[36px] !px-3 !text-xs" href={Routes.horseEdit(horse.id)}>
+                              <Pencil size={13} /> Sửa
                             </Link>
                             <button
                               type="button"
-                              className="soft-button border-red-200 bg-red-50 text-red-600"
+                              className="table-delete-button"
                               onClick={() => void openDeleteDialog(horse)}
+                              aria-label={`Xóa hồ sơ ${horse.horse_name}`}
+                              title={`Xóa hồ sơ ${horse.horse_name}`}
                             >
-                              <Trash2 size={15} /> Xóa
+                              <Trash2 size={14} />
                             </button>
                           </>
                         )}
@@ -268,37 +275,26 @@ export default function HorsesPage() {
             </div>
           )}
 
-          <div className="mt-8 rounded-2xl border border-dashed border-equine-line bg-white p-5 text-sm text-slate-600">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-2 text-equine-navy">
-                <User size={18} />
-                <span>Quyền truy cập</span>
-              </div>
-              <Link href={routeForRole(user.roleName)} className="inline-flex items-center gap-2 text-sm font-medium text-equine-navy">
-                Về dashboard <ArrowRight size={15} />
-              </Link>
-            </div>
-          </div>
         </div>
       </main>
 
       {deleteHorse && (
-        <Modal title="Xác nhận xóa hồ sơ" onClose={() => setDeleteHorse(null)}>
+        <Modal title="Xác nhận xóa hồ sơ ngựa" onClose={() => setDeleteHorse(null)}>
           <div className="space-y-4">
-            <p className="text-sm text-slate-600">
-              Bạn đang thực hiện soft delete cho ngựa <strong>{deleteHorse.horse_name}</strong>.
-              Hồ sơ lịch sử sẽ được giữ lại và chỉ ẩn khỏi danh sách mặc định.
+            <p className="text-sm text-slate-600 leading-relaxed">
+              Bạn đang thực hiện xóa mềm (soft delete) cho ngựa <strong className="text-slate-900">{deleteHorse.horse_name}</strong>.
+              Hồ sơ lịch sử sẽ được bảo lưu và chỉ ẩn khỏi danh sách hiển thị mặc định.
             </p>
             {deleteWarning && (deleteWarning.scheduledTraining > 0 || deleteWarning.medicalRecords > 0 || deleteWarning.activePrescriptions > 0) && (
               <Notice error>
                 Hồ sơ này đang có {deleteWarning.scheduledTraining} lịch tập, {deleteWarning.medicalRecords} hồ sơ y tế và {deleteWarning.activePrescriptions} đơn thuốc đang hoạt động.
               </Notice>
             )}
-            <div className="flex justify-end gap-3 pt-2">
-              <button type="button" className="soft-button border-equine-line bg-white text-slate-700" onClick={() => setDeleteHorse(null)}>
+            <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <button type="button" className="soft-button !text-xs" onClick={() => setDeleteHorse(null)}>
                 Hủy
               </button>
-              <button type="button" className="gold-button" onClick={handleDeleteConfirm}>
+              <button type="button" className="danger-button !text-xs" onClick={handleDeleteConfirm}>
                 Xác nhận xóa
               </button>
             </div>

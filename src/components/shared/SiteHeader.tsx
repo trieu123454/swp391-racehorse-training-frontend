@@ -1,30 +1,39 @@
 "use client";
 import { Routes } from "@/routes/Routes";
-
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
+import { ArrowRight, Menu, X } from "lucide-react";
 import { useState } from "react";
 import { Brand } from "./Brand";
 
 const links = [
-  ["Trang chủ", Routes.homeSection("top")],
-  ["Nền tảng", Routes.homeSection("tong-quan")],
-  ["Vai trò", Routes.homeSection("vai-tro")],
+  ["Giới thiệu", Routes.homeSection("gioi-thieu")],
+  ["Tầm nhìn", Routes.homeSection("tam-nhin")],
+  ["Giá trị cốt lõi", Routes.homeSection("gia-tri")],
+  ["Hệ sinh thái", Routes.homeSection("vai-tro")],
   ["Vận hành", Routes.homeSection("van-hanh")],
 ];
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
+
   return (
-    <header className="site-header fixed inset-x-0 top-0 z-50 border-b border-equine-line bg-white/95 text-equine-navy shadow-sm backdrop-blur-md">
-      <div className="mx-auto flex h-20 max-w-[1280px] items-center justify-between px-5 sm:px-8 lg:px-12">
-        <Link aria-label="Về trang chủ" href={Routes.home}>
+    <header className="site-header fixed inset-x-0 top-0 z-50 border-b border-slate-200 bg-white/95 text-[#1F2125] backdrop-blur-md">
+      <div className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-8 px-6 sm:px-8 lg:h-[84px] lg:px-12">
+        <Link
+          aria-label="Equine Racehorse System - Về trang chủ"
+          className="-ml-2 shrink-0 whitespace-nowrap"
+          href={Routes.home}
+        >
           <Brand compact />
         </Link>
-        <nav className="hidden items-center gap-5 xl:flex">
+
+        <nav
+          aria-label="Điều hướng trang chủ"
+          className="hidden items-center gap-7 lg:flex xl:gap-9"
+        >
           {links.map(([label, href]) => (
             <Link
-              className="nav-link text-[13px] font-medium text-slate-600 transition hover:text-equine-blue"
+              className="nav-link shrink-0 whitespace-nowrap text-[15px] font-normal text-[#1F2125] transition-colors hover:text-[#1464F4] xl:text-base"
               href={href}
               key={label}
             >
@@ -32,49 +41,61 @@ export function SiteHeader() {
             </Link>
           ))}
         </nav>
-        <div className="hidden items-center gap-2 sm:flex">
+
+        <div className="hidden shrink-0 items-center lg:flex">
           <Link
-            className="nav-link px-4 py-2 text-[13px] font-semibold text-slate-600 hover:text-equine-blue"
+            className="vf-btn-primary whitespace-nowrap"
             href={Routes.login}
           >
-            Đăng nhập
-          </Link>
-          <Link className="gold-button !h-10 !px-5" href={Routes.register}>
-            Đăng ký
+            Truy cập hệ thống
+            <ArrowRight size={16} />
           </Link>
         </div>
+
         <button
-          aria-label={open ? "Đóng menu" : "Mở menu"}
-          aria-expanded={open}
           aria-controls="mobile-navigation"
-          className="grid h-10 w-10 place-items-center rounded-full text-equine-navy hover:bg-equine-mist xl:hidden"
+          aria-expanded={open}
+          aria-label={open ? "Đóng menu" : "Mở menu"}
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-[4px] border border-slate-200 text-[#1F2125] transition-colors hover:bg-slate-100 lg:hidden"
           onClick={() => setOpen(!open)}
           type="button"
         >
-          {open ? <X /> : <Menu />}
+          {open ? <X size={20} /> : <Menu size={20} />}
         </button>
       </div>
+
       {open ? (
         <nav
+          aria-label="Điều hướng di động"
+          className="mobile-menu border-t border-slate-200 bg-white px-6 py-5 shadow-lg sm:px-8 lg:hidden"
           id="mobile-navigation"
-          className="mobile-menu border-t border-equine-line bg-white px-5 py-4 xl:hidden"
         >
-          {links.map(([label, href]) => (
+          <div className="flex flex-col divide-y divide-slate-100">
+            {links.map(([label, href]) => (
+              <Link
+                className="py-3.5 text-base font-medium text-[#1F2125] transition-colors hover:text-[#1464F4]"
+                href={href}
+                key={label}
+                onClick={() => setOpen(false)}
+              >
+                {label}
+              </Link>
+            ))}
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 pt-2">
             <Link
-              className="block py-3 text-sm text-slate-600"
-              href={href}
-              key={label}
+              className="vf-btn-secondary w-full justify-center whitespace-nowrap"
+              href={Routes.register}
               onClick={() => setOpen(false)}
             >
-              {label}
+              Đăng ký Chủ ngựa
             </Link>
-          ))}
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            <Link className="soft-button" href={Routes.login} onClick={() => setOpen(false)}>
+            <Link
+              className="vf-btn-primary w-full justify-center whitespace-nowrap"
+              href={Routes.login}
+              onClick={() => setOpen(false)}
+            >
               Đăng nhập
-            </Link>
-            <Link className="gold-button" href={Routes.register} onClick={() => setOpen(false)}>
-              Đăng ký
             </Link>
           </div>
         </nav>
@@ -82,3 +103,4 @@ export function SiteHeader() {
     </header>
   );
 }
+

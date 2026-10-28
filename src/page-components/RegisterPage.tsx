@@ -128,11 +128,8 @@ export default function RegisterPage() {
           <div className="auth-form-content">
             <div className="auth-form-brand"><Brand /></div>
             <h1 className="auth-title">
-              Đăng ký tài khoản mới
+              Đăng ký
             </h1>
-            <p className="auth-subtitle">
-              Tạo tài khoản Horse Owner để gửi hồ sơ ngựa cho câu lạc bộ xác minh.
-            </p>
             <form className="auth-form" onSubmit={handleSubmit}>
               {input(
                 "Họ và tên",
@@ -197,7 +194,7 @@ export default function RegisterPage() {
               <div className="auth-register-notice">
                 <AlertTriangle className="shrink-0" size={19} />
                 <p>
-                  Tài khoản đăng ký tại đây dành cho Horse Owner. Sau khi đăng nhập, gửi hồ sơ ngựa để Club Manager xác minh; tài khoản nhân sự do Club Manager cấp.
+                  Chỉ chủ ngựa tự đăng ký. Nhân sự do quản lý CLB cấp tài khoản.
                 </p>
               </div>
               <label className="auth-legal cursor-pointer">
@@ -234,7 +231,7 @@ export default function RegisterPage() {
                 disabled={loading || !accepted}
                 type="submit"
               >
-                {loading ? "Đang gửi đăng ký..." : "Đăng ký tài khoản"}
+                {loading ? "Đang gửi đăng ký..." : "Đăng ký"}
               </button>
             </form>
             <div className="auth-divider">
@@ -247,7 +244,7 @@ export default function RegisterPage() {
               roleName="HORSE_OWNER"
             />
             <p className="auth-footer">
-              Đã có tài khoản thành viên?{" "}
+              Đã có tài khoản?{" "}
               <Link
                 className="font-bold uppercase text-equine-gold hover:underline"
                 href={Routes.login}

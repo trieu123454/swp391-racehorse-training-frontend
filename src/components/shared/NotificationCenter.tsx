@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, CheckCheck, RefreshCw } from "lucide-react";
+import { Bell, CheckCheck, ChevronDown, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Notice } from "@/components/horses/HorseUI";
 import { APP_MUTATION_COMPLETED_EVENT, authenticatedRequest } from "@/api/client";
@@ -22,6 +22,7 @@ export default function NotificationCenter() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
 
   const load = useCallback(async () => {
     setError("");
@@ -74,23 +75,93 @@ export default function NotificationCenter() {
     } finally { setBusy(false); }
   }
 
-  return <details className="rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5">
-    <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3">
-      <span className="inline-flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Bell size={18} /> Thông báo{unread > 0 && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-700">{unread} chưa đọc</span>}</span>
-      <span className="text-xs text-slate-500">Tự cập nhật mỗi phút</span>
-    </summary>
-    <div className="mt-4 border-t border-equine-line pt-4">
-      <div className="mb-3 flex justify-end gap-2">
-        <button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => void load()} disabled={loading || busy}><RefreshCw size={13} /> Làm mới</button>
-        <button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => void markAllRead()} disabled={busy || unread === 0}><CheckCheck size={13} /> Đọc tất cả</button>
+  return (
+    <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          className="flex items-center gap-2 font-sans text-lg font-normal text-equine-navy hover:text-primary transition-colors text-left"
+          aria-expanded={open}
+        >
+          <Bell size={18} className="text-equine-teal" />
+          <span>Thông báo</span>
+          {unread > 0 && (
+            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-normal text-rose-700">
+              {unread} chưa đọc
+            </span>
+          )}
+          <ChevronDown
+            size={16}
+            className={`text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+
+        {open && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="soft-button h-8 px-3 text-xs"
+              onClick={() => void load()}
+              disabled={loading || busy}
+            >
+              <RefreshCw size={13} /> Làm mới
+            </button>
+            <button
+              type="button"
+              className="soft-button h-8 px-3 text-xs"
+              onClick={() => void markAllRead()}
+              disabled={busy || unread === 0}
+            >
+              <CheckCheck size={13} /> Đọc tất cả
+            </button>
+          </div>
+        )}
       </div>
-      {error && <Notice error>{error}</Notice>}
-      {loading ? <Notice>Đang tải thông báo…</Notice> : items.length === 0 ? <p className="rounded-xl bg-slate-50 p-4 text-center text-sm text-slate-500">Chưa có thông báo.</p> : <div className="space-y-2">
-        {items.map((item) => <article key={item.id} className={`flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between ${item.is_read ? "border-equine-line bg-white" : "border-equine-gold/40 bg-[#fffaf2]"}`}>
-          <div><p className="text-sm font-medium text-equine-navy">{item.message}</p><p className="mt-1 text-xs text-slate-500">{new Date(item.scheduled_at ?? item.created_at).toLocaleString("vi-VN")}{item.is_read ? " · Đã đọc" : " · Chưa đọc"}</p></div>
-          {!item.is_read && <button type="button" className="soft-button h-9 px-3 text-xs" disabled={busy} onClick={() => void markRead(item.id)}>Đánh dấu đã đọc</button>}
-        </article>)}
-      </div>}
-    </div>
-  </details>;
+
+      {open && (
+        <div className="mt-4 border-t border-equine-line pt-4">
+          {error && <Notice error>{error}</Notice>}
+          {loading ? (
+            <Notice>Đang tải thông báo…</Notice>
+          ) : items.length === 0 ? (
+            <p className="rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-500">
+              Chưa có thông báo.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {items.map((item) => (
+                <article
+                  key={item.id}
+                  className={`flex flex-col gap-3 rounded-lg p-3 sm:flex-row sm:items-center sm:justify-between transition-colors ${
+                    item.is_read ? "bg-slate-50" : "bg-teal-50/70"
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-normal text-equine-navy break-words">
+                      {item.message}
+                    </p>
+                    <p className="mt-1 text-xs font-normal text-slate-500">
+                      {new Date(item.scheduled_at ?? item.created_at).toLocaleString("vi-VN")}
+                      {item.is_read ? " · Đã đọc" : " · Chưa đọc"}
+                    </p>
+                  </div>
+                  {!item.is_read && (
+                    <button
+                      type="button"
+                      className="soft-button h-8 shrink-0 px-3 text-xs"
+                      disabled={busy}
+                      onClick={() => void markRead(item.id)}
+                    >
+                      Đã đọc
+                    </button>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
 }
