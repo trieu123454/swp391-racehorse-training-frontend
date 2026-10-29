@@ -120,7 +120,19 @@ export type HorseRegistrationDocument = {
   name: string;
   content_type: string;
   file_size: number;
+  document_type: "OWNERSHIP_PROOF" | "HORSE_CERTIFICATE" | "HEALTH_DOCUMENT" | "OTHER";
+  revision_no: number;
   url: string;
+};
+
+export type HorseRegistrationHistory = {
+  id: string;
+  revision_no: number;
+  action: string;
+  actor_id: number | null;
+  note: string | null;
+  snapshot_json: string | null;
+  created_at: string;
 };
 
 export type HorseRegistrationRequest = {
@@ -137,9 +149,11 @@ export type HorseRegistrationRequest = {
   microchip_number: string | null;
   passport_number: string | null;
   owner_note: string | null;
-  status: "PENDING" | "APPROVED" | "REJECTED";
+  status: "PENDING" | "NEEDS_INFORMATION" | "AWAITING_OWNER_CONSENT" | "APPROVED" | "REJECTED";
   approved_horse_id: string | null;
   review_note: string | null;
+  revision_no: number;
+  history: HorseRegistrationHistory[];
   created_at: string;
   reviewed_at: string | null;
   documents: HorseRegistrationDocument[];
@@ -159,6 +173,18 @@ export type HorseRegistrationSubmission = {
   ownerNote?: string | null;
 };
 
+export type OwnershipTransferRequest = {
+  id: string;
+  horse_id: string;
+  horse_name: string;
+  requester_name: string | null;
+  requester_email: string | null;
+  owner_note: string | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+};
+
 export async function getOwnerHorses() {
   return authenticatedRequest<{ items: OwnerHorse[]; total: number }>("/api/horse-owner/horses");
 }
@@ -167,14 +193,38 @@ export function getHorseRegistrationRequests() {
   return authenticatedRequest<HorseRegistrationRequest[]>("/api/horse-owner/horse-registration-requests");
 }
 
-export async function submitHorseRegistrationRequest(input: HorseRegistrationSubmission, horseImage: File, documents: File[]) {
+export async function submitHorseRegistrationRequest(input: HorseRegistrationSubmission, horseImage: File | null, documents: File[], documentTypes: string[]) {
   const form = new FormData();
   form.append("request", new Blob([JSON.stringify(input)], { type: "application/json" }));
-  form.append("horseImage", horseImage);
+  if (horseImage) form.append("horseImage", horseImage);
   documents.forEach((file) => form.append("documents", file));
+  if (documents.length) form.append("documentTypes", new Blob([JSON.stringify(documentTypes)], { type: "application/json" }));
   return authenticatedRequest<HorseRegistrationRequest>("/api/horse-owner/horse-registration-requests", {
     method: "POST",
     body: form,
+  });
+}
+
+export async function resubmitHorseRegistrationRequest(id: string, input: HorseRegistrationSubmission, horseImage: File | null, documents: File[], documentTypes: string[]) {
+  const form = new FormData();
+  form.append("request", new Blob([JSON.stringify(input)], { type: "application/json" }));
+  if (horseImage) form.append("horseImage", horseImage);
+  documents.forEach((file) => form.append("documents", file));
+  if (documents.length) form.append("documentTypes", new Blob([JSON.stringify(documentTypes)], { type: "application/json" }));
+  return authenticatedRequest<HorseRegistrationRequest>(`/api/horse-owner/horse-registration-requests/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: form,
+  });
+}
+
+export function getOwnershipTransferRequests() {
+  return authenticatedRequest<OwnershipTransferRequest[]>("/api/horse-owner/ownership-transfer-requests");
+}
+
+export function respondToOwnershipTransfer(id: string, action: "CONSENT" | "DECLINE", note?: string) {
+  return authenticatedRequest<HorseRegistrationRequest>(`/api/horse-owner/ownership-transfer-requests/${encodeURIComponent(id)}/consent`, {
+    method: "PATCH",
+    body: JSON.stringify({ action, note }),
   });
 }
 

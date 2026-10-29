@@ -47,15 +47,23 @@ export default function HorseOwnerWorkspace() {
 
   useEffect(() => {
     let active = true;
-    getOwnerHorses()
+    const refreshHorses = () => getOwnerHorses()
       .then((result) => {
         if (!active) return;
         setHorses(result.items);
-        setSelectedId((current) => current || result.items[0]?.id || "");
+        setSelectedId((current) => result.items.some((horse) => horse.id === current)
+          ? current
+          : result.items[0]?.id || "");
       })
       .catch((reason) => { if (active) setError(errorMessage(reason)); })
       .finally(() => { if (active) setLoadingHorses(false); });
-    return () => { active = false; };
+    const handleUpdate = () => { void refreshHorses(); };
+    window.addEventListener("horse-owner-horses-changed", handleUpdate);
+    void refreshHorses();
+    return () => {
+      active = false;
+      window.removeEventListener("horse-owner-horses-changed", handleUpdate);
+    };
   }, []);
 
   const refreshDashboard = useCallback(async (silent = false) => {
@@ -160,6 +168,8 @@ function OverviewPanel({ dashboard, latestWeight }: { dashboard: OwnerDashboard;
           <InfoTile label="Năm sinh" value={horse.birth_year == null ? "Chưa cập nhật" : String(horse.birth_year)} />
           <InfoTile label="Tên cha" value={horse.pedigree_father ?? "Chưa cập nhật"} />
           <InfoTile label="Tên mẹ" value={horse.pedigree_mother ?? "Chưa cập nhật"} />
+          <InfoTile label="Microchip" value={horse.microchip_number ?? "Chưa cập nhật"} />
+          <InfoTile label="Hộ chiếu ngựa" value={horse.passport_number ?? "Chưa cập nhật"} />
           <InfoTile label="Chiều cao đến vai" value={horse.height_cm == null ? "Chưa cập nhật" : `${horse.height_cm} cm`} />
           <InfoTile label="Chuồng" value={horse.box_code ?? "Chưa xếp chuồng"} />
           <InfoTile label="Chủ sở hữu" value={horse.owner_name ?? "Bạn"} />
@@ -269,11 +279,11 @@ function VideoCard({ video }: { video: OwnerDashboard["training_videos"][number]
 }
 
 function Panel({ title, icon: Icon, children }: { title: string; icon: typeof Activity; children: ReactNode }) {
-  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Icon size={18} />{title}</h3>{children}</section>;
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h2 className="mb-4 flex items-center gap-2 font-sans text-lg font-normal text-equine-navy"><Icon size={18} />{title}</h2>{children}</section>;
 }
 
 function InfoTile({ label, value, detail }: { label: string; value: string; detail?: string }) {
-  return <div className="rounded-lg border border-equine-line bg-[#f8fafc] p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 break-words text-sm font-semibold text-equine-navy">{value}</p>{detail && <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>}</div>;
+  return <div className="rounded-lg border border-equine-line bg-[#f8fafc] p-4"><p className="text-xs font-normal uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 break-words text-sm font-semibold text-equine-navy">{value}</p>{detail && <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>}</div>;
 }
 
 function Empty({ children }: { children: ReactNode }) {

@@ -5,16 +5,17 @@ import { Routes } from "@/routes/Routes";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ImagePlus, Save, Upload, X } from "lucide-react";
+import { useHorseUser } from "@/components/horses/HorseShell";
 import { Notice } from "@/components/horses/HorseUI";
-import { OwnerCombobox } from "@/components/horses/OwnerCombobox";
 import { errorMessage, getHorse, getHorseStables, saveHorse, uploadHorseImage, type Stable } from "@/api/horses/api";
 
 export default function EditHorsePage() {
   const router = useRouter();
+  const user = useHorseUser();
   const params = useParams<{ id: string }>();
   const horseId = params?.id ?? "";
   const [horse, setHorse] = useState<Awaited<ReturnType<typeof getHorse>> | null>(null);
-  const [form, setForm] = useState<{ horseName: string; breed: string; birthYear: number; heightCm: string; currentWeightKg: string; pedigreeFather: string; pedigreeMother: string; stableBoxId: string; ownerId: number | null }>({ horseName: "", breed: "", birthYear: 2024, heightCm: "", currentWeightKg: "", pedigreeFather: "", pedigreeMother: "", stableBoxId: "", ownerId: null });
+  const [form, setForm] = useState<{ horseName: string; breed: string; birthYear: number; heightCm: string; currentWeightKg: string; pedigreeFather: string; pedigreeMother: string; microchipNumber: string; passportNumber: string; stableBoxId: string }>({ horseName: "", breed: "", birthYear: 2024, heightCm: "", currentWeightKg: "", pedigreeFather: "", pedigreeMother: "", microchipNumber: "", passportNumber: "", stableBoxId: "" });
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -27,7 +28,7 @@ export default function EditHorsePage() {
     Promise.all([getHorse(horseId), getHorseStables()]).then(([currentHorse, nextStables]) => {
       setHorse(currentHorse);
       setStables(nextStables);
-      setForm({ horseName: currentHorse.horse_name, breed: currentHorse.breed ?? "", birthYear: currentHorse.birth_year ?? 2024, heightCm: currentHorse.height_cm == null ? "" : String(currentHorse.height_cm), currentWeightKg: currentHorse.current_weight_kg == null ? "" : String(currentHorse.current_weight_kg), pedigreeFather: currentHorse.pedigree_father ?? "", pedigreeMother: currentHorse.pedigree_mother ?? "", stableBoxId: currentHorse.stable_box_id, ownerId: currentHorse.owner_id });
+      setForm({ horseName: currentHorse.horse_name, breed: currentHorse.breed ?? "", birthYear: currentHorse.birth_year ?? 2024, heightCm: currentHorse.height_cm == null ? "" : String(currentHorse.height_cm), currentWeightKg: currentHorse.current_weight_kg == null ? "" : String(currentHorse.current_weight_kg), pedigreeFather: currentHorse.pedigree_father ?? "", pedigreeMother: currentHorse.pedigree_mother ?? "", microchipNumber: currentHorse.microchip_number ?? "", passportNumber: currentHorse.passport_number ?? "", stableBoxId: currentHorse.stable_box_id });
       setImagePath(currentHorse.image_url);
     }).catch((reason) => setError(errorMessage(reason)));
   }, [horseId]);
@@ -57,6 +58,21 @@ export default function EditHorsePage() {
     );
   }
 
+    if (user && user.roleName !== "CLUB_MANAGER") {
+    return (
+      <main className="min-h-screen bg-slate-50 p-6">
+        <div className="mx-auto max-w-[800px] rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <Notice error>Chỉ Club Manager mới có quyền chỉnh sửa hồ sơ ngựa.</Notice>
+          <div className="mt-4">
+            <button type="button" className="gold-button" onClick={() => router.push(Routes.horse(horseId))}>
+              Quay lại chi tiết
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   const safeHorse = horse;
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -65,15 +81,10 @@ export default function EditHorsePage() {
       setError("Tên ngựa không được để trống.");
       return;
     }
-    if (!form.ownerId) {
-      setError("Mỗi hồ sơ ngựa cần một chủ sở hữu chính.");
-      return;
-    }
-
     setSaving(true);
     setError("");
 
-    void saveHorse({ horseName: form.horseName, breed: form.breed || null, birthYear: form.birthYear || null, heightCm: form.heightCm ? Number(form.heightCm) : null, currentWeightKg: form.currentWeightKg ? Number(form.currentWeightKg) : null, pedigreeFather: form.pedigreeFather || null, pedigreeMother: form.pedigreeMother || null, stableBoxId: form.stableBoxId, ownerId: form.ownerId || null, imagePath, confirmOwnerChange: form.ownerId !== safeHorse.owner_id }, safeHorse.id).then(() => {
+    void saveHorse({ horseName: form.horseName, breed: form.breed || null, birthYear: form.birthYear || null, heightCm: form.heightCm ? Number(form.heightCm) : null, currentWeightKg: form.currentWeightKg ? Number(form.currentWeightKg) : null, pedigreeFather: form.pedigreeFather || null, pedigreeMother: form.pedigreeMother || null, microchipNumber: form.microchipNumber || null, passportNumber: form.passportNumber || null, stableBoxId: form.stableBoxId, ownerId: safeHorse.owner_id, imagePath, confirmOwnerChange: false }, safeHorse.id).then(() => {
       setSaving(false);
       router.push(Routes.horse(safeHorse.id));
     }).catch((reason) => { setSaving(false); setError(errorMessage(reason)); });
@@ -152,10 +163,19 @@ export default function EditHorsePage() {
               <span className="field-label">Tên mẹ (Dam)</span>
               <input value={form.pedigreeMother} onChange={(event) => setForm({ ...form, pedigreeMother: event.target.value })} className="field-control w-full" />
             </label>
+            <label className="block">
+              <span className="field-label">Số microchip (nếu có)</span>
+              <input maxLength={100} value={form.microchipNumber} onChange={(event) => setForm({ ...form, microchipNumber: event.target.value })} className="field-control w-full" />
+            </label>
+            <label className="block">
+              <span className="field-label">Số hộ chiếu (nếu có)</span>
+              <input maxLength={100} value={form.passportNumber} onChange={(event) => setForm({ ...form, passportNumber: event.target.value })} className="field-control w-full" />
+            </label>
           </div>
 
-          <div className="pt-2">
-            <OwnerCombobox required value={form.ownerId} onChange={(ownerId) => setForm({ ...form, ownerId })} />
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+            Chủ sở hữu: <strong className="text-slate-900">{safeHorse.owner_name ?? "Chưa liên kết"}</strong>
+            <p className="mt-1 text-xs">Thay đổi chủ sở hữu cần yêu cầu liên kết và sự đồng ý của chủ hiện tại.</p>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">

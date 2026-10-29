@@ -557,8 +557,8 @@ h1, h2, h3, h4, .display-title {
   color: var(--ui-navy);
 }
 .horse-nav-label {
-  font-size: 10px;
-  letter-spacing: .08em;
+  font-size: 12px;
+  letter-spacing: .06em;
   font-weight: 400;
   margin: 16px 8px 8px;
   color: var(--ui-subtle);
@@ -1124,8 +1124,8 @@ dialog h2 {
 }
 .vf-hero-scrim {
   background:
-    linear-gradient(90deg, rgba(10, 22, 48, 0.44) 0%, rgba(10, 22, 48, 0.16) 44%, rgba(10, 22, 48, 0) 74%),
-    linear-gradient(0deg, rgba(10, 22, 48, 0.42) 0%, rgba(10, 22, 48, 0) 40%);
+    linear-gradient(90deg, rgba(10, 22, 48, 0.40) 0%, rgba(10, 22, 48, 0.12) 40%, rgba(10, 22, 48, 0) 64%),
+    linear-gradient(0deg, rgba(10, 22, 48, 0.36) 0%, rgba(10, 22, 48, 0) 34%);
 }
 .vf-section-label {
   display: inline-block;
@@ -1221,3 +1221,12 @@ dialog h2 {
   font-weight: 400 !important;
 }
 
+
+/* Crisp video rendering: no CSS filters (they add an extra resample pass),
+   own compositor layer, sharper upscaling where supported. */
+.vf-sharp-video {
+  filter: none !important;
+  image-rendering: -webkit-optimize-contrast;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
