@@ -44,8 +44,8 @@ export default function SkeletonAnatomyPanel({
 
   if (records.length === 0) {
     return (
-      <div className="flex h-[410px] min-h-0 flex-col rounded-xl border border-[#dce6eb] bg-white/90 p-3">
-        <h5 className="text-sm font-semibold text-[#36566a]">Bộ xương</h5>
+      <div className="flex h-[410px] min-h-0 flex-col rounded-xl border border-equine-line bg-white p-3">
+        <h5 className="text-sm font-semibold text-equine-navy">Bộ xương</h5>
         <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs leading-relaxed text-amber-900">
           Không tìm thấy đủ điểm neo trên rig để dựng cột sống minh họa.
         </p>
@@ -54,43 +54,40 @@ export default function SkeletonAnatomyPanel({
   }
 
   return (
-    <div className="flex h-[410px] min-h-0 flex-col rounded-xl border border-[#dce6eb] bg-white/90 p-3">
+    <div className="flex h-[410px] min-h-0 flex-col rounded-xl border border-equine-line bg-white p-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h5 className="text-sm font-semibold text-[#36566a]">Bộ xương</h5>
-          <p className="text-[10px] text-slate-500">{records.length} cấu trúc · chọn để lấy nét</p>
+          <h5 className="text-sm font-semibold text-equine-navy">Bộ xương</h5>
         </div>
       </div>
       <div className="mt-2 flex items-center justify-between gap-2">
         <label className="flex items-center gap-1.5 text-[10px] font-medium text-slate-600">
-          <input type="checkbox" checked={showLabels} onChange={(event) => setShowLabels(event.target.checked)} className="accent-[#446b72]" />
+          <input type="checkbox" checked={showLabels} onChange={(event) => setShowLabels(event.target.checked)} className="accent-equine-navy" />
           Nhãn xương
         </label>
-        <button type="button" onClick={() => setExplodeView(!explodeView)} aria-pressed={explodeView} className={`ml-auto rounded-md border px-2 py-1 text-[10px] font-semibold ${explodeView ? "border-[#87a8a3] bg-[#eef6f3] text-[#365f59]" : "border-slate-200 text-slate-500"}`}>
+        <button type="button" onClick={() => setExplodeView(!explodeView)} aria-pressed={explodeView} className={`ml-auto rounded-md border px-2 py-1 text-[10px] font-semibold ${explodeView ? "border-equine-gold/50 bg-equine-champagne text-equine-navy" : "border-slate-200 text-slate-500"}`}>
           {explodeView ? "Gộp xương" : "Tách lớp"}
         </button>
       </div>
       <label className="mt-2 block">
         <span className="sr-only">Tìm xương theo tên Việt hoặc Latin</span>
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm tên xương…" className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-[#719496]" />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm tên xương…" className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-equine-gold" />
       </label>
       <div className="mt-2 flex flex-wrap gap-1" role="group" aria-label="Lọc nhóm xương">
-        {filters.map((filter) => <button key={filter.id} type="button" onClick={() => setGroup(filter.id)} aria-pressed={group === filter.id} className={`rounded-md px-2 py-1 text-[10px] ${group === filter.id ? "bg-[#446b72] font-semibold text-white" : "bg-slate-100 text-slate-600"}`}>{filter.label}</button>)}
+        {filters.map((filter) => <button key={filter.id} type="button" onClick={() => setGroup(filter.id)} aria-pressed={group === filter.id} className={`rounded-md px-2 py-1 text-[10px] ${group === filter.id ? "bg-equine-navy font-semibold text-white" : "bg-equine-mist text-equine-ink"}`}>{filter.label}</button>)}
       </div>
       <div className="mt-2 min-h-0 flex-1 overflow-y-auto rounded-md border border-slate-100">
-        {filtered.length ? filtered.map((record) => <button key={record.id} type="button" onClick={() => onSelect(record.id)} className={`block w-full border-b border-slate-100 px-2.5 py-1.5 text-left last:border-b-0 ${selectedId === record.id ? "bg-[#edf4f3]" : "hover:bg-slate-50"}`}>
+        {filtered.length ? filtered.map((record) => <button key={record.id} type="button" onClick={() => onSelect(record.id)} className={`block w-full border-b border-slate-100 px-2.5 py-1.5 text-left last:border-b-0 ${selectedId === record.id ? "bg-equine-champagne" : "hover:bg-slate-50"}`}>
           <span className="block text-[11px] font-medium text-slate-700">{record.name}</span>
-          <span className="block text-[9px] italic text-slate-500">{record.latin}</span>
         </button>) : <p className="px-3 py-4 text-center text-xs text-slate-400">Không tìm thấy xương phù hợp.</p>}
       </div>
-      {selected ? <div className="mt-2 rounded-lg border border-[#e1e9e8] bg-[#f7faf9] p-2.5">
+      {selected ? <div className="mt-2 rounded-lg border border-equine-line bg-equine-paper p-2.5">
         <div className="flex items-start justify-between gap-2">
-          <div><p className="text-xs font-semibold text-[#36566a]">{selected.name}</p><p className="text-[10px] italic text-slate-500">{selected.latin}</p></div>
-          <span className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-800">Minh họa</span>
+          <div><p className="text-xs font-semibold text-equine-navy">{selected.name}</p><p className="text-[10px] italic text-slate-500">{selected.latin}</p></div>
         </div>
         <p className="mt-1.5 line-clamp-3 text-[10px] leading-relaxed text-slate-600">{selected.description}</p>
-        {selected.id === "mandible" && <button type="button" onClick={() => setJawOpen(!jawOpen)} aria-pressed={jawOpen} className="mt-2 rounded-md border border-[#cddedc] bg-white px-2 py-1 text-[10px] font-semibold text-[#45696b]">{jawOpen ? "Khép hàm" : "Mở hàm"}</button>}
-      </div> : <p className="mt-2 rounded-lg bg-[#f7faf9] px-2.5 py-2 text-[10px] leading-relaxed text-slate-500">Mesh xương được dựng theo rig hiện có; số đo, bề mặt khớp và biến thiên cá thể là ước lượng phục vụ học tập.</p>}
+        {selected.id === "mandible" && <button type="button" onClick={() => setJawOpen(!jawOpen)} aria-pressed={jawOpen} className="mt-2 rounded-md border border-equine-line bg-white px-2 py-1 text-[10px] font-semibold text-equine-navy">{jawOpen ? "Khép hàm" : "Mở hàm"}</button>}
+      </div> : null}
     </div>
   );
 }

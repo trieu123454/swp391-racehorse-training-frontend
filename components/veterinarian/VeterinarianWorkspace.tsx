@@ -6,6 +6,7 @@ import {
   Bell,
   CalendarDays,
   Check,
+  CircleHelp,
   ClipboardCheck,
   FileHeart,
   HeartPulse,
@@ -22,6 +23,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import InjuryModel3D from "@/components/veterinarian/InjuryModel3D";
+import { CompactId } from "@/components/shared/CompactId";
 import type { Horse } from "@/api/horses/api";
 import { APP_MUTATION_COMPLETED_EVENT } from "@/api/client";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
@@ -42,19 +44,8 @@ import {
   type VetStableIncident,
 } from "@/api/veterinarian/api";
 
-type WorkspaceTab = "overview" | "exams" | "medical" | "diet" | "injuries" | "care" | "incidents" | "notifications";
-const workspaceTabIds: readonly WorkspaceTab[] = ["overview", "exams", "medical", "diet", "injuries", "care", "incidents", "notifications"];
-
-const tabs: { id: WorkspaceTab; label: string; icon: typeof Activity }[] = [
-  { id: "overview", label: "Sức khỏe", icon: HeartPulse },
-  { id: "exams", label: "Khám bệnh", icon: Stethoscope },
-  { id: "medical", label: "Chẩn đoán & thuốc", icon: FileHeart },
-  { id: "diet", label: "Khẩu phần", icon: Utensils },
-  { id: "injuries", label: "Chấn thương", icon: Activity },
-  { id: "care", label: "Lịch chăm sóc", icon: CalendarDays },
-  { id: "incidents", label: "Báo cáo Groom", icon: AlertTriangle },
-  { id: "notifications", label: "Thông báo", icon: Bell },
-];
+type WorkspaceTab = "overview" | "stables" | "exams" | "medical" | "diet" | "injuries" | "care" | "incidents" | "notifications";
+const workspaceTabIds: readonly WorkspaceTab[] = ["overview", "stables", "exams", "medical", "diet", "injuries", "care", "incidents", "notifications"];
 
 const statusLabels: Record<string, string> = {
   Healthy: "Khỏe mạnh",
@@ -193,7 +184,7 @@ function buildVetActionItems(
 }
 
 async function fetchVetActionItems(horses: VetHorse[]) {
-  const horsesToInspect = horses.filter((horse) => horse.current_status !== "Healthy" || horse.readiness_status !== "Ready" || horse.is_training_locked);
+  const horsesToInspect = horses.filter((horse) => horse.current_status === "Injured" || horse.is_training_locked);
   const [schedulesResult, ...injuryResults] = await Promise.allSettled([
     veterinarianApi.schedules(),
     ...horsesToInspect.map((horse) => veterinarianApi.injuries(horse.id)),
@@ -230,23 +221,25 @@ export default function VeterinarianWorkspace() {
   const [overview, setOverview] = useState<HealthOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [section, setSection] = useState("");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
   const [notice, setNotice] = useState("");
   const [unread, setUnread] = useState(0);
   const [actionCount, setActionCount] = useState(0);
+  const [actionItems, setActionItems] = useState<VetActionItem[]>([]);
+  const [actionItemsLoading, setActionItemsLoading] = useState(true);
+  const [actionItemsError, setActionItemsError] = useState("");
   const [openIncidentCount, setOpenIncidentCount] = useState(0);
   const [recentActivities, setRecentActivities] = useState<VetActivity[]>([]);
   const [activityHistoryReady, setActivityHistoryReady] = useState(false);
 
-  const loadOverview = useCallback(async (nextSection = section) => {
+  const loadOverview = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const [result, incidents] = await Promise.all([
-        veterinarianApi.overview(nextSection || undefined),
+        veterinarianApi.overview(),
         veterinarianApi.incidents("Open").catch(() => null),
       ]);
       setOverview(result);
@@ -261,7 +254,7 @@ export default function VeterinarianWorkspace() {
     } finally {
       setLoading(false);
     }
-  }, [section]);
+  }, []);
 
   const loadUnread = useCallback(async () => {
     try {
@@ -310,6 +303,24 @@ export default function VeterinarianWorkspace() {
   }, [loadUnread]);
   const horses = useMemo(() => overview?.horses ?? [], [overview]);
   const horse = horses.find((item) => item.id === selectedId) ?? null;
+  const loadActionItems = useCallback(async (targetHorses: VetHorse[]) => {
+    setActionItemsLoading(true);
+    setActionItemsError("");
+    try {
+      const result = await fetchVetActionItems(targetHorses);
+      setActionItems(result.items);
+      setActionCount(result.items.length);
+      setActionItemsError(result.error);
+    } catch (reason) {
+      setActionItemsError(veterinarianError(reason));
+    } finally {
+      setActionItemsLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (!overview) return;
+    void loadActionItems(overview.horses);
+  }, [overview, loadActionItems]);
   useEffect(() => {
     let timer: number | undefined;
     const refreshAfterMutation = (event: Event) => {
@@ -320,8 +331,7 @@ export default function VeterinarianWorkspace() {
       timer = window.setTimeout(() => {
         void (async () => {
           const refreshedOverview = await loadOverview();
-          const result = await fetchVetActionItems(refreshedOverview?.horses ?? horses);
-          setActionCount(result.items.length);
+          await loadActionItems(refreshedOverview?.horses ?? horses);
         })();
       }, 180);
     };
@@ -330,8 +340,7 @@ export default function VeterinarianWorkspace() {
       window.clearTimeout(timer);
       window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
     };
-  }, [horses, loadOverview, loadUnread]);
-  const sections = useMemo(() => [...new Set(horses.map((item) => item.stable_box?.section).filter((item): item is string => Boolean(item)))].sort(), [horses]);
+  }, [horses, loadActionItems, loadOverview, loadUnread]);
   const stableGroups = useMemo(() => {
     const groups = new Map<string, VetHorse[]>();
     for (const item of horses) {
@@ -340,7 +349,12 @@ export default function VeterinarianWorkspace() {
     }
     return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right, "vi"));
   }, [horses]);
-  const visibleHorses = horses.filter((item) => item.horse_name.toLocaleLowerCase("vi").includes(search.trim().toLocaleLowerCase("vi")));
+  const visibleHorses = horses.filter((item) => {
+    const query = search.trim().toLocaleLowerCase("vi");
+    return item.horse_name.toLocaleLowerCase("vi").includes(query)
+      || item.id.toLocaleLowerCase("vi").includes(query)
+      || item.stable_box?.box_code.toLocaleLowerCase("vi").includes(query);
+  });
 
   function changed(message: string) {
     setNotice(message);
@@ -362,50 +376,36 @@ export default function VeterinarianWorkspace() {
   }
 
   return (
-    <section className="dashboard-workspace" aria-label="Không gian bác sĩ thú y">
+    <section className="dashboard-workspace mx-auto w-full" aria-label="Không gian bác sĩ thú y">
       {error && <div className="mt-5"><Notice error>{error}</Notice></div>}
       {notice && <div className="mt-5"><Notice>{notice}</Notice></div>}
 
-      <section hidden={tab !== "overview"} className="mt-4 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5" aria-label="Sơ đồ sức khỏe chuồng trại">
-        <div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 lg:flex-row lg:items-center lg:justify-between">
-          <div><h2 className="font-sans text-lg font-semibold text-equine-navy">Sơ đồ trạng thái chuồng trại</h2><p className="mt-1 text-sm text-slate-500">Chọn ô chuồng để mở hồ sơ sức khỏe tương ứng.</p></div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="mr-1 text-xs text-slate-500">{horses.length} ngựa · {stableGroups.length} vị trí</span>
-            <button type="button" onClick={() => { selectTab("incidents"); setNotice(""); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 text-sm font-semibold text-rose-800 hover:bg-rose-100"><AlertTriangle size={15} /> Sự cố <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold">{openIncidentCount}</span></button>
-            <button type="button" onClick={() => { selectTab("notifications"); setNotice(""); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-equine-line bg-white px-3 text-sm font-semibold text-equine-navy hover:bg-equine-mist"><Bell size={15} /> Thông báo <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${unread ? "bg-rose-100 text-rose-700" : "bg-equine-mist text-slate-600"}`}>{unread}</span>{actionCount > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">{actionCount} việc</span>}</button>
-            <button type="button" aria-label="Làm mới dữ liệu" className="grid h-10 w-10 place-items-center rounded-xl border border-equine-line bg-white text-equine-navy hover:bg-equine-mist" onClick={() => { void loadOverview(); void loadUnread(); }}><RefreshCw size={15} /></button>
-          </div>
+      {tab !== "stables" && <div className="relative mt-4 w-full max-w-2xl">
+        <label className="flex items-center gap-2 rounded-xl border border-equine-line bg-white px-3 py-2.5 shadow-sm"><Search size={16} className="shrink-0 text-slate-500" /><span className="sr-only">Tìm ngựa theo tên hoặc mã số</span><input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none" placeholder="Tìm theo tên hoặc mã số ngựa..." /></label>
+        {search.trim() && <div className="absolute left-0 right-0 top-full z-20 mt-2 max-h-[65vh] space-y-2 overflow-y-auto rounded-xl border border-equine-line bg-white p-2 shadow-lg">
+          {loading && !overview ? <Notice>Đang tìm ngựa...</Notice> : visibleHorses.length === 0 ? <Notice>Không tìm thấy ngựa phù hợp.</Notice> : visibleHorses.map((item) => <HorseChoice key={item.id} horse={item} selected={item.id === selectedId} onClick={() => { setSelectedId(item.id); setSearch(""); setNotice(""); }} />)}
+        </div>}
+      </div>}
+
+      {tab === "stables" ? (
+        <div className="mt-5 max-w-[430px]">
+          <StableMapPanel
+            horses={horses}
+            stableGroups={stableGroups}
+            selectedId={selectedId}
+            openIncidentCount={openIncidentCount}
+            unread={unread}
+            actionCount={actionCount}
+            onIncident={() => { selectTab("incidents"); setNotice(""); }}
+            onNotifications={() => { selectTab("notifications"); setNotice(""); }}
+            onRefresh={() => { void loadOverview(); void loadUnread(); }}
+            onSelectHorse={(id) => { setSelectedId(id); selectTab("overview"); setNotice(""); }}
+          />
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{stableGroups.map(([location, occupants]) => <div key={location} className="rounded-xl border border-equine-line bg-[#f8fafc] p-3">
-          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">{location}</p>
-          <div className="space-y-2">{occupants.map((item) => <button type="button" key={item.id} onClick={() => { setSelectedId(item.id); selectTab("overview"); }} aria-pressed={item.id === selectedId} className={`flex w-full items-center justify-between gap-2 rounded-lg border p-2 text-left text-sm ${item.id === selectedId ? "border-equine-gold bg-[#fffaf2]" : "border-equine-line bg-white"}`}>
-            <span className="truncate font-semibold text-equine-navy">{item.horse_name}{item.is_training_locked ? " · Khóa" : ""}</span>
-            <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${item.current_status === "Injured" || item.current_status === "Quarantine" ? "bg-rose-100 text-rose-800" : item.current_status === "Monitoring" ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>{statusLabels[item.current_status] ?? item.current_status}</span>
-          </button>)}</div>
-        </div>)}</div>
-      </section>
-
-      <div className="mt-5 grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="h-fit rounded-2xl border border-equine-line bg-white p-4 shadow-sm xl:sticky xl:top-4">
-          <div className="flex items-center justify-between gap-3">
-            <div><h2 className="font-sans text-lg font-semibold text-equine-navy">Đàn ngựa</h2><p className="text-xs text-slate-500">{horses.length} hồ sơ đang hoạt động</p></div>
-            <label className="sr-only" htmlFor="vet-section">Lọc khu chuồng</label>
-            <select id="vet-section" value={section} onChange={(event) => setSection(event.target.value)} className="field-control h-10 max-w-28 px-2 text-xs">
-              <option value="">Tất cả khu</option>{sections.map((item) => <option key={item} value={item}>Khu {item}</option>)}
-            </select>
-          </div>
-          <label className="mt-4 flex items-center gap-2 rounded-xl border border-equine-line bg-[#f7f9ff] px-3 py-2.5"><Search size={15} className="text-slate-500" /><span className="sr-only">Tìm ngựa</span><input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none" placeholder="Tìm tên ngựa..." /></label>
-          <div className="mt-4 max-h-[65vh] space-y-2 overflow-y-auto pr-1">
-            {loading && !overview ? <Notice>Đang tải đàn ngựa...</Notice> : visibleHorses.length === 0 ? <Notice>Không có ngựa phù hợp.</Notice> : visibleHorses.map((item) => <HorseChoice key={item.id} horse={item} selected={item.id === selectedId} onClick={() => { setSelectedId(item.id); setNotice(""); }} />)}
-          </div>
-        </aside>
-
-        <div className="min-w-0">
+      ) : (
+      <div className="mt-4 min-w-0">
           {horse && <>
             <HorseSummary horse={horse} />
-            <div className="workspace-secondary-nav mt-4 flex gap-2 overflow-x-auto border-b border-equine-line pb-2" role="tablist" aria-label="Chức năng bác sĩ thú y">
-              {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold ${tab === id ? "bg-equine-navy text-white" : "bg-white text-slate-600 hover:bg-equine-mist"}`} onClick={() => { selectTab(id); setNotice(""); }}><Icon size={15} />{label}{id === "notifications" && (unread > 0 || actionCount > 0) && <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] text-rose-700">{unread + actionCount}</span>}</button>)}
-            </div>
             <div className="mt-4">
               {tab === "overview" && <HorseStatusPanel horse={horse} onChanged={changed} />}
               {tab === "exams" && <ExamsPanel horse={horse} onChanged={changed} />}
@@ -414,36 +414,84 @@ export default function VeterinarianWorkspace() {
               {tab === "injuries" && <InjuriesPanel horse={horse} onChanged={changed} />}
               {tab === "care" && <CarePanel horses={horses} selectedHorse={horse} onChanged={changed} />}
               {tab === "incidents" && <StableIncidentsPanel onOpenHorse={(id) => { setSelectedId(id); selectTab("overview"); }} />}
-              {tab === "notifications" && <NotificationsPanel horses={horses} activities={recentActivities} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} />}
+              {tab === "notifications" && <NotificationsPanel horses={horses} activities={recentActivities} initialActionItems={actionItems} actionsLoading={actionItemsLoading} actionsError={actionItemsError} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} />}
             </div>
           </>}
-          {!horse && !loading && <div className="rounded-2xl border border-equine-line bg-white p-6"><Notice>Chưa có ngựa đang hoạt động để quản lý sức khỏe.</Notice></div>}
+          {!horse && !loading && <div className="rounded-lg border border-equine-line bg-white p-6 shadow-sm"><Notice>Chưa có ngựa đang hoạt động để quản lý sức khỏe.</Notice></div>}
           {!horse && !loading && tab === "incidents" && <div className="mt-4"><StableIncidentsPanel onOpenHorse={(id) => { setSelectedId(id); selectTab("overview"); }} /></div>}
-          {!horse && !loading && tab === "notifications" && <div className="mt-4"><NotificationsPanel horses={horses} activities={recentActivities} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} /></div>}
-        </div>
+          {!horse && !loading && tab === "notifications" && <div className="mt-4"><NotificationsPanel horses={horses} activities={recentActivities} initialActionItems={actionItems} actionsLoading={actionItemsLoading} actionsError={actionItemsError} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} /></div>}
       </div>
+      )}
     </section>
   );
 }
 
+function StableMapPanel({
+  horses,
+  stableGroups,
+  selectedId,
+  openIncidentCount,
+  unread,
+  actionCount,
+  onIncident,
+  onNotifications,
+  onRefresh,
+  onSelectHorse,
+}: {
+  horses: VetHorse[];
+  stableGroups: [string, VetHorse[]][];
+  selectedId: string | null;
+  openIncidentCount: number;
+  unread: number;
+  actionCount: number;
+  onIncident: () => void;
+  onNotifications: () => void;
+  onRefresh: () => void;
+  onSelectHorse: (id: string) => void;
+}) {
+  return <section className="overflow-hidden rounded-lg border border-equine-line bg-white shadow-sm" aria-label="Sơ đồ chuồng trại">
+    <div className="flex items-center justify-between gap-2 border-b border-equine-line px-3 py-2.5">
+      <div className="min-w-0">
+        <h2 className="font-sans text-sm font-semibold text-equine-navy">Sơ đồ chuồng trại</h2>
+        <p className="mt-0.5 text-[11px] text-slate-500">{horses.length} ngựa · {stableGroups.length} vị trí</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <button type="button" title="Sự cố" aria-label={`Sự cố cần xử lý: ${openIncidentCount}`} onClick={onIncident} className="relative grid h-8 w-8 place-items-center rounded-md text-rose-700 hover:bg-rose-50"><AlertTriangle size={15} /><span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-rose-100 px-1 text-[9px] font-bold">{openIncidentCount}</span></button>
+        <button type="button" title="Thông báo" aria-label={`Thông báo: ${unread} chưa đọc, ${actionCount} việc cần xử lý`} onClick={onNotifications} className="relative grid h-8 w-8 place-items-center rounded-md text-equine-navy hover:bg-equine-mist"><Bell size={15} /><span className={`absolute -right-1 -top-1 min-w-4 rounded-full px-1 text-[9px] font-bold ${unread ? "bg-rose-100 text-rose-700" : "bg-equine-mist text-slate-600"}`}>{unread}</span>{actionCount > 0 && <span className="absolute -bottom-0.5 -right-1 h-2 w-2 rounded-full bg-amber-500" />}</button>
+        <button type="button" title="Làm mới" aria-label="Làm mới dữ liệu" className="grid h-8 w-8 place-items-center rounded-md text-equine-navy hover:bg-equine-mist" onClick={onRefresh}><RefreshCw size={14} /></button>
+      </div>
+    </div>
+    <div className="max-h-[min(70vh,560px)] space-y-2 overflow-y-auto p-2.5">
+      {stableGroups.map(([location, occupants]) => <div key={location} className="rounded-md border border-equine-line bg-[#f8fafc] p-2">
+        <p className="mb-1.5 truncate text-[10px] font-bold uppercase tracking-wide text-slate-500">{location}</p>
+        <div className="space-y-1.5">{occupants.map((item) => <button type="button" key={item.id} onClick={() => onSelectHorse(item.id)} aria-pressed={item.id === selectedId} className={`flex w-full items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-left transition ${item.id === selectedId ? "border-equine-navy bg-slate-100 font-semibold text-equine-navy shadow-sm" : "border-equine-line bg-white hover:bg-slate-50"}`}>
+          <span className="truncate text-xs font-semibold text-equine-navy">{item.horse_name}{item.is_training_locked ? " · Khóa" : ""}</span>
+          <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold ${item.current_status === "Injured" || item.current_status === "Quarantine" ? "bg-rose-100 text-rose-800" : item.current_status === "Monitoring" ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>{statusLabels[item.current_status] ?? item.current_status}</span>
+        </button>)}</div>
+      </div>)}
+      {!stableGroups.length && <p className="rounded-md bg-equine-mist px-3 py-4 text-center text-xs text-slate-500">Chưa có vị trí chuồng.</p>}
+    </div>
+  </section>;
+}
+
 function HorseChoice({ horse, selected, onClick }: { horse: VetHorse; selected: boolean; onClick: () => void }) {
   const statusClass = horse.current_status === "Injured" || horse.current_status === "Quarantine" ? "border-rose-200 bg-rose-50" : horse.current_status === "Monitoring" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50";
-  return <button type="button" onClick={onClick} aria-pressed={selected} className={`w-full rounded-xl border p-3 text-left transition ${selected ? "border-equine-gold bg-[#fffaf2] shadow-sm" : "border-equine-line hover:bg-slate-50"}`}>
-    <div className="flex items-center gap-3"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-equine-mist"><HorseImage horse={horse as unknown as Horse} /></div><div className="min-w-0 flex-1"><p className="truncate font-semibold text-equine-navy">{horse.horse_name}</p><p className="truncate text-xs text-slate-500">{horse.stable_box ? `${horse.stable_box.box_code} · Khu ${horse.stable_box.section}` : "Chưa xếp chuồng"}</p></div><span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${statusClass}`}>{statusLabels[horse.current_status] ?? horse.current_status}</span></div>
+  return <button type="button" onClick={onClick} aria-pressed={selected} className={`w-full rounded-lg border p-3 text-left transition ${selected ? "border-equine-navy bg-slate-50 shadow-sm ring-1 ring-equine-navy/20" : "border-equine-line hover:bg-slate-50"}`}>
+    <div className="flex items-center gap-3"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-equine-mist"><HorseImage horse={horse as unknown as Horse} /></div><div className="min-w-0 flex-1"><p className="truncate font-semibold text-equine-navy">{horse.horse_name}</p><p className="truncate text-xs text-slate-500">{horse.stable_box ? `${horse.stable_box.box_code} · Khu ${horse.stable_box.section}` : "Chưa xếp chuồng"}</p></div><span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${statusClass}`}>{statusLabels[horse.current_status] ?? horse.current_status}</span></div>
     {horse.is_training_locked && <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-rose-700"><LockKeyhole size={12} /> Đang khóa huấn luyện</p>}
   </button>;
 }
 
 function HorseSummary({ horse }: { horse: VetHorse }) {
-  return <article className="flex flex-col gap-4 rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:p-5">
-    <div className="h-24 w-28 shrink-0 overflow-hidden rounded-xl bg-equine-mist"><HorseImage horse={horse as unknown as Horse} /></div>
-    <div className="min-w-0 flex-1"><p className="eyebrow">Hồ sơ sức khỏe</p><h2 className="mt-1 font-sans text-2xl font-semibold text-equine-navy">{horse.horse_name}</h2><p className="mt-1 text-sm text-slate-600">{horse.stable_box ? `Chuồng ${horse.stable_box.box_code} · Khu ${horse.stable_box.section}` : "Chưa gán chuồng"} · {statusLabels[horse.current_status] ?? horse.current_status}</p></div>
-    {horse.is_training_locked && <div className={`rounded-xl border px-3 py-2 text-sm ${horse.lock_level === "Critical" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}><p className="flex items-center gap-2 font-bold"><LockKeyhole size={15} /> Khóa {horse.lock_level}</p><p className="mt-1 max-w-sm text-xs">{horse.lock_reason}</p></div>}
+  return <article className="flex flex-col gap-3 rounded-lg border border-equine-line bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:p-4">
+    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md bg-equine-mist"><HorseImage horse={horse as unknown as Horse} /></div>
+    <div className="min-w-0 flex-1"><p className="eyebrow text-[10px]">Hồ sơ sức khỏe</p><h2 className="mt-0.5 font-sans text-xl font-semibold text-equine-navy">{horse.horse_name}</h2><p className="mt-1 text-sm text-slate-600">{horse.stable_box ? `Chuồng ${horse.stable_box.box_code} · Khu ${horse.stable_box.section}` : "Chưa gán chuồng"} · {statusLabels[horse.current_status] ?? horse.current_status}</p></div>
+    {horse.is_training_locked && <div className={`rounded-md border px-3 py-2 text-sm ${horse.lock_level === "Critical" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}><p className="flex items-center gap-2 font-bold"><LockKeyhole size={15} /> Khóa {horse.lock_level}</p><p className="mt-1 max-w-sm text-xs">{horse.lock_reason}</p></div>}
   </article>;
 }
 
 function SectionCard({ title, description, icon: Icon, children, action }: { title: string; description?: string; icon: typeof Activity; children: ReactNode; action?: ReactNode }) {
-  return <section className="rounded-2xl border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{description && <p className="mt-1 text-sm text-slate-500">{description}</p>}</div></div>{action}</div>{children}</section>;
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{description && <details className="relative text-slate-500"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100" aria-label={`Giải thích ${title}`} title={`Giải thích ${title}`}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{description}</p></details>}</div></div></div>{action}</div>{children}</section>;
 }
 
 function Field({ label, name, type = "text", required = false, defaultValue, maxLength, min, max, step, placeholder, disabled }: { label: string; name: string; type?: string; required?: boolean; defaultValue?: string | number | null; maxLength?: number; min?: number; max?: number; step?: string; placeholder?: string; disabled?: boolean }) {
@@ -468,7 +516,7 @@ function CoordinateFields({ value, onChange }: { value: InjuryCoordinateFields; 
     { key: "coordinate_z", label: "Z · bên gần/xa" },
   ];
   return <div className="grid grid-cols-3 gap-2 sm:col-span-2">
-    <p className="text-xs text-slate-500 sm:col-span-3">Bấm mô hình để tự điền tọa độ hoặc chỉnh thủ công. Cần nhập cả X và Y.</p>
+    <p className="text-xs text-slate-500 sm:col-span-3">Chọn trên mô hình hoặc nhập X, Y.</p>
     {labels.map(({ key, label }) => <label key={key} className="block"><span className="field-label">{label}</span><input name={key} type="number" step="0.001" min={-999.999} max={999.999} value={value[key]} onChange={(event) => onChange({ ...value, [key]: event.target.value })} className="field-control px-3" /></label>)}
   </div>;
 }
@@ -656,12 +704,12 @@ function ExamsPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message
     <ErrorLine>{error}</ErrorLine>
     {alerts && alerts.length > 0 && <div className="my-3 space-y-2">{alerts.map((alert) => <p key={alert.field} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><AlertTriangle size={14} className="mr-2 inline" />{alert.field}: {alert.value} · ngưỡng tham khảo {alert.normal_range}</p>)}</div>}
     {creating && <div className="mb-5 rounded-xl border border-equine-line bg-slate-50 p-4"><h4 className="mb-4 font-semibold text-equine-navy">Lần khám mới</h4><ExamForm editing={false} busy={busy} onSubmit={save} onCancel={() => setCreating(false)} /></div>}
-    {detail && <div className="mb-5 rounded-xl border border-equine-gold/40 bg-[#fffdf8] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="font-semibold text-equine-navy">Chi tiết lần khám</h4><p className="text-sm text-slate-500">{displayDate(detail.exam_date)} · {detail.doctor?.name ?? "Bác sĩ"}</p>{detail.last_edited_at && <p className="mt-1 text-xs text-slate-500">Sửa gần nhất: {displayDate(detail.last_edited_at)} · {detail.last_edited_by?.name ?? "Bác sĩ"}</p>}</div><button type="button" className="soft-button h-9 px-3" onClick={() => setEditing((value) => !value)}> {editing ? "Đóng chỉnh sửa" : "Chỉnh sửa"}</button></div>
+    {detail && <div className="mb-5 rounded-xl border border-equine-line bg-slate-50 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h4 className="font-semibold text-equine-navy">Chi tiết lần khám</h4><CompactId id={detail.id} /></div><p className="text-sm text-slate-500">{displayDate(detail.exam_date)} · {detail.doctor?.name ?? "Bác sĩ"}</p>{detail.last_edited_at && <p className="mt-1 text-xs text-slate-500">Sửa gần nhất: {displayDate(detail.last_edited_at)} · {detail.last_edited_by?.name ?? "Bác sĩ"}</p>}</div><button type="button" className="soft-button h-9 px-3" onClick={() => setEditing((value) => !value)}> {editing ? "Đóng chỉnh sửa" : "Chỉnh sửa"}</button></div>
       {editing ? <div className="mt-4"><ExamForm initial={detail} editing busy={busy} onSubmit={save} onCancel={() => setEditing(false)} /></div> : <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{[...examFields, ...examLongFields].map((field) => { const value = detail[field.name as keyof HealthExam]; return value === undefined || value === null || value === "" ? null : <p key={field.name} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="block text-xs text-slate-500">{field.label}</span><span className="whitespace-pre-wrap font-medium text-slate-800">{String(value)}</span></p>; })}</div>}
       <div className="mt-4 border-t border-equine-line pt-3"><p className="mb-2 flex items-center gap-2 text-sm font-semibold text-equine-navy"><ClipboardCheck size={15} /> Lịch sử sửa ({logs.length})</p>{logs.length === 0 ? <p className="text-xs text-slate-500">Hồ sơ chưa có lần chỉnh sửa.</p> : <div className="space-y-2">{logs.map((log) => <div key={log.id} className="rounded-lg bg-white p-3 text-xs"><p className="font-semibold">{log.edited_by?.name ?? "Bác sĩ"} · {displayDate(log.edited_at)}</p><ul className="mt-1 space-y-1">{log.changes.map((change) => <li key={change.field}>{change.field}: {String(change.old_value ?? "—")} → {String(change.new_value ?? "—")}</li>)}</ul></div>)}</div>}</div>
     </div>}
-    {loading && response.data.length === 0 ? <Notice>Đang tải lịch sử khám...</Notice> : error ? null : response.data.length === 0 ? <Empty>Chưa có hồ sơ khám. Hãy tạo lần khám đầu tiên.</Empty> : <div className="space-y-2">{response.data.map((exam) => <button key={exam.id} type="button" onClick={() => void openExam(exam.id)} className="flex w-full flex-col gap-2 rounded-xl border border-equine-line p-3 text-left hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-equine-navy">{displayDate(exam.exam_date)}</p><p className="text-xs text-slate-500">{exam.doctor?.name ?? "Bác sĩ"}{exam.has_edits ? " · Đã chỉnh sửa" : ""}</p></div><div className="flex gap-3 text-sm"><span>{exam.temperature_c ?? "—"} °C</span><span>{exam.heart_rate ?? "—"} bpm</span><span>{exam.respiratory_rate ?? "—"} lần/phút</span></div></button>)}</div>}
+    {loading && response.data.length === 0 ? <Notice>Đang tải lịch sử khám...</Notice> : error ? null : response.data.length === 0 ? <Empty>Chưa có hồ sơ khám. Hãy tạo lần khám đầu tiên.</Empty> : <div className="space-y-2">{response.data.map((exam) => <button key={exam.id} type="button" onClick={() => void openExam(exam.id)} className="flex w-full flex-col gap-2 rounded-xl border border-equine-line p-3 text-left hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><p className="font-semibold text-equine-navy">{displayDate(exam.exam_date)}</p><CompactId id={exam.id} /></div><p className="text-xs text-slate-500">{exam.doctor?.name ?? "Bác sĩ"}{exam.has_edits ? " · Đã chỉnh sửa" : ""}</p></div><div className="flex gap-3 text-sm"><span>{exam.temperature_c ?? "—"} °C</span><span>{exam.heart_rate ?? "—"} bpm</span><span>{exam.respiratory_rate ?? "—"} lần/phút</span></div></button>)}</div>}
     {response.data.length < response.total && <button type="button" className="soft-button mt-3 h-10 px-4" disabled={loading} onClick={() => void load(page + 1, true)}>Tải thêm hồ sơ</button>}
   </SectionCard>;
 }
@@ -901,7 +949,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     <ErrorLine>{error}</ErrorLine>
     {!creating && latestByBodyPart.some((marker) => marker.recovery_status !== "Recovered") && <div className="mb-4 flex flex-wrap gap-2">{latestByBodyPart.filter((marker) => marker.recovery_status !== "Recovered").map((marker) => <button key={marker.id} type="button" className="soft-button h-9 px-3 text-xs" onClick={() => { setAssessmentFor(marker); setCreating(false); setDraftCoordinates({ coordinate_x: marker.coordinate_x == null ? "" : String(marker.coordinate_x), coordinate_y: marker.coordinate_y == null ? "" : String(marker.coordinate_y), coordinate_z: marker.coordinate_z == null ? "" : String(marker.coordinate_z) }); }}>{marker.body_part}: đánh giá phục hồi</button>)}</div>}
     {(!loading || creating || assessmentFor) && !error.includes("Điểm chấn thương:") && <InjuryModel3D markers={markers} placementMode={creating || Boolean(assessmentFor)} selectedCoordinates={selectedCoordinates} onSelectLocation={(coordinates) => setDraftCoordinates({ coordinate_x: coordinates.coordinate_x == null ? "" : coordinates.coordinate_x.toFixed(3), coordinate_y: coordinates.coordinate_y == null ? "" : coordinates.coordinate_y.toFixed(3), coordinate_z: coordinates.coordinate_z == null ? "" : coordinates.coordinate_z.toFixed(3) })} />}
-    {assessmentFor && <form key={assessmentFor.id} onSubmit={(event) => void create(event)} className="mb-4 mt-4 grid gap-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">Đánh giá phục hồi · bản ghi mới, giữ nguyên lịch sử</h4><Field label="Vị trí cơ thể" name="body_part" required maxLength={50} defaultValue={assessmentFor.body_part} /><SelectField label="Mức độ" name="severity" required defaultValue={assessmentFor.severity} options={[{ value: "Mild", label: "Nhẹ · Mild" }, { value: "Moderate", label: "Vừa · Moderate" }, { value: "Severe", label: "Nặng · Severe" }]} /><SelectField label="Tình trạng phục hồi" name="recovery_status" defaultValue={assessmentFor.recovery_status === "Active" ? "Recovering" : "Recovered"} options={[{ value: "Active", label: "Đang chấn thương" }, { value: "Recovering", label: "Đang hồi phục" }, { value: "Recovered", label: "Đã hồi phục" }]} /><label className="block sm:col-span-2"><span className="field-label">Chẩn đoán liên quan</span><select name="medical_record_id" defaultValue={assessmentFor.medical_record_id ?? ""} className="field-control px-3"><option value="">Không gắn chẩn đoán</option>{records.map((record) => <option key={record.id} value={record.id}>{record.diagnosis}</option>)}</select></label><CoordinateFields value={draftCoordinates} onChange={setDraftCoordinates} /><div className="sm:col-span-2"><TextAreaField label="Mô tả" name="description" rows={3} defaultValue={assessmentFor.description} /></div><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>Lưu đánh giá phục hồi</button><button type="button" className="soft-button h-10 px-3" onClick={() => { setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); }}>Hủy</button></div></form>}
+    {assessmentFor && <form key={assessmentFor.id} onSubmit={(event) => void create(event)} className="mb-4 mt-4 grid gap-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">Đánh giá phục hồi mới</h4><Field label="Vị trí cơ thể" name="body_part" required maxLength={50} defaultValue={assessmentFor.body_part} /><SelectField label="Mức độ" name="severity" required defaultValue={assessmentFor.severity} options={[{ value: "Mild", label: "Nhẹ · Mild" }, { value: "Moderate", label: "Vừa · Moderate" }, { value: "Severe", label: "Nặng · Severe" }]} /><SelectField label="Tình trạng phục hồi" name="recovery_status" defaultValue={assessmentFor.recovery_status === "Active" ? "Recovering" : "Recovered"} options={[{ value: "Active", label: "Đang chấn thương" }, { value: "Recovering", label: "Đang hồi phục" }, { value: "Recovered", label: "Đã hồi phục" }]} /><label className="block sm:col-span-2"><span className="field-label">Chẩn đoán liên quan</span><select name="medical_record_id" defaultValue={assessmentFor.medical_record_id ?? ""} className="field-control px-3"><option value="">Không gắn chẩn đoán</option>{records.map((record) => <option key={record.id} value={record.id}>{record.diagnosis}</option>)}</select></label><CoordinateFields value={draftCoordinates} onChange={setDraftCoordinates} /><div className="sm:col-span-2"><TextAreaField label="Mô tả" name="description" rows={3} defaultValue={assessmentFor.description} /></div><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>Lưu đánh giá phục hồi</button><button type="button" className="soft-button h-10 px-3" onClick={() => { setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); }}>Hủy</button></div></form>}
     <label className="mb-4 inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={latestOnly} onChange={(event) => setLatestOnly(event.target.checked)} /> Chỉ điểm mới nhất của mỗi vị trí</label>
     {creating && <form onSubmit={(event) => void create(event)} className="mb-4 mt-4 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">Đánh giá chấn thương mới</h4><Field label="Vị trí cơ thể" name="body_part" required maxLength={50} placeholder="Ví dụ: Chân trước trái" /><SelectField label="Mức độ" name="severity" required options={[{ value: "Mild", label: "Nhẹ · Mild" }, { value: "Moderate", label: "Vừa · Moderate" }, { value: "Severe", label: "Nặng · Severe" }]} /><SelectField label="Tình trạng phục hồi" name="recovery_status" options={[{ value: "Active", label: "Đang chấn thương" }, { value: "Recovering", label: "Đang hồi phục" }, { value: "Recovered", label: "Đã hồi phục" }]} /><label className="block sm:col-span-2"><span className="field-label">Chẩn đoán liên quan</span><select name="medical_record_id" defaultValue="" className="field-control px-3"><option value="">Không gắn chẩn đoán</option>{records.map((record) => <option key={record.id} value={record.id}>{record.diagnosis}</option>)}</select></label><CoordinateFields value={draftCoordinates} onChange={setDraftCoordinates} /><div className="sm:col-span-2"><TextAreaField label="Mô tả" name="description" rows={3} /></div><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>Lưu đánh giá</button><button type="button" className="soft-button h-10 px-3" onClick={() => { setCreating(false); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); }}>Hủy</button></div></form>}
     {suggestLock && <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle size={15} className="mr-1 inline" />Ngựa đã chuyển sang trạng thái Chấn thương, sẵn sàng thi đấu bị đặt thành Chưa sẵn sàng và lịch tập đã khóa.</p>}
@@ -971,6 +1019,8 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
   const [contextEvents, setContextEvents] = useState<CareEvent[]>([]);
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(daysFromToday(30));
+  const [draftFrom, setDraftFrom] = useState(from);
+  const [draftTo, setDraftTo] = useState(to);
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [includeContext, setIncludeContext] = useState(true);
   const [bookNow, setBookNow] = useState(true);
@@ -1044,7 +1094,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
   return <div className="space-y-4">
     <SectionCard title="Quy tắc chăm sóc định kỳ" description="Tạo quy tắc có chu kỳ hoặc lưu quy tắc trước rồi chốt ngày giờ sau." icon={CalendarDays} action={<button type="button" className="gold-button h-10 px-3" onClick={() => setCreateOpen((value) => !value)}>+ Lịch chăm sóc</button>}>
       <ErrorLine>{error}</ErrorLine>{notice && <div className="mb-3"><Notice>{notice}</Notice></div>}
-      {createOpen && <form onSubmit={(event) => void createSchedule(event)} className="mb-4 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">Tạo quy tắc</h4><label className="block"><span className="field-label">Ngựa *</span><select name="horse_id" defaultValue={selectedHorse.id} required className="field-control px-3">{horses.map((item) => <option key={item.id} value={item.id}>{item.horse_name}</option>)}</select></label><SelectField label="Loại chăm sóc" name="care_type" required options={[{ value: "HoofCheck", label: "Kiểm tra móng" }, { value: "Deworming", label: "Tẩy giun" }, { value: "Vaccination", label: "Tiêm phòng" }, { value: "MedicalCheckup", label: "Khám định kỳ" }]} /><Field label="Chu kỳ (ngày, bỏ trống nếu một lần)" name="frequency_days" type="number" min={1} step="1" /><Field label="Lần thực hiện gần nhất" name="last_done_date" type="date" /><Field label="Ngày đến hạn (có thể tính từ ngày cuối + chu kỳ)" name="next_due_date" type="date" /><Field label="Giờ bắt đầu" name="start_time" type="time" required={bookNow} defaultValue="08:00" /><Field label="Giờ kết thúc" name="end_time" type="time" required={bookNow} defaultValue="09:00" /><TextAreaField label="Ghi chú" name="notes" rows={2} /><label className="flex items-center gap-2 self-end rounded-xl border border-equine-line bg-white p-3 text-sm"><input type="checkbox" name="book_event" checked={bookNow} onChange={(event) => setBookNow(event.target.checked)} /> Chốt lịch ngay và tạo nhắc nhở</label><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>Lưu quy tắc</button><button type="button" className="soft-button h-10 px-3" onClick={() => setCreateOpen(false)}>Hủy</button></div></form>}
+      {createOpen && <form onSubmit={(event) => void createSchedule(event)} className="mb-4 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">Tạo quy tắc</h4><label className="block"><span className="field-label">Ngựa *</span><select name="horse_id" defaultValue={selectedHorse.id} required className="field-control px-3">{horses.map((item) => <option key={item.id} value={item.id}>{item.horse_name}</option>)}</select></label><SelectField label="Loại chăm sóc" name="care_type" required options={[{ value: "HoofCheck", label: "Kiểm tra móng" }, { value: "Deworming", label: "Tẩy giun" }, { value: "Vaccination", label: "Tiêm phòng" }, { value: "MedicalCheckup", label: "Khám định kỳ" }]} /><Field label="Chu kỳ (ngày)" name="frequency_days" type="number" min={1} step="1" /><Field label="Lần gần nhất" name="last_done_date" type="date" /><Field label="Ngày đến hạn" name="next_due_date" type="date" /><Field label="Giờ bắt đầu" name="start_time" type="time" required={bookNow} defaultValue="08:00" /><Field label="Giờ kết thúc" name="end_time" type="time" required={bookNow} defaultValue="09:00" /><TextAreaField label="Ghi chú" name="notes" rows={2} /><label className="flex items-center gap-2 self-end rounded-xl border border-equine-line bg-white p-3 text-sm"><input type="checkbox" name="book_event" checked={bookNow} onChange={(event) => setBookNow(event.target.checked)} /> Chốt lịch ngay và tạo nhắc nhở</label><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>Lưu quy tắc</button><button type="button" className="soft-button h-10 px-3" onClick={() => setCreateOpen(false)}>Hủy</button></div></form>}
       {loading ? <Notice>Đang tải lịch chăm sóc...</Notice> : error.includes("Quy tắc chăm sóc:") ? null : schedules.length === 0 ? <Empty>Chưa có quy tắc chăm sóc.</Empty> : <div className="space-y-3">{schedules.map((schedule) => {
         const scheduleHorse = horses.find((item) => item.id === schedule.horse_id)?.horse_name ?? schedule.horse_name ?? "Ngựa";
         const booked = Boolean(schedule.calendar_event_id);
@@ -1058,8 +1108,8 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
     </SectionCard>
 
     <SectionCard title="Lịch chăm sóc" description="Lịch giữ lịch sử đã hoàn thành. Có thể bật sự kiện ngựa để xem lịch xung quanh." icon={CalendarDays}>
-      <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end"><Field label="Từ ngày" name="calendar_from" type="date" defaultValue={from} key={`from-${from}`} /><Field label="Đến ngày" name="calendar_to" type="date" defaultValue={to} key={`to-${to}`} /><label className="block"><span className="field-label">Phạm vi bác sĩ</span><select value={scope} onChange={(event) => setScope(event.target.value as "mine" | "all")} className="field-control px-3"><option value="mine">Lịch của tôi</option><option value="all">Tất cả bác sĩ</option></select></label><button type="button" className="soft-button h-12 px-4" onClick={(event) => { const form = event.currentTarget.parentElement; const inputs = form?.querySelectorAll("input"); const nextFrom = inputs?.[0]?.value || from; const nextTo = inputs?.[1]?.value || to; setFrom(nextFrom); setTo(nextTo); }}>Xem lịch</button></div>
-      <label className="mb-3 inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={includeContext} onChange={(event) => setIncludeContext(event.target.checked)} /> Hiện lịch tập/đua của các ngựa trong danh sách</label>
+      <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end"><label className="block"><span className="field-label">Từ ngày</span><input name="calendar_from" type="date" value={draftFrom} onChange={(event) => setDraftFrom(event.target.value)} className="field-control px-3" /></label><label className="block"><span className="field-label">Đến ngày</span><input name="calendar_to" type="date" value={draftTo} onChange={(event) => setDraftTo(event.target.value)} className="field-control px-3" /></label><label className="block"><span className="field-label">Phạm vi bác sĩ</span><select value={scope} onChange={(event) => setScope(event.target.value as "mine" | "all")} className="field-control px-3"><option value="mine">Lịch của tôi</option><option value="all">Tất cả bác sĩ</option></select></label><button type="button" className="soft-button h-12 px-4" onClick={() => { setFrom(draftFrom || from); setTo(draftTo || to); }}>Xem lịch</button></div>
+      <label className="mb-3 inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={includeContext} onChange={(event) => setIncludeContext(event.target.checked)} /> Hiện lịch tập và đua</label>
       {error.includes("Lịch chăm sóc:") ? null : events.length === 0 && contextEvents.length === 0 ? <Empty>Không có sự kiện trong khoảng ngày này.</Empty> : <div className="space-y-2">{events.map((event) => <CalendarRow key={event.event_id} event={event} />)}{contextEvents.map((event, index) => <CalendarRow key={`${event.id ?? event.event_id}-${index}`} event={{ ...event, context: true }} />)}</div>}
       {events.length >= 100 && <p className="mt-2 text-xs text-slate-500">Đang hiển thị tối đa 100 sự kiện trong khoảng đã chọn.</p>}
     </SectionCard>
@@ -1076,56 +1126,40 @@ function CalendarRow({ event }: { event: CareEvent }) {
 function NotificationsPanel({
   horses,
   activities,
+  initialActionItems = [],
+  actionsLoading = false,
+  actionsError = "",
   onUnread,
   onActionCount,
   onOpenAction,
 }: {
   horses: VetHorse[];
   activities: VetActivity[];
+  initialActionItems?: VetActionItem[];
+  actionsLoading?: boolean;
+  actionsError?: string;
   onUnread: (count: number) => void;
   onActionCount: (count: number) => void;
   onOpenAction: (horseId: string, nextTab: NotificationActionTab) => void;
 }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
-  const [actions, setActions] = useState<VetActionItem[]>([]);
+  const [actions, setActions] = useState<VetActionItem[]>(initialActionItems);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [actionsLoading, setActionsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [actionsError, setActionsError] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setActions(initialActionItems);
+    onActionCount(initialActionItems.length);
+  }, [initialActionItems, onActionCount]);
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try { const result = await veterinarianApi.notifications(unreadOnly); setNotifications(result.data); setUnread(result.unread_count); onUnread(result.unread_count); }
     catch (reason) { setError(veterinarianError(reason)); }
     finally { setLoading(false); }
   }, [onUnread, unreadOnly]);
-  useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 60_000); return () => window.clearInterval(timer); }, [load]);
-
-  const loadActions = useCallback(async () => {
-    setActionsLoading(true);
-    setActionsError("");
-    try {
-      const result = await fetchVetActionItems(horses);
-      setActions(result.items);
-      onActionCount(result.items.length);
-      setActionsError(result.error);
-    } catch (reason) {
-      setActionsError(veterinarianError(reason));
-    } finally {
-      setActionsLoading(false);
-    }
-  }, [horses, onActionCount]);
-  useEffect(() => { void loadActions(); const timer = window.setInterval(() => void loadActions(), 60_000); return () => window.clearInterval(timer); }, [loadActions]);
-  useEffect(() => {
-    const refreshAfterMutation = () => {
-      void load();
-      void loadActions();
-    };
-    window.addEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
-    return () => window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
-  }, [load, loadActions]);
+  useEffect(() => { void load(); }, [load]);
 
   async function markRead(id: string) {
     setBusy(true); setError("");
@@ -1142,27 +1176,27 @@ function NotificationsPanel({
   return <SectionCard title="Thông báo" description="Việc cần chăm sóc và cập nhật sức khỏe được tổng hợp từ hồ sơ ngựa; thông báo tự làm mới mỗi phút." icon={Bell} action={<div className="flex gap-2"><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => setUnreadOnly((value) => !value)}>{unreadOnly ? "Xem tất cả" : "Chưa đọc"}</button><button type="button" className="soft-button h-9 px-3 text-xs" disabled={busy || unread === 0} onClick={() => void markAll()}>Đọc tất cả</button></div>}>
     <ErrorLine>{error}</ErrorLine>
     {activities.length > 0 && <section className="mb-5 rounded-xl border border-sky-200 bg-sky-50/50 p-3 sm:p-4" aria-label="Hoạt động gần đây">
-      <div className="mb-3"><h4 className="font-semibold text-equine-navy">Hoạt động gần đây</h4><p className="mt-1 text-xs text-slate-500">Các thao tác vừa lưu trong phiên này vẫn được giữ khi tải lại trang.</p></div>
+      <div className="mb-3"><h4 className="font-semibold text-equine-navy">Hoạt động gần đây</h4></div>
       <div className="space-y-2">{activities.slice(0, 8).map((activity) => <article key={activity.id} className="flex flex-col gap-3 rounded-lg border border-sky-100 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0"><p className="font-semibold text-equine-navy">{activity.horseName}</p><p className="mt-1 text-sm text-slate-700">{activity.message}</p><p className="mt-1 text-xs text-slate-500">{new Date(activity.createdAt).toLocaleString("vi-VN")}</p></div>
         {activity.horseId && <button type="button" className="soft-button h-9 shrink-0 px-3 text-xs" onClick={() => onOpenAction(activity.horseId!, activity.actionTab)}>Mở hồ sơ</button>}
       </article>)}</div>
     </section>}
-    <section className="mb-5 rounded-xl border border-amber-200 bg-[#fffdf8] p-3 sm:p-4" aria-label="Việc cần xử lý">
+    <section className="mb-5 rounded-xl border border-equine-line bg-white p-3 sm:p-4 shadow-sm" aria-label="Việc cần xử lý">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div><h4 className="font-semibold text-equine-navy">Việc cần xử lý</h4><p className="mt-1 text-xs text-slate-500">Chấn thương, trạng thái sức khỏe và lịch chăm sóc đến hạn.</p></div>
-        {!actionsLoading && <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">{actions.length} việc</span>}
+        <div><h4 className="font-semibold text-equine-navy">Việc cần xử lý</h4></div>
+        {!actionsLoading && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{actions.length} việc</span>}
       </div>
       <ErrorLine>{actionsError}</ErrorLine>
-      {actionsLoading ? <Notice>Đang kiểm tra hồ sơ sức khỏe và lịch chăm sóc...</Notice> : actions.length === 0 ? <p className="rounded-lg bg-white px-3 py-3 text-sm text-slate-500">Hiện không có chấn thương hoặc lịch chăm sóc nào cần xử lý.</p> : <div className="space-y-2">{actions.map((item) => <article key={item.id} className={`flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between ${item.priority === "urgent" ? "border-rose-200 bg-rose-50/60" : "border-amber-200 bg-white"}`}>
+      {actionsLoading ? <Notice>Đang kiểm tra hồ sơ sức khỏe và lịch chăm sóc...</Notice> : actions.length === 0 ? <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-500">Hiện không có chấn thương hoặc lịch chăm sóc nào cần xử lý.</p> : <div className="space-y-2">{actions.map((item) => <article key={item.id} className={`flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between ${item.priority === "urgent" ? "border-rose-200 bg-rose-50/60" : "border-equine-line bg-slate-50"}`}>
         <div className="min-w-0"><p className="font-semibold text-equine-navy">{item.title}</p><p className="mt-1 text-sm text-slate-600">{item.detail}</p></div>
         <button type="button" className="soft-button h-9 shrink-0 px-3 text-xs" onClick={() => onOpenAction(item.horseId, item.actionTab)}>{item.actionLabel}</button>
       </article>)}</div>}
     </section>
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-t border-equine-line pt-4"><div><h4 className="font-semibold text-equine-navy">Thông báo đã đến hạn</h4><p className="mt-1 text-xs text-slate-500">Nhắc lịch và cảnh báo được gửi từ hệ thống.</p></div></div>
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-t border-equine-line pt-4"><div><h4 className="font-semibold text-equine-navy">Thông báo đã đến hạn</h4></div></div>
     {loading ? <Notice>Đang tải thông báo...</Notice> : notifications.length === 0 ? <Empty>{unreadOnly ? "Không có thông báo chưa đọc." : "Chưa có thông báo đã đến hạn."}</Empty> : <div className="space-y-2">{notifications.map((item) => {
       const formatted = formatNotificationMessage(item.message, horses);
-      return <article key={item.id} className={`flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between ${item.is_read ? "border-equine-line bg-white" : "border-equine-gold/40 bg-[#fffaf2]"}`}>
+      return <article key={item.id} className={`flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between ${item.is_read ? "border-equine-line bg-white" : "border-blue-200 bg-blue-50/40"}`}>
         <div><p className="text-sm font-medium text-equine-navy">{formatted.message}</p><p className="mt-1 text-xs text-slate-500">{displayDate(item.scheduled_at ?? item.created_at)}{item.is_read ? " · Đã đọc" : " · Chưa đọc"}</p></div>
         <div className="flex shrink-0 gap-2">{formatted.horseId && <button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => onOpenAction(formatted.horseId!, "overview")}>Mở hồ sơ ngựa</button>}{!item.is_read && <button type="button" className="soft-button h-9 px-3 text-xs" disabled={busy} onClick={() => void markRead(item.id)}>Đánh dấu đã đọc</button>}</div>
       </article>;

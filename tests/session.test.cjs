@@ -138,3 +138,23 @@ test("network failure preserves credentials and fails closed", async () => {
   await assert.rejects(app.api.validateSession(), /offline/);
   assert.equal(app.session.getRefreshToken(), "refresh");
 });
+
+test("changePassword uses authenticatedRequest and refreshes expired access token", async () => {
+  const sent = [];
+  const app = setup(async (url, options = {}) => {
+    if (url.endsWith("/api/auth/change-password")) {
+      sent.push(options.headers.Authorization);
+      return sent.length === 1
+        ? reply(401, { message: "Authentication required" })
+        : reply(200, { ...auth, accessToken: "updated-access" });
+    }
+    if (url.endsWith("/api/auth/refresh")) {
+      return reply(200, { ...auth, accessToken: "refreshed-access" });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  app.session.saveSession(auth, true);
+  const res = await app.api.changePassword("oldPass123", "newPass456");
+  assert.equal(res.accessToken, "updated-access");
+  assert.deepEqual(sent, ["Bearer access", "Bearer refreshed-access"]);
+});

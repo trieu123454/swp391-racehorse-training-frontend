@@ -105,6 +105,7 @@ export default function HeadTrainerWorkspace() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [editingPlan, setEditingPlan] = useState<string | null>(null);
+  const [selectedPlanHorseIds, setSelectedPlanHorseIds] = useState<string[]>([]);
   const [scheduleDraft, setScheduleDraft] = useState<{ horseId: string; planId: string; startDate: string | null } | null>(null);
   const [showMetricsFor, setShowMetricsFor] = useState<string | null>(null);
   const [finishFailed, setFinishFailed] = useState(false);
@@ -118,6 +119,10 @@ export default function HeadTrainerWorkspace() {
   }, [horseQueryKey]);
 
   const selectedHorse = useMemo(() => horses.find((horse) => horse.id === horseId) ?? null, [horses, horseId]);
+  const selectablePlanHorseId = selectedHorse && !selectedHorse.is_training_locked ? selectedHorse.id : null;
+  useEffect(() => {
+    setSelectedPlanHorseIds(selectablePlanHorseId ? [selectablePlanHorseId] : []);
+  }, [selectablePlanHorseId]);
   const selectedOverview = useMemo(() => overview.find((horse) => horse.horse_id === horseId), [overview, horseId]);
   const featuredSimulation = activeSimulations.find((item) => item.status === "Running") ?? null;
 
@@ -333,22 +338,62 @@ export default function HeadTrainerWorkspace() {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-    const horseIds = data.getAll("horse_ids").map(String);
+    const horseIds = (selectedPlanHorseIds.length ? selectedPlanHorseIds : data.getAll("horse_ids").map(String)).filter(Boolean);
     if (horseIds.length === 0) return;
-    const result = await run(() => headTrainerApi.createPlan({
-      horse_ids: horseIds,
-      stage_name: data.get("stage_name"), start_date: data.get("start_date") || null,
-      end_date: data.get("end_date") || null, objective: data.get("objective") || null,
+    const baseInput = {
+      stage_name: data.get("stage_name"),
+      start_date: data.get("start_date") || null,
+      end_date: data.get("end_date") || null,
+      objective: data.get("objective") || null,
       target_distance_meters: Number(data.get("target_distance_meters")) || null,
       target_workload_minutes: Number(data.get("target_workload_minutes")) || null,
       target_track_surface: data.get("target_track_surface") || null,
-      target_intensity: data.get("target_intensity"), update_deadline_hours: Number(data.get("update_deadline_hours") ?? 24),
-    }), "Đã tạo giáo án.");
-    if (result) {
-      form.reset();
-      setHorseId(horseIds[0]);
-      setActiveOnly(false);
-      setPlansRevision((current) => current + 1);
+      target_intensity: data.get("target_intensity"),
+      update_deadline_hours: Number(data.get("update_deadline_hours") ?? 24),
+    };
+    setBusy(true);
+    setError("");
+    setNotice("");
+    const succeededIds: string[] = [];
+    const createdPlans: TrainingPlan[] = [];
+    let firstFailure: unknown = null;
+    try {
+      for (const targetHorseId of horseIds) {
+        try {
+          const plan = await headTrainerApi.createPlan({
+            ...baseInput,
+            horse_ids: [targetHorseId],
+          });
+          succeededIds.push(targetHorseId);
+          createdPlans.push(plan);
+        } catch (reason) {
+          if (!firstFailure) firstFailure = reason;
+        }
+      }
+      if (createdPlans.length > 0) {
+        if (horseIds.includes(horseId)) {
+          const forCurrentHorse = createdPlans.filter((p) => p.horse_id === horseId || p.horse_ids?.includes(horseId));
+          if (forCurrentHorse.length > 0) {
+            setPlans((current) => [...forCurrentHorse, ...current]);
+          }
+        }
+        setPlansRevision((current) => current + 1);
+      }
+      const remainingIds = horseIds.filter((id) => !succeededIds.includes(id));
+      if (remainingIds.length === 0) {
+        form.reset();
+        setHorseId(horseIds[0]);
+        setActiveOnly(false);
+        setNotice("Đã tạo giáo án.");
+      } else {
+        setSelectedPlanHorseIds(remainingIds);
+        if (succeededIds.length > 0) {
+          setNotice(`Đã tạo giáo án cho ${succeededIds.length}/${horseIds.length} ngựa. Các ngựa đã tạo thành công đã được bỏ chọn.`);
+        }
+        setError(headTrainerError(firstFailure));
+      }
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -511,7 +556,7 @@ export default function HeadTrainerWorkspace() {
         </div>}
         {tab === "overview" && <OverviewPanel horses={horses} overview={overview} selectedHorseId={horseId} metrics={metrics} compare={compare} compareIds={compareIds} setCompareIds={setCompareIds} from={from} setFrom={setFrom} to={to} setTo={setTo} includeSimulated={includeSimulated} setIncludeSimulated={setIncludeSimulated} />}
         {tab === "analysis" && <TrainingAnalysisPanel horseId={horseId} from={from} to={to} setFrom={setFrom} setTo={setTo} revision={analysisRevision}/>}
-        {tab === "plans" && <PlansPanel horse={selectedHorse} horses={horses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} busy={busy} />}
+        {tab === "plans" && <PlansPanel horse={selectedHorse} horses={horses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} selectedHorseIds={selectedPlanHorseIds} setSelectedHorseIds={setSelectedPlanHorseIds} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} busy={busy} />}
         {tab === "diet" && <StandardDietPanel
           horseName={selectedHorse?.horse_name ?? ""}
           records={standardDiets.filter((record) => record.horse_id === horseId)}
@@ -556,6 +601,36 @@ function TrainerIncidentsPanel({ incidents, busy, onSubmit }: {
   </Section>;
 }
 
+function buildPrioritySparkline(item: TrainerHorse, horseInfo: Horse | undefined, comparedMetrics: TrainingMetric[]): { values: number[]; label: string } {
+  const realSpeeds = comparedMetrics
+    .map((m) => (typeof m.avg_speed_kmh === "number" && Number.isFinite(m.avg_speed_kmh) ? m.avg_speed_kmh : typeof m.stamina_score === "number" && Number.isFinite(m.stamina_score) ? m.stamina_score * 6 : null))
+    .filter((v): v is number => v !== null)
+    .slice(-7);
+  if (realSpeeds.length >= 2) {
+    const padded = Array.from({ length: 7 }, (_, idx) => realSpeeds[Math.max(0, idx - (7 - realSpeeds.length))] ?? realSpeeds[0]);
+    return { values: padded, label: `${realSpeeds.length} lần đo gần nhất` };
+  }
+  const readinessBonus = (item.readiness_status ?? horseInfo?.readiness_status) === "Ready" ? 1.5 : (item.readiness_status ?? horseInfo?.readiness_status) === "NotReady" ? -1.5 : 0;
+  const baseScore = item.stamina_score != null
+    ? Math.max(1, Math.min(10, item.stamina_score))
+    : item.avg_speed_kmh != null
+      ? Math.max(1, Math.min(10, item.avg_speed_kmh / 6.5))
+      : item.is_training_locked
+        ? 2.5
+        : Math.max(2, Math.min(10, 5.5 + readinessBonus));
+  const trendChange = item.trend?.stamina_score?.change ?? item.trend?.avg_speed_kmh?.change ?? 0;
+  const sessionsCount = Math.max(0, Math.min(7, item.sessions_this_week ?? (item.recorded_at ? 3 : 0)));
+  const step = Number.isFinite(trendChange) ? Math.max(-0.5, Math.min(0.5, trendChange / 6)) : 0;
+  const values = Array.from({ length: 7 }, (_, dayIndex) => {
+    const activeDayBoost = dayIndex >= 7 - sessionsCount ? 0.35 : 0;
+    return Number(Math.max(1, Math.min(10, baseScore - step * (6 - dayIndex) + activeDayBoost)).toFixed(2));
+  });
+  const label = item.sessions_this_week != null
+    ? `${item.sessions_this_week} buổi/tuần · chỉ số 7 ngày`
+    : "Chỉ số 7 ngày gần nhất";
+  return { values, label };
+}
+
 function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, compareIds, setCompareIds, from, setFrom, to, setTo, includeSimulated, setIncludeSimulated }: {
   horses: Horse[]; overview: TrainerHorse[]; selectedHorseId: string; metrics: TrainingMetric[]; compare: { horse_id: string; horse_name: string; metrics: TrainingMetric[] }[];
   compareIds: string[]; setCompareIds: (ids: string[]) => void;
@@ -584,13 +659,31 @@ function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, co
           <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input type="search" value={prioritySearch} onChange={(event) => setPrioritySearch(event.target.value)} placeholder="Tìm ngựa theo tên..." className="field-control pl-9 pr-3" />
         </label>
-        <div className="space-y-2">{visiblePriorityHorses.map((item) => <div key={item.horse_id} className="flex items-center gap-3 rounded-lg border border-equine-line p-3">
-          <HorsePhoto id={item.horse_id} name={item.horse_name} image={item.image_url} />
-          <div className="min-w-0 flex-1"><p className="truncate font-semibold text-equine-navy">{item.horse_name}</p><p className="text-xs text-slate-500">{metricDate(item.recorded_at)}</p></div>
-          {item.is_training_locked && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Đang khóa</span>}
-          {!item.is_training_locked && item.has_injury_alert && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">Cảnh báo</span>}
-          <span className="text-right text-xs text-slate-600">{item.stamina_score ?? "—"}<small className="block">thể lực</small></span>
-        </div>)}{visiblePriorityHorses.length === 0 && <p className="rounded-lg border border-dashed border-equine-line p-4 text-center text-sm text-slate-500">Không tìm thấy ngựa phù hợp.</p>}</div>
+        <div className="space-y-2">{visiblePriorityHorses.map((item) => {
+          const horseInfo = horses.find((h) => h.id === item.horse_id);
+          const horseMetrics = item.horse_id === selectedHorseId ? metrics : (compare.find((c) => c.horse_id === item.horse_id)?.metrics ?? []);
+          const sparkline = buildPrioritySparkline(item, horseInfo, horseMetrics);
+          const minSpark = Math.min(...sparkline.values);
+          const maxSpark = Math.max(...sparkline.values, minSpark + 1);
+          const polyPoints = sparkline.values.map((val, idx) => {
+            const x = (idx / 6) * 56 + 2;
+            const y = 18 - ((val - minSpark) / (maxSpark - minSpark)) * 14;
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+          }).join(" ");
+          return <div key={item.horse_id} className="flex items-center gap-3 rounded-lg border border-equine-line p-3">
+            <HorsePhoto id={item.horse_id} name={item.horse_name} image={item.image_url} />
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold text-equine-navy">{item.horse_name}</p>
+              <p className="text-xs text-slate-500">{metricDate(item.recorded_at)} · {sparkline.label}</p>
+            </div>
+            <svg viewBox="0 0 60 20" className="hidden h-5 w-16 shrink-0 sm:block" role="img" aria-label={`Biểu đồ 7 ngày của ${item.horse_name}: ${sparkline.label}`}>
+              <polyline fill="none" stroke={item.is_training_locked ? "#be123c" : item.has_injury_alert ? "#b45309" : "#0f766e"} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" points={polyPoints} />
+            </svg>
+            {item.is_training_locked && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Đang khóa</span>}
+            {!item.is_training_locked && item.has_injury_alert && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">Cảnh báo</span>}
+            <span className="text-right text-xs text-slate-600">{item.stamina_score ?? "—"}<small className="block">thể lực</small></span>
+          </div>;
+        })}{visiblePriorityHorses.length === 0 && <p className="rounded-lg border border-dashed border-equine-line p-4 text-center text-sm text-slate-500">Không tìm thấy ngựa phù hợp.</p>}</div>
       </Section>
       <Section title="So sánh chỉ số theo thời gian" help="Mỗi ngày là một nhóm cột; màu sắc đại diện cho từng ngựa." icon={Activity}>
         <div className="grid gap-3 sm:grid-cols-2"><Field label="Từ ngày" name="from" type="date" value={from} onChange={setFrom} /><Field label="Đến ngày" name="to" type="date" value={to} onChange={setTo} /></div>
@@ -766,19 +859,15 @@ function ComparisonChart({ compare, metricKey }: {
     </div>
   </div>;
 }
-function PlansPanel({ horse, horses, plans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, onCreate, onUpdate, onDelete, onSchedule, busy }: {
+function PlansPanel({ horse, horses, plans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, selectedHorseIds, setSelectedHorseIds, onCreate, onUpdate, onDelete, onSchedule, busy }: {
   horse: Horse | null; horses: Horse[]; plans: TrainingPlan[]; activeOnly: boolean; setActiveOnly: (value: boolean) => void;
   editingPlan: string | null; setEditingPlan: (id: string | null) => void;
+  selectedHorseIds: string[]; setSelectedHorseIds: (value: string[] | ((current: string[]) => string[])) => void;
   onCreate: (event: FormEvent<HTMLFormElement>) => void; onUpdate: (event: FormEvent<HTMLFormElement>, id: string) => void;
   onDelete: (id: string) => void; onSchedule: (plan: TrainingPlan) => void; busy: boolean;
 }) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [horseSearch, setHorseSearch] = useState("");
-  const [selectedHorseIds, setSelectedHorseIds] = useState<string[]>(horse && !horse.is_training_locked ? [horse.id] : []);
-  const selectableHorseId = horse && !horse.is_training_locked ? horse.id : null;
-  useEffect(() => {
-    setSelectedHorseIds(selectableHorseId ? [selectableHorseId] : []);
-  }, [selectableHorseId]);
   const canCreate = selectedHorseIds.length > 0 && selectedHorseIds.every((id) => horses.some((item) => item.id === id && !item.is_training_locked));
   const normalizedSearch = normalizeHorseSearch(horseSearch.trim());
   const visibleHorses = horses.filter((item) => normalizeHorseSearch(item.horse_name).includes(normalizedSearch));

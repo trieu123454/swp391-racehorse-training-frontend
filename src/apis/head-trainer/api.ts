@@ -101,6 +101,8 @@ export type TrainerHorse = {
   avg_speed_kmh?: number | null;
   stamina_score?: number | null;
   has_injury_alert?: boolean;
+  sessions_this_week?: number | null;
+  readiness_status?: "Ready" | "NotReady" | "Unknown" | null;
   trend?: Record<string, { direction: string; change: number | null }>;
 };
 

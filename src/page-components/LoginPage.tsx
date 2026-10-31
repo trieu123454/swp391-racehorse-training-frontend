@@ -12,7 +12,7 @@ import {
   LockKeyhole,
   Mail,
 } from "lucide-react";
-import { useCallback, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { AuthVisual } from "@/components/auth/AuthVisual";
 import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { Brand } from "@/components/shared/Brand";
@@ -48,6 +48,12 @@ export default function LoginPage() {
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const prefillEmail = new URLSearchParams(window.location.search).get("email");
+    if (prefillEmail) setEmail(prefillEmail);
+  }, []);
 
   const completeLogin = useCallback(
     (auth: AuthResponse) => {

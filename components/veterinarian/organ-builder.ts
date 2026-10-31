@@ -38,11 +38,6 @@ const systemLabels: Record<OrganSystem, string> = {
   nervous: "Hệ thần kinh",
 };
 
-function smoothStep(value: number) {
-  const t = THREE.MathUtils.clamp(value, 0, 1);
-  return t * t * (3 - 2 * t);
-}
-
 function makeRimMaterial(color: string, opacity = 0.94, roughness = 0.48, depthTest = true) {
   const material = new THREE.MeshStandardMaterial({
     color,

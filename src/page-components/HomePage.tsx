@@ -5,9 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { ArrowRight, Pause, Play } from "lucide-react";
-import { login } from "@/api/client";
 import { routeForRole } from "@/lib/roles";
-import { saveSession } from "@/lib/session";
+import { getUser } from "@/lib/session";
 import { SiteFooter } from "@/components/shared/SiteFooter";
 import { SiteHeader } from "@/components/shared/SiteHeader";
 
@@ -260,17 +259,14 @@ export default function HomePage() {
     setIsVideoPlaying(true);
   }
 
-  async function handleQuickLaunchRole(email: string) {
+  function handleQuickLaunchRole(email: string) {
     setLaunchingRoleEmail(email);
-    try {
-      const auth = await login(email, "password123");
-      saveSession(auth, true);
-      router.push(routeForRole(auth.user.roleName));
-    } catch {
-      router.push(Routes.login);
-    } finally {
-      setLaunchingRoleEmail(null);
+    const currentUser = getUser();
+    if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
+      router.push(routeForRole(currentUser.roleName));
+      return;
     }
+    router.push(`${Routes.login}?email=${encodeURIComponent(email)}`);
   }
 
   return (
@@ -344,9 +340,9 @@ export default function HomePage() {
 
             {/* Bottom-left Headline & Primary Actions */}
             <div className="mt-24 max-w-3xl lg:mt-32">
-              <h1 className="text-3xl font-normal leading-[1.2] tracking-[-0.015em] text-white drop-shadow-[0_2px_10px_rgba(10,20,40,0.35)] sm:text-4xl lg:text-[46px] [text-wrap:balance]">
-                Điều hành chuồng&nbsp;trại, huấn&nbsp;luyện &amp; thú&nbsp;y{" "}
-                <span className="text-[#93C5FD]">trên một hệ&nbsp;thống</span>
+              <h1 className="text-3xl font-medium leading-[1.5] tracking-normal text-white drop-shadow-[0_2px_14px_rgba(10,20,40,0.65)] sm:text-4xl sm:leading-[1.5] lg:text-[46px] lg:leading-[1.5] [text-wrap:balance]">
+                Điều hành chuồng trại, huấn luyện &amp; thú y{" "}
+                <span className="font-semibold text-[#1464F4]">trên một hệ thống</span>
               </h1>
 
               <div className="mt-7 flex flex-wrap items-center gap-4">

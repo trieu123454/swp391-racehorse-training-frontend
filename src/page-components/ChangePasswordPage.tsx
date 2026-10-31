@@ -7,14 +7,15 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { LockKeyhole } from "lucide-react";
 import { Brand } from "@/components/shared/Brand";
-import { changePassword, validateSession } from "@/api/client";
+import { ApiRequestError, changePassword, validateSession } from "@/api/client";
 import { routeForRole } from "@/lib/roles";
-import { isRemembered, saveSession } from "@/lib/session";
+import { getUser, isRemembered, saveSession } from "@/lib/session";
 import type { AuthUser } from "@/lib/types";
 
 export default function ChangePasswordPage() {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [ready, setReady] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -23,17 +24,32 @@ export default function ChangePasswordPage() {
 
   useEffect(() => {
     let active = true;
+    try {
+      const cached = getUser();
+      if (cached?.mustChangePassword) setUser(cached);
+    } catch {
+      // Fallback to server session check below.
+    }
     validateSession()
       .then((sessionUser) => {
         if (!active) return;
+        setReady(true);
         if (!sessionUser.mustChangePassword) {
           router.replace(routeForRole(sessionUser.roleName));
           return;
         }
         setUser(sessionUser);
       })
-      .catch(() => {
-        if (active) router.replace(Routes.login);
+      .catch((reason) => {
+        if (!active) return;
+        setReady(true);
+        if (reason instanceof ApiRequestError && reason.status === 401) {
+          router.replace(Routes.login);
+        } else if (!getUser()) {
+          router.replace(Routes.login);
+        } else {
+          setError("Không thể kết nối máy chủ để xác thực. Vui lòng thử lại.");
+        }
       });
     return () => {
       active = false;
@@ -79,7 +95,7 @@ export default function ChangePasswordPage() {
           <PasswordField label="Mật khẩu mới" value={newPassword} onChange={setNewPassword} autoComplete="new-password" />
           <PasswordField label="Xác nhận mật khẩu mới" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" />
           {error ? <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p> : null}
-          <button className="gold-button w-full" disabled={!user || loading} type="submit">
+          <button className="gold-button w-full" disabled={!ready || !user || loading} type="submit">
             {loading ? "Đang cập nhật..." : "Lưu mật khẩu mới"}
           </button>
         </form>

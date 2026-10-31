@@ -2,7 +2,7 @@
 import { Routes } from "@/routes/Routes";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Filter,
   Pencil,
@@ -23,12 +23,24 @@ import {
   type Stable,
 } from "@/api/horses/api";
 
+const PAGE_SIZE = 9;
+
+function paginationPages(currentPage: number, totalPages: number): (number | "ellipsis")[] {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+  if (currentPage <= 4) return [1, 2, 3, 4, 5, "ellipsis", totalPages];
+  if (currentPage >= totalPages - 3) return [1, "ellipsis", ...Array.from({ length: 5 }, (_, index) => totalPages - 4 + index)];
+  return [1, "ellipsis", currentPage - 1, currentPage, currentPage + 1, "ellipsis", totalPages];
+}
+
 export default function HorsesPage() {
   const user = useHorseUser();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [stableFilter, setStableFilter] = useState("ALL");
+  const [pageNumber, setPageNumber] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
   const [horses, setHorses] = useState<Horse[]>([]);
   const [stableOptions, setStableOptions] = useState<Stable[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,59 +49,59 @@ export default function HorsesPage() {
   const [deleteWarning, setDeleteWarning] = useState<{ scheduledTraining: number; medicalRecords: number; activePrescriptions: number } | null>(null);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setSearch(searchInput.trim()), 350);
+    const timer = window.setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPageNumber(1);
+    }, 350);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
   useEffect(() => {
     let active = true;
-    const isOwner = user.roleName === "HORSE_OWNER";
     setLoading(true);
     setError("");
-    Promise.all([
-      listHorses(
-        isOwner
-          ? {}
-          : {
-              search: search || undefined,
-              stableBoxId: stableFilter === "ALL" ? undefined : stableFilter,
-              currentStatus: statusFilter === "ALL" ? undefined : statusFilter,
-            }
-      ),
-      getHorseStables(),
-    ]).then(([page, stables]) => {
+    let outOfRange = false;
+    listHorses({
+      page: pageNumber,
+      size: PAGE_SIZE,
+      search: search || undefined,
+      stableBoxId: stableFilter === "ALL" ? undefined : stableFilter,
+      currentStatus: statusFilter === "ALL" ? undefined : statusFilter,
+    }).then((result) => {
       if (!active) return;
-      setHorses(page.items);
-      setStableOptions(stables);
+      const lastPage = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
+      setTotal(result.total);
+      if (pageNumber > lastPage) {
+        outOfRange = true;
+        setPageNumber(lastPage);
+        return;
+      }
+      setHorses(result.items);
     }).catch((reason) => {
       if (active) setError(errorMessage(reason));
     }).finally(() => {
-      if (active) setLoading(false);
+      if (active && !outOfRange) setLoading(false);
     });
     return () => { active = false; };
-  }, [search, stableFilter, statusFilter, user.roleName]);
+  }, [pageNumber, reloadKey, search, stableFilter, statusFilter]);
 
-  const visibleHorses = useMemo(() => {
-    const personalOnly = user.roleName === "HORSE_OWNER";
-    return horses.filter((horse) => {
-      if (personalOnly && horse.owner_id !== user.id) return false;
-      const matchesSearch =
-        !search ||
-        horse.horse_name.toLowerCase().includes(search.toLowerCase()) ||
-        (horse.breed ?? "").toLowerCase().includes(search.toLowerCase());
-      const matchesStatus =
-        statusFilter === "ALL" || horse.current_status === statusFilter;
-      const matchesStable =
-        stableFilter === "ALL" || horse.stable_box_id === stableFilter;
-      return matchesSearch && matchesStatus && matchesStable;
+  useEffect(() => {
+    let active = true;
+    getHorseStables().then((stables) => {
+      if (active) setStableOptions(stables);
+    }).catch((reason) => {
+      if (active) setError(errorMessage(reason));
     });
-  }, [horses, search, stableFilter, statusFilter, user.id, user.roleName]);
+    return () => { active = false; };
+  }, []);
 
   async function handleDeleteConfirm() {
     if (!deleteHorse) return;
     try {
       await deleteHorseApi(deleteHorse.id);
       setHorses((current) => current.filter((horse) => horse.id !== deleteHorse.id));
+      setTotal((current) => Math.max(0, current - 1));
+      setReloadKey((current) => current + 1);
       setDeleteHorse(null);
       setDeleteWarning(null);
     } catch (reason) {
@@ -105,6 +117,9 @@ export default function HorsesPage() {
       setError(errorMessage(reason));
     }
   }
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pages = paginationPages(pageNumber, totalPages);
 
   return (
     <>
@@ -139,7 +154,7 @@ export default function HorsesPage() {
                 <button
                   type="button"
                   className="text-xs font-normal text-teal-700 hover:underline"
-                  onClick={() => { setSearchInput(""); setSearch(""); setStatusFilter("ALL"); setStableFilter("ALL"); }}
+                  onClick={() => { setSearchInput(""); setSearch(""); setStatusFilter("ALL"); setStableFilter("ALL"); setPageNumber(1); }}
                 >
                   Xóa bộ lọc
                 </button>
@@ -160,7 +175,7 @@ export default function HorsesPage() {
                 <Filter size={16} className="text-slate-400 shrink-0" />
                 <select
                   value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value)}
+                  onChange={(event) => { setStatusFilter(event.target.value); setPageNumber(1); }}
                   className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none cursor-pointer"
                 >
                   <option value="ALL">Tất cả trạng thái</option>
@@ -175,7 +190,7 @@ export default function HorsesPage() {
                 <ShieldAlert size={16} className="text-slate-400 shrink-0" />
                 <select
                   value={stableFilter}
-                  onChange={(event) => setStableFilter(event.target.value)}
+                  onChange={(event) => { setStableFilter(event.target.value); setPageNumber(1); }}
                   className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none cursor-pointer"
                 >
                   <option value="ALL">Tất cả chuồng</option>
@@ -191,21 +206,21 @@ export default function HorsesPage() {
 
           <div className="mb-4 flex items-center justify-between">
             <p className="text-xs font-normal text-slate-500">
-              Hiển thị <strong className="text-slate-800 font-normal">{visibleHorses.length}</strong> hồ sơ ngựa
+              Hiển thị <strong className="text-slate-800 font-normal">{horses.length}</strong> / {total} hồ sơ ngựa
             </p>
           </div>
 
-          {error && <div className="mb-5"><Notice error>{error}</Notice></div>}
-
           {loading ? (
             <Notice>Đang tải danh sách hồ sơ ngựa…</Notice>
-          ) : visibleHorses.length === 0 ? (
+          ) : error ? (
+            <Notice error>{error}</Notice>
+          ) : horses.length === 0 ? (
             <Notice>
               Không tìm thấy ngựa phù hợp với tiêu chí lọc. Vui lòng thử từ khóa khác hoặc xóa bộ lọc.
             </Notice>
           ) : (
             <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-              {visibleHorses.map((horse) => {
+              {horses.map((horse) => {
                 const owner = horse.owner_name ? { full_name: horse.owner_name } : undefined;
                 return (
                   <article
@@ -273,6 +288,43 @@ export default function HorsesPage() {
                 );
               })}
             </div>
+          )}
+
+          {!loading && !error && totalPages > 1 && (
+            <nav className="mt-6 flex flex-wrap items-center justify-center gap-2" aria-label="Phân trang danh sách ngựa">
+              <button
+                type="button"
+                className="soft-button !min-h-[36px] !px-3 !text-xs"
+                disabled={pageNumber <= 1}
+                onClick={() => setPageNumber((current) => Math.max(1, current - 1))}
+              >
+                Trước
+              </button>
+              {pages.map((page, index) => page === "ellipsis" ? (
+                <span key={`ellipsis-${index}`} className="px-1 text-sm text-slate-500" aria-hidden="true">…</span>
+              ) : (
+                <button
+                  key={page}
+                  type="button"
+                  aria-label={`Trang ${page}`}
+                  aria-current={page === pageNumber ? "page" : undefined}
+                  className={page === pageNumber
+                    ? "gold-button !min-h-[36px] !min-w-[36px] !px-2 !text-xs"
+                    : "soft-button !min-h-[36px] !min-w-[36px] !px-2 !text-xs"}
+                  onClick={() => setPageNumber(page)}
+                >
+                  {page}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="soft-button !min-h-[36px] !px-3 !text-xs"
+                disabled={pageNumber >= totalPages}
+                onClick={() => setPageNumber((current) => Math.min(totalPages, current + 1))}
+              >
+                Sau
+              </button>
+            </nav>
           )}
 
         </div>

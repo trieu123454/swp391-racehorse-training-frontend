@@ -42,6 +42,9 @@ function AccountManagement() {
   const [tab, setTab] = useState<"pending" | "active" | "locked" | "roles" | "create">("pending");
   const [role, setRole] = useState("ALL");
   const [pending, setPending] = useState<PendingUser[]>([]);
+  const [pendingPage, setPendingPage] = useState(1);
+  const [pendingTotal, setPendingTotal] = useState(0);
+  const PENDING_LIMIT = 20;
   const [roleRequests, setRoleRequests] = useState<RoleChangeRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -68,7 +71,13 @@ function AccountManagement() {
     setError("");
     try {
       if (tab === "pending") {
-        const response = await listPendingUsers(role);
+        const response = await listPendingUsers(role, pendingPage, PENDING_LIMIT);
+        const lastPage = Math.max(1, Math.ceil(response.total / PENDING_LIMIT));
+        setPendingTotal(response.total);
+        if (pendingPage > lastPage) {
+          setPendingPage(lastPage);
+          return;
+        }
         setPending(response.data);
       } else if (tab === "active") {
         setPending(await listUsers("APPROVED", role));
@@ -87,7 +96,7 @@ function AccountManagement() {
     } finally {
       setLoading(false);
     }
-  }, [role, tab]);
+  }, [pendingPage, role, tab]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -197,7 +206,7 @@ function AccountManagement() {
       </div>
 
       <div className="mt-6 flex flex-wrap gap-2 border-b border-equine-line pb-3">
-        <button type="button" className={`inline-flex items-center gap-2 rounded-md border px-4 py-2.5 text-sm font-normal transition-colors ${tab === "pending" ? "bg-primary text-white border-primary shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`} onClick={() => { setRole("ALL"); setTab("pending"); }}><UserRound size={15} /> Chờ duyệt</button>
+        <button type="button" className={`inline-flex items-center gap-2 rounded-md border px-4 py-2.5 text-sm font-normal transition-colors ${tab === "pending" ? "bg-primary text-white border-primary shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`} onClick={() => { setRole("ALL"); setPendingPage(1); setTab("pending"); }}><UserRound size={15} /> Chờ duyệt</button>
         <button type="button" className={`inline-flex items-center gap-2 rounded-md border px-4 py-2.5 text-sm font-normal transition-colors ${tab === "active" ? "bg-primary text-white border-primary shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`} onClick={() => { setRole("ALL"); setTab("active"); }}><UserRound size={15} /> Đang hoạt động</button>
         <button type="button" className={`inline-flex items-center gap-2 rounded-md border px-4 py-2.5 text-sm font-normal transition-colors ${tab === "locked" ? "bg-primary text-white border-primary shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`} onClick={() => { setRole("ALL"); setTab("locked"); }}><Lock size={15} /> Đã khóa</button>
         <button type="button" className={`inline-flex items-center gap-2 rounded-md border px-4 py-2.5 text-sm font-normal transition-colors ${tab === "roles" ? "bg-primary text-white border-primary shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`} onClick={() => setTab("roles")}><Lock size={15} /> Đổi vai trò</button>
@@ -232,12 +241,37 @@ function AccountManagement() {
       </div>}
 
       {(tab === "pending" || tab === "active" || tab === "locked") && <div className="mt-5 rounded-lg border border-equine-line bg-white p-4 shadow-sm">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-sans text-xl font-normal text-equine-navy">{tab === "pending" ? "Tài khoản chờ duyệt" : tab === "locked" ? "Tài khoản đã khóa" : "Tài khoản đang hoạt động"}</h2><p className="mt-1 text-sm text-slate-500">{tab === "pending" ? "Horse Owner không xuất hiện vì được kích hoạt tự động." : tab === "locked" ? "Tài khoản vẫn được lưu tại đây; mở khóa sẽ cho phép người dùng đăng nhập lại." : "Có thể đổi vai trò hoặc khóa thành viên; không áp dụng với bạn và Club Manager."}</p></div><label className="flex items-center gap-2 rounded-md border border-equine-line bg-slate-50 px-3 py-2 text-sm"><Filter size={15} /><select value={role} onChange={(event) => setRole(event.target.value)} className="border-0 bg-transparent outline-none"><option value="ALL">Tất cả vai trò</option>{(tab === "pending" ? STAFF_ROLE_FILTERS : ACTIVE_ROLE_FILTERS).map((roleName) => <option key={roleName} value={roleName}>{roleLabels[roleName]}</option>)}</select></label></div>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-sans text-xl font-normal text-equine-navy">{tab === "pending" ? "Tài khoản chờ duyệt" : tab === "locked" ? "Tài khoản đã khóa" : "Tài khoản đang hoạt động"}</h2><p className="mt-1 text-sm text-slate-500">{tab === "pending" ? "Horse Owner không xuất hiện vì được kích hoạt tự động." : tab === "locked" ? "Tài khoản vẫn được lưu tại đây; mở khóa sẽ cho phép người dùng đăng nhập lại." : "Có thể đổi vai trò hoặc khóa thành viên; không áp dụng với bạn và Club Manager."}</p></div><label className="flex items-center gap-2 rounded-md border border-equine-line bg-slate-50 px-3 py-2 text-sm"><Filter size={15} /><select value={role} onChange={(event) => { setRole(event.target.value); setPendingPage(1); }} className="border-0 bg-transparent outline-none"><option value="ALL">Tất cả vai trò</option>{(tab === "pending" ? STAFF_ROLE_FILTERS : ACTIVE_ROLE_FILTERS).map((roleName) => <option key={roleName} value={roleName}>{roleLabels[roleName]}</option>)}</select></label></div>
         {loading ? <Notice>Đang tải danh sách tài khoản...</Notice> : pending.length === 0 ? <Notice>Không có tài khoản phù hợp.</Notice> : <div className="space-y-3">{pending.map((account) => {
           const protectedAccount = account.id === user.id || account.role_name === "CLUB_MANAGER";
           const statusLabel = account.status === "LOCKED" ? "Đã khóa" : account.status === "PENDING" ? "Chờ duyệt" : "Đang hoạt động";
           return <article key={account.id} className="flex flex-col gap-4 rounded-lg bg-slate-50 p-4 transition-colors md:flex-row md:items-center md:justify-between"><div><h3 className="font-normal text-equine-navy">{account.full_name}</h3><p className="text-sm text-slate-600">{account.email}{account.phone ? ` · ${account.phone}` : ""}</p><p className="mt-1 text-xs font-normal uppercase tracking-wide text-teal-800">{roleLabels[account.role_name]}</p><p className="mt-1 text-xs text-slate-500">Trạng thái: {statusLabel}</p></div><div className="flex flex-wrap gap-2">{tab === "pending" ? <><button type="button" className="gold-button h-10 px-4" onClick={() => void approve(account.id)}><Check size={15} /> Duyệt</button><button type="button" className="soft-button h-10 border-red-200 bg-red-50 px-4 text-red-700" onClick={() => setRejectTarget(account)}><X size={15} /> Từ chối</button></> : tab === "locked" ? !protectedAccount && <button type="button" className="gold-button h-10 px-4" onClick={() => void unlock(account.id)}><Check size={15} /> Mở khóa</button> : !protectedAccount && <><button type="button" className="soft-button h-10 px-4 text-equine-navy" onClick={() => editRole(account)}><Pencil size={15} /> Sửa vai trò</button><button type="button" className="soft-button h-10 border-red-200 bg-red-50 px-4 text-red-700" onClick={() => setLockTarget(account)}><Lock size={15} /> Khóa</button></>}</div></article>;
         })}</div>}
+        {tab === "pending" && !loading && pendingTotal > PENDING_LIMIT && (
+          <nav className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-equine-line pt-4 text-xs text-slate-600" aria-label="Phân trang tài khoản chờ duyệt">
+            <span>
+              Trang <strong className="text-equine-navy">{pendingPage}</strong> / {Math.max(1, Math.ceil(pendingTotal / PENDING_LIMIT))} ({pendingTotal} tài khoản chờ duyệt)
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="soft-button h-9 px-3 text-xs"
+                disabled={pendingPage <= 1}
+                onClick={() => setPendingPage((current) => Math.max(1, current - 1))}
+              >
+                Trang trước
+              </button>
+              <button
+                type="button"
+                className="soft-button h-9 px-3 text-xs"
+                disabled={pendingPage >= Math.ceil(pendingTotal / PENDING_LIMIT)}
+                onClick={() => setPendingPage((current) => current + 1)}
+              >
+                Trang sau
+              </button>
+            </div>
+          </nav>
+        )}
       </div>}
 
       {tab === "roles" && <div className="mt-5 rounded-lg border border-equine-line bg-white p-4 shadow-sm"><div className="mb-4"><h2 className="font-sans text-xl font-normal text-equine-navy">Yêu cầu đổi vai trò</h2><p className="mt-1 text-sm text-slate-500">Duyệt sẽ đổi vai trò hiện tại.</p></div>{loading ? <Notice>Đang tải yêu cầu...</Notice> : roleRequests.length === 0 ? <Notice>Không có yêu cầu đổi vai trò đang chờ.</Notice> : <div className="space-y-3">{roleRequests.map((request) => <article key={request.id} className="flex flex-col gap-4 rounded-lg bg-slate-50 p-4 transition-colors md:flex-row md:items-center md:justify-between"><div><h3 className="font-normal text-equine-navy">{request.full_name}</h3><p className="text-sm text-slate-600">{request.email}</p><p className="mt-1 text-sm text-slate-700">{request.current_role ?? "Chưa có role"} → <strong>{request.requested_role}</strong></p>{request.reason && <p className="mt-1 text-xs text-slate-500">Lý do: {request.reason}</p>}</div><div className="flex flex-wrap gap-2"><button type="button" className="gold-button h-10 px-4" onClick={() => void reviewRoleChange(request, "approve")}><Check size={15} /> Duyệt</button><button type="button" className="soft-button h-10 border-red-200 bg-red-50 px-4 text-red-700" onClick={() => void reviewRoleChange(request, "reject")}><ShieldX size={15} /> Từ chối</button></div></article>)}</div>}</div>}

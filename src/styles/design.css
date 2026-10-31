@@ -112,8 +112,26 @@ body {
   from { opacity: 0; transform: translateY(48px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Let content ease into view as the page scrolls, using the browser's scroll timeline. */
+@supports (animation-timeline: view()) and (animation-range: entry 0% entry 40%) {
+  @keyframes scroll-reveal {
+    from { opacity: 0.72; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  main section,
+  main article {
+    animation: scroll-reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 40%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .route-transition { animation: none !important; transform: none !important; }
+  main section,
+  main article { animation: none !important; }
 }
 
 h1, h2, h3, h4, .display-title {
@@ -1124,8 +1142,8 @@ dialog h2 {
 }
 .vf-hero-scrim {
   background:
-    linear-gradient(90deg, rgba(10, 22, 48, 0.40) 0%, rgba(10, 22, 48, 0.12) 40%, rgba(10, 22, 48, 0) 64%),
-    linear-gradient(0deg, rgba(10, 22, 48, 0.36) 0%, rgba(10, 22, 48, 0) 34%);
+    linear-gradient(90deg, rgba(10, 22, 48, 0.62) 0%, rgba(10, 22, 48, 0.35) 45%, rgba(10, 22, 48, 0.08) 72%, transparent 100%),
+    linear-gradient(0deg, rgba(10, 22, 48, 0.45) 0%, rgba(10, 22, 48, 0) 40%);
 }
 .vf-section-label {
   display: inline-block;
