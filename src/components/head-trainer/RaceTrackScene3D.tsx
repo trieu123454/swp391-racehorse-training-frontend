@@ -276,6 +276,14 @@ export default function RaceTrackScene3D({
     void loadTrack(modelPath).then((source) => {
       if (disposed || !renderer) return;
       const track = source.clone(true);
+      track.traverse((node) => {
+        if (node instanceof THREE.Mesh) {
+          node.geometry = node.geometry.clone();
+          node.material = Array.isArray(node.material)
+            ? node.material.map((material) => material.clone())
+            : node.material.clone();
+        }
+      });
       track.updateMatrixWorld(true);
       const finishMarker = track.getObjectByName("FINISH_checker_0_00");
       if (finishMarker) finishLineX = finishMarker.getWorldPosition(new THREE.Vector3()).x;
@@ -340,6 +348,19 @@ export default function RaceTrackScene3D({
       window.cancelAnimationFrame(frameId);
       resizeObserver?.disconnect();
       controls?.dispose();
+      scene.traverse((node) => {
+        if (node instanceof THREE.InstancedMesh) {
+          node.dispose();
+        }
+        if (node instanceof THREE.Mesh) {
+          node.geometry?.dispose();
+          if (Array.isArray(node.material)) {
+            node.material.forEach((material) => material.dispose());
+          } else {
+            node.material?.dispose();
+          }
+        }
+      });
       renderer?.dispose();
       renderer?.domElement.remove();
       drawRef.current = () => {};

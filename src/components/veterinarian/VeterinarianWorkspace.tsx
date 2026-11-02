@@ -184,7 +184,7 @@ function buildVetActionItems(
 }
 
 async function fetchVetActionItems(horses: VetHorse[]) {
-  const horsesToInspect = horses.filter((horse) => horse.current_status !== "Healthy" || horse.readiness_status !== "Ready" || horse.is_training_locked);
+  const horsesToInspect = horses.filter((horse) => horse.current_status === "Injured" || horse.is_training_locked);
   const [schedulesResult, ...injuryResults] = await Promise.allSettled([
     veterinarianApi.schedules(),
     ...horsesToInspect.map((horse) => veterinarianApi.injuries(horse.id)),
@@ -227,6 +227,9 @@ export default function VeterinarianWorkspace() {
   const [notice, setNotice] = useState("");
   const [unread, setUnread] = useState(0);
   const [actionCount, setActionCount] = useState(0);
+  const [actionItems, setActionItems] = useState<VetActionItem[]>([]);
+  const [actionItemsLoading, setActionItemsLoading] = useState(true);
+  const [actionItemsError, setActionItemsError] = useState("");
   const [openIncidentCount, setOpenIncidentCount] = useState(0);
   const [recentActivities, setRecentActivities] = useState<VetActivity[]>([]);
   const [activityHistoryReady, setActivityHistoryReady] = useState(false);
@@ -300,6 +303,24 @@ export default function VeterinarianWorkspace() {
   }, [loadUnread]);
   const horses = useMemo(() => overview?.horses ?? [], [overview]);
   const horse = horses.find((item) => item.id === selectedId) ?? null;
+  const loadActionItems = useCallback(async (targetHorses: VetHorse[]) => {
+    setActionItemsLoading(true);
+    setActionItemsError("");
+    try {
+      const result = await fetchVetActionItems(targetHorses);
+      setActionItems(result.items);
+      setActionCount(result.items.length);
+      setActionItemsError(result.error);
+    } catch (reason) {
+      setActionItemsError(veterinarianError(reason));
+    } finally {
+      setActionItemsLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    if (!overview) return;
+    void loadActionItems(overview.horses);
+  }, [overview, loadActionItems]);
   useEffect(() => {
     let timer: number | undefined;
     const refreshAfterMutation = (event: Event) => {
@@ -310,8 +331,7 @@ export default function VeterinarianWorkspace() {
       timer = window.setTimeout(() => {
         void (async () => {
           const refreshedOverview = await loadOverview();
-          const result = await fetchVetActionItems(refreshedOverview?.horses ?? horses);
-          setActionCount(result.items.length);
+          await loadActionItems(refreshedOverview?.horses ?? horses);
         })();
       }, 180);
     };
@@ -320,7 +340,7 @@ export default function VeterinarianWorkspace() {
       window.clearTimeout(timer);
       window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
     };
-  }, [horses, loadOverview, loadUnread]);
+  }, [horses, loadActionItems, loadOverview, loadUnread]);
   const stableGroups = useMemo(() => {
     const groups = new Map<string, VetHorse[]>();
     for (const item of horses) {
@@ -394,12 +414,12 @@ export default function VeterinarianWorkspace() {
               {tab === "injuries" && <InjuriesPanel horse={horse} onChanged={changed} />}
               {tab === "care" && <CarePanel horses={horses} selectedHorse={horse} onChanged={changed} />}
               {tab === "incidents" && <StableIncidentsPanel onOpenHorse={(id) => { setSelectedId(id); selectTab("overview"); }} />}
-              {tab === "notifications" && <NotificationsPanel horses={horses} activities={recentActivities} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} />}
+              {tab === "notifications" && <NotificationsPanel horses={horses} activities={recentActivities} initialActionItems={actionItems} actionsLoading={actionItemsLoading} actionsError={actionItemsError} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} />}
             </div>
           </>}
           {!horse && !loading && <div className="rounded-lg border border-equine-line bg-white p-6 shadow-sm"><Notice>Chưa có ngựa đang hoạt động để quản lý sức khỏe.</Notice></div>}
           {!horse && !loading && tab === "incidents" && <div className="mt-4"><StableIncidentsPanel onOpenHorse={(id) => { setSelectedId(id); selectTab("overview"); }} /></div>}
-          {!horse && !loading && tab === "notifications" && <div className="mt-4"><NotificationsPanel horses={horses} activities={recentActivities} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} /></div>}
+          {!horse && !loading && tab === "notifications" && <div className="mt-4"><NotificationsPanel horses={horses} activities={recentActivities} initialActionItems={actionItems} actionsLoading={actionItemsLoading} actionsError={actionItemsError} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} /></div>}
       </div>
       )}
     </section>
@@ -999,6 +1019,8 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
   const [contextEvents, setContextEvents] = useState<CareEvent[]>([]);
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(daysFromToday(30));
+  const [draftFrom, setDraftFrom] = useState(from);
+  const [draftTo, setDraftTo] = useState(to);
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [includeContext, setIncludeContext] = useState(true);
   const [bookNow, setBookNow] = useState(true);
@@ -1086,7 +1108,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
     </SectionCard>
 
     <SectionCard title="Lịch chăm sóc" description="Lịch giữ lịch sử đã hoàn thành. Có thể bật sự kiện ngựa để xem lịch xung quanh." icon={CalendarDays}>
-      <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end"><Field label="Từ ngày" name="calendar_from" type="date" defaultValue={from} key={`from-${from}`} /><Field label="Đến ngày" name="calendar_to" type="date" defaultValue={to} key={`to-${to}`} /><label className="block"><span className="field-label">Phạm vi bác sĩ</span><select value={scope} onChange={(event) => setScope(event.target.value as "mine" | "all")} className="field-control px-3"><option value="mine">Lịch của tôi</option><option value="all">Tất cả bác sĩ</option></select></label><button type="button" className="soft-button h-12 px-4" onClick={(event) => { const form = event.currentTarget.parentElement; const inputs = form?.querySelectorAll("input"); const nextFrom = inputs?.[0]?.value || from; const nextTo = inputs?.[1]?.value || to; setFrom(nextFrom); setTo(nextTo); }}>Xem lịch</button></div>
+      <div className="mb-4 grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end"><label className="block"><span className="field-label">Từ ngày</span><input name="calendar_from" type="date" value={draftFrom} onChange={(event) => setDraftFrom(event.target.value)} className="field-control px-3" /></label><label className="block"><span className="field-label">Đến ngày</span><input name="calendar_to" type="date" value={draftTo} onChange={(event) => setDraftTo(event.target.value)} className="field-control px-3" /></label><label className="block"><span className="field-label">Phạm vi bác sĩ</span><select value={scope} onChange={(event) => setScope(event.target.value as "mine" | "all")} className="field-control px-3"><option value="mine">Lịch của tôi</option><option value="all">Tất cả bác sĩ</option></select></label><button type="button" className="soft-button h-12 px-4" onClick={() => { setFrom(draftFrom || from); setTo(draftTo || to); }}>Xem lịch</button></div>
       <label className="mb-3 inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={includeContext} onChange={(event) => setIncludeContext(event.target.checked)} /> Hiện lịch tập và đua</label>
       {error.includes("Lịch chăm sóc:") ? null : events.length === 0 && contextEvents.length === 0 ? <Empty>Không có sự kiện trong khoảng ngày này.</Empty> : <div className="space-y-2">{events.map((event) => <CalendarRow key={event.event_id} event={event} />)}{contextEvents.map((event, index) => <CalendarRow key={`${event.id ?? event.event_id}-${index}`} event={{ ...event, context: true }} />)}</div>}
       {events.length >= 100 && <p className="mt-2 text-xs text-slate-500">Đang hiển thị tối đa 100 sự kiện trong khoảng đã chọn.</p>}
@@ -1104,56 +1126,40 @@ function CalendarRow({ event }: { event: CareEvent }) {
 function NotificationsPanel({
   horses,
   activities,
+  initialActionItems = [],
+  actionsLoading = false,
+  actionsError = "",
   onUnread,
   onActionCount,
   onOpenAction,
 }: {
   horses: VetHorse[];
   activities: VetActivity[];
+  initialActionItems?: VetActionItem[];
+  actionsLoading?: boolean;
+  actionsError?: string;
   onUnread: (count: number) => void;
   onActionCount: (count: number) => void;
   onOpenAction: (horseId: string, nextTab: NotificationActionTab) => void;
 }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
-  const [actions, setActions] = useState<VetActionItem[]>([]);
+  const [actions, setActions] = useState<VetActionItem[]>(initialActionItems);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [actionsLoading, setActionsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [actionsError, setActionsError] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setActions(initialActionItems);
+    onActionCount(initialActionItems.length);
+  }, [initialActionItems, onActionCount]);
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try { const result = await veterinarianApi.notifications(unreadOnly); setNotifications(result.data); setUnread(result.unread_count); onUnread(result.unread_count); }
     catch (reason) { setError(veterinarianError(reason)); }
     finally { setLoading(false); }
   }, [onUnread, unreadOnly]);
-  useEffect(() => { void load(); const timer = window.setInterval(() => void load(), 60_000); return () => window.clearInterval(timer); }, [load]);
-
-  const loadActions = useCallback(async () => {
-    setActionsLoading(true);
-    setActionsError("");
-    try {
-      const result = await fetchVetActionItems(horses);
-      setActions(result.items);
-      onActionCount(result.items.length);
-      setActionsError(result.error);
-    } catch (reason) {
-      setActionsError(veterinarianError(reason));
-    } finally {
-      setActionsLoading(false);
-    }
-  }, [horses, onActionCount]);
-  useEffect(() => { void loadActions(); const timer = window.setInterval(() => void loadActions(), 60_000); return () => window.clearInterval(timer); }, [loadActions]);
-  useEffect(() => {
-    const refreshAfterMutation = () => {
-      void load();
-      void loadActions();
-    };
-    window.addEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
-    return () => window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
-  }, [load, loadActions]);
+  useEffect(() => { void load(); }, [load]);
 
   async function markRead(id: string) {
     setBusy(true); setError("");

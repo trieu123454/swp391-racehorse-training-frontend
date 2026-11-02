@@ -136,9 +136,8 @@ export function login(email: string, password: string) {
 }
 
 export function changePassword(currentPassword: string, newPassword: string) {
-  return request<AuthResponse>("/api/auth/change-password", {
+  return authenticatedRequest<AuthResponse>("/api/auth/change-password", {
     method: "POST",
-    headers: { Authorization: `Bearer ${getAccessToken()}` },
     body: JSON.stringify({ currentPassword, newPassword }),
   });
 }

@@ -58,11 +58,11 @@ export default function EditHorsePage() {
     );
   }
 
-    if (user && user.roleName !== "CLUB_MANAGER") {
+  if (user && user.roleName !== "CLUB_MANAGER" && user.roleName !== "HEAD_TRAINER") {
     return (
       <main className="min-h-screen bg-slate-50 p-6">
         <div className="mx-auto max-w-[800px] rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <Notice error>Chỉ Club Manager mới có quyền chỉnh sửa hồ sơ ngựa.</Notice>
+          <Notice error>Chỉ Club Manager hoặc HLV Trưởng mới có quyền chỉnh sửa hồ sơ ngựa.</Notice>
           <div className="mt-4">
             <button type="button" className="gold-button" onClick={() => router.push(Routes.horse(horseId))}>
               Quay lại chi tiết

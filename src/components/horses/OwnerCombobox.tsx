@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, LoaderCircle, Search, UserRound } from "lucide-react";
+import { ApiRequestError } from "@/api/client";
 import { errorMessage, getHorseOwners, type Owner } from "@/api/horses/api";
 
 type Props = {
@@ -44,7 +45,9 @@ export function OwnerCombobox({ value, onChange, required = false }: Props) {
       })
       .catch((reason) => {
         if (!controller.signal.aborted) {
-          setError(errorMessage(reason));
+          if (!(reason instanceof ApiRequestError && reason.status === 403)) {
+            setError(errorMessage(reason));
+          }
           setLoadingSelection(false);
         }
       });
@@ -82,7 +85,14 @@ export function OwnerCombobox({ value, onChange, required = false }: Props) {
           setHasMore(result.hasMore);
         })
         .catch((reason) => {
-          if (!controller.signal.aborted) setError(errorMessage(reason));
+          if (!controller.signal.aborted) {
+            if (reason instanceof ApiRequestError && reason.status === 403) {
+              setOwners([]);
+              setHasMore(false);
+            } else {
+              setError(errorMessage(reason));
+            }
+          }
         })
         .finally(() => {
           if (!controller.signal.aborted) setLoading(false);

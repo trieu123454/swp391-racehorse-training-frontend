@@ -36,11 +36,11 @@ const viewPresetLabels: Record<ViewerView, string> = {
   back: "Sau",
   top: "Trên",
 };
-const anatomyLayers: { id: AnatomyLayer; label: string; description: string }[] = [
-  { id: "skin", label: "Da", description: "Lớp da/lông mờ để định hướng vị trí xương." },
-  { id: "skeleton", label: "Xương", description: "Toàn bộ xương là mesh minh họa, vị trí ước lượng theo rig." },
-  { id: "organs", label: "Nội tạng", description: "Phổi, tim, cơ hoành, gan, dạ dày, ruột, thận, bàng quang và hệ thần kinh." },
-  { id: "muscle", label: "Cơ", description: "Hệ cơ ngựa, cân, gân và dây chằng; điểm bám trên rig được ước lượng khi thiếu node chuyên biệt." },
+const anatomyLayers: { id: AnatomyLayer; label: string }[] = [
+  { id: "skin", label: "Da" },
+  { id: "skeleton", label: "Xương" },
+  { id: "organs", label: "Nội tạng" },
+  { id: "muscle", label: "Cơ" },
 ];
 type InteractionState = {
   markers: InjuryMarker[];
@@ -145,9 +145,9 @@ function createStudioBackdrop() {
   const context = canvas.getContext("2d");
   if (context) {
     const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
-    gradient.addColorStop(0, "#17191b");
-    gradient.addColorStop(0.52, "#24292d");
-    gradient.addColorStop(1, "#111416");
+    gradient.addColorStop(0, "#211e1b");
+    gradient.addColorStop(0.52, "#2e2a26");
+    gradient.addColorStop(1, "#171513");
     context.fillStyle = gradient;
     context.fillRect(0, 0, canvas.width, canvas.height);
     const softLight = context.createRadialGradient(0, 0, 0, 0, 0, canvas.height * 0.9);
@@ -1094,7 +1094,9 @@ export default function InjuryModel3D({
       const skeletonDisplayAssets = skeletonLayer?.userData.displayMaterials as THREE.Material[] | undefined;
       skeletonDisplayAssets?.forEach((material) => material.dispose());
       const skeletonBaseMaterials = skeletonLayer?.userData.skeletonMaterials as { bone: THREE.Material; cartilage: THREE.Material; costalCartilage?: THREE.Material; tooth: THREE.Material } | undefined;
-      skeletonBaseMaterials && Object.values(skeletonBaseMaterials).forEach((material) => material.dispose());
+      if (skeletonBaseMaterials) {
+        Object.values(skeletonBaseMaterials).forEach((material) => material.dispose());
+      }
       const skeletonLabelMaterials = skeletonLayer?.userData.ownedLabelMaterials as THREE.Material[] | undefined;
       skeletonLabelMaterials?.forEach((material) => material.dispose());
       const skeletonTextures = skeletonLayer?.userData.ownedTextures as THREE.Texture[] | undefined;
@@ -1129,15 +1131,14 @@ export default function InjuryModel3D({
   const allAnatomyVisible = enabledAnatomyLayers.length === anatomyLayers.length - 1;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-[#dce6eb] bg-[linear-gradient(145deg,#fbfcfc,#f0f5f5_58%,#f7f8f5)] p-3 shadow-sm sm:p-5" aria-label="Mô hình 3D theo dõi chấn thương ngựa">
+    <section className="overflow-hidden rounded-lg border border-equine-line bg-white p-3 shadow-sm sm:p-5" aria-label="Mô hình 3D theo dõi chấn thương ngựa">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-[#c27664]" />
-            <h4 className="font-semibold tracking-tight text-[#36566a]">Mô hình ngựa 3D</h4>
-            <span className="rounded-full border border-[#d8e4e8] bg-white/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">{locatedCount} điểm đã đánh dấu</span>
+            <span className="h-2 w-2 rounded-full bg-equine-teal" />
+            <h4 className="font-semibold tracking-tight text-equine-navy">Mô hình ngựa 3D</h4>
+            <span className="rounded-full border border-equine-line bg-equine-paper px-2 py-0.5 text-[10px] font-semibold text-equine-muted">{locatedCount} điểm đã đánh dấu</span>
           </div>
-          <p className="mt-1 text-xs text-slate-500">Kéo để xoay, cuộn để phóng to. Chọn mặt gần hoặc mặt xa để xem vị trí chấn thương.</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {(["left", "right", "front", "back", "top"] as const).map((preset) => (
@@ -1147,21 +1148,21 @@ export default function InjuryModel3D({
               aria-pressed={view === preset}
               aria-label={`Góc nhìn ${viewPresetLabels[preset]}`}
               title={`Góc nhìn ${viewPresetLabels[preset]}`}
-              className={`rounded-lg px-2.5 py-1.5 text-xs ${view === preset ? "bg-[#e8eff1] font-semibold text-[#35596b]" : "text-slate-500"}`}
+              className={`rounded-lg px-2.5 py-1.5 text-xs transition ${view === preset ? "bg-equine-mist font-semibold text-equine-navy" : "text-equine-muted hover:bg-equine-paper"}`}
               onClick={() => actionsRef.current.setView(preset)}
             >
               {viewPresetLabels[preset]}
             </button>
           ))}
-          <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" />
-          <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-lg text-slate-700 shadow-sm" aria-label="Thu nhỏ mô hình" onClick={() => actionsRef.current.zoom(1.12)}>−</button>
-          <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 bg-white text-lg text-slate-700 shadow-sm" aria-label="Phóng to mô hình" onClick={() => actionsRef.current.zoom(0.88)}>+</button>
-          <button type="button" className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-600 shadow-sm" onClick={() => actionsRef.current.reset()}>Đặt lại góc</button>
+          <span className="mx-1 hidden h-5 w-px bg-equine-line sm:block" />
+          <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border border-equine-line bg-white text-lg text-equine-navy hover:bg-equine-mist" aria-label="Thu nhỏ mô hình" onClick={() => actionsRef.current.zoom(1.12)}>−</button>
+          <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border border-equine-line bg-white text-lg text-equine-navy hover:bg-equine-mist" aria-label="Phóng to mô hình" onClick={() => actionsRef.current.zoom(0.88)}>+</button>
+          <button type="button" className="rounded-lg border border-equine-line bg-white px-2.5 py-1.5 text-xs text-equine-muted hover:bg-equine-mist" onClick={() => actionsRef.current.reset()}>Đặt lại góc</button>
         </div>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5" role="group" aria-label="Chọn lớp giải phẫu">
-        <span className="mr-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Lớp giải phẫu · bật nhiều lớp</span>
+        <span className="mr-1 text-xs font-semibold text-equine-muted">Lớp</span>
         <button
           type="button"
           aria-pressed={allAnatomyVisible}
@@ -1170,7 +1171,7 @@ export default function InjuryModel3D({
             const visible = !allAnatomyVisible;
             setAnatomyVisibility((current) => ({ ...current, skeleton: visible, organs: visible, muscle: visible }));
           }}
-          className={`rounded-lg border px-3 py-1.5 text-xs transition ${allAnatomyVisible ? "border-[#36566a] bg-[#36566a] font-semibold text-white shadow-sm" : "border-[#b9cecf] bg-[#edf4f3] font-semibold text-[#36566a] hover:border-[#789a9d]"}`}
+          className={`rounded-lg border px-3 py-1.5 text-xs transition ${allAnatomyVisible ? "border-primary bg-primary font-semibold text-white" : "border-equine-line bg-white font-semibold text-slate-700 hover:border-primary/50 hover:bg-slate-50"}`}
         >
           Tổng thể
         </button>
@@ -1186,30 +1187,24 @@ export default function InjuryModel3D({
               if (nextVisible && layer.id === "muscle") setInspectorTab("muscle");
               if (nextVisible && layer.id === "skeleton") setInspectorTab("skeleton");
             }}
-            className={`rounded-lg border px-3 py-1.5 text-xs transition ${anatomyVisibility[layer.id] ? "border-[#446b72] bg-[#446b72] font-semibold text-white shadow-sm" : "border-slate-200 bg-white/85 text-slate-600 hover:border-[#9eb8b8] hover:text-[#36566a]"}`}
+            className={`rounded-lg border px-3 py-1.5 text-xs transition ${anatomyVisibility[layer.id] ? "border-primary bg-primary font-semibold text-white" : "border-equine-line bg-white text-slate-600 hover:border-primary/50 hover:bg-slate-50 hover:text-slate-900"}`}
           >
             {layer.label}
           </button>
         ))}
       </div>
-      <p className="mt-1 text-[10px] text-slate-500">
-        {enabledAnatomyLayers.length
-          ? enabledAnatomyLayers.map((layer) => layer.description).join(" · ")
-          : "Bật một hoặc nhiều lớp để xem giải phẫu bên trong; tắt cả ba để trở về lớp lông."}
-      </p>
-      <p className="mt-1 text-[10px] text-slate-500">Xương và nội tạng là mesh minh họa; vị trí, tỷ lệ được ước lượng theo rig hiện có.</p>
       <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className={`relative min-w-0 overflow-hidden rounded-xl border border-white/90 bg-[#f8faf9] shadow-[inset_0_0_0_1px_rgba(190,208,214,.28)] ${placementMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}>
+        <div className={`relative min-w-0 overflow-hidden rounded-xl border border-equine-line bg-equine-paper shadow-sm ${placementMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}>
           <div ref={mountRef} className="h-[285px] w-full sm:h-[410px]" />
           {anatomyVisibility.skeleton && skeletonRecords.length === 0 && !loading && !loadError && (
-            <div className="pointer-events-none absolute inset-x-3 top-3 z-[4] rounded-lg border border-[#dce6eb] bg-white/90 px-3 py-2 text-center text-xs font-medium text-slate-600">
+            <div className="pointer-events-none absolute inset-x-3 top-3 z-[4] rounded-lg border border-equine-line bg-white/90 px-3 py-2 text-center text-xs font-medium text-slate-600">
               Không tìm thấy các điểm rig cần thiết để dựng cột sống minh họa.
             </div>
           )}
           {hoveredSkeletonRecord && hoveredSkeletonTooltip && anatomyVisibility.skeleton && !placementMode && (
             <div
               role="tooltip"
-              className="pointer-events-none absolute z-[6] max-w-[220px] rounded-md border border-[#d5e0dc] bg-white/95 px-2.5 py-1.5 text-[11px] text-[#36566a] shadow-md"
+              className="pointer-events-none absolute z-[6] max-w-[220px] rounded-md border border-equine-line bg-white px-2.5 py-1.5 text-[11px] text-equine-navy shadow-md"
               style={{ left: hoveredSkeletonTooltip.x, top: hoveredSkeletonTooltip.y }}
             >
               <span className="block font-semibold">{hoveredSkeletonName}</span>
@@ -1218,14 +1213,13 @@ export default function InjuryModel3D({
           )}
           {loading && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-white/60 text-sm font-medium text-slate-600">Đang tải mô hình ngựa 3D…</div>}
           {loadError && <div role="alert" className="absolute inset-0 grid place-items-center bg-white/90 p-6 text-center text-sm text-rose-700">Không tải được mô hình 3D. {loadError}</div>}
-          {placementMode && <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full border border-[#c8dfd8] bg-[#eff7f5]/95 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#376c61]"><span className="h-2 w-2 rounded-full bg-[#299477]" /> Chọn vị trí trên ngựa</div>}
-          <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg border border-white/90 bg-white/80 px-2.5 py-1.5 text-[10px] text-slate-500 shadow-sm">{placementMode ? "Bấm lên thân ngựa để lấy tọa độ" : "Kéo để xoay · nhấp đúp để lấy nét"}</div>
+          {placementMode && <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full border border-primary/30 bg-blue-50 px-3 py-2 text-[11px] font-bold text-equine-navy"><span className="h-2 w-2 rounded-full bg-primary" /> Chọn vị trí trên ngựa</div>}
         </div>
         <div className="min-w-0">
-          <div className="mb-1.5 flex gap-1 rounded-lg border border-[#dce6eb] bg-white/80 p-1" role="tablist" aria-label="Bảng giải phẫu">
-            <button type="button" role="tab" aria-selected={inspectorTab === "skeleton"} onClick={() => { setInspectorTab("skeleton"); setAnatomyVisibility((current) => ({ ...current, skeleton: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "skeleton" ? "bg-[#446b72] text-white" : "text-slate-500"}`}>X&#x01B0;&#x01A1;ng</button>
-            <button type="button" role="tab" aria-selected={inspectorTab === "muscle"} onClick={() => { setInspectorTab("muscle"); setAnatomyVisibility((current) => ({ ...current, muscle: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "muscle" ? "bg-[#446b72] text-white" : "text-slate-500"}`}>Cơ</button>
-            <button type="button" role="tab" aria-selected={inspectorTab === "organs"} onClick={() => { setInspectorTab("organs"); setAnatomyVisibility((current) => ({ ...current, organs: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "organs" ? "bg-[#446b72] text-white" : "text-slate-500"}`}>Nội tạng</button>
+          <div className="mb-1.5 flex gap-1 rounded-lg border border-equine-line bg-white p-1" role="tablist" aria-label="Bảng giải phẫu">
+            <button type="button" role="tab" aria-selected={inspectorTab === "skeleton"} onClick={() => { setInspectorTab("skeleton"); setAnatomyVisibility((current) => ({ ...current, skeleton: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "skeleton" ? "!bg-primary !text-white" : "text-slate-600 hover:bg-slate-100"}`}>X&#x01B0;&#x01A1;ng</button>
+            <button type="button" role="tab" aria-selected={inspectorTab === "muscle"} onClick={() => { setInspectorTab("muscle"); setAnatomyVisibility((current) => ({ ...current, muscle: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "muscle" ? "!bg-primary !text-white" : "text-slate-600 hover:bg-slate-100"}`}>Cơ</button>
+            <button type="button" role="tab" aria-selected={inspectorTab === "organs"} onClick={() => { setInspectorTab("organs"); setAnatomyVisibility((current) => ({ ...current, organs: true })); }} className={`flex-1 rounded-md px-2 py-1.5 text-[11px] font-semibold ${inspectorTab === "organs" ? "!bg-primary !text-white" : "text-slate-600 hover:bg-slate-100"}`}>Nội tạng</button>
           </div>
           {inspectorTab === "skeleton" ? (
             <SkeletonAnatomyPanel
@@ -1271,8 +1265,8 @@ export default function InjuryModel3D({
         </div>
       </div>
 
-      {selectedMarker && <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 text-xs text-slate-600">
-        <span className="font-semibold text-[#36566a]">{selectedMarker.body_part}</span>
+      {selectedMarker && <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-equine-line bg-white px-3 py-2 text-xs text-equine-muted">
+        <span className="font-semibold text-equine-navy">{selectedMarker.body_part}</span>
         <span>{selectedMarker.severity}</span>
         <span>{selectedMarker.recovery_status}</span>
         {selectedMarker.description && <span className="basis-full text-slate-500">{selectedMarker.description}</span>}
