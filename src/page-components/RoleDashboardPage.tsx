@@ -3,9 +3,9 @@
 import { Routes } from "@/routes/Routes";
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import HorseShell, { useHorseUser } from "@/components/horses/HorseShell";
-import { validateSession } from "@/api/client";
+import { ApiRequestError, validateSession } from "@/api/client";
 import { roleForSlug, routeForRole } from "@/lib/roles";
 import VeterinarianWorkspace from "@/components/veterinarian/VeterinarianWorkspace";
 import HorseOwnerWorkspace from "@/components/horse-owner/HorseOwnerWorkspace";
@@ -16,11 +16,15 @@ import ClubManagerWorkspace from "@/components/club-manager/ClubManagerWorkspace
 export default function RoleDashboardPage() {
   const role = useParams<{ role: string }>()?.role ?? "";
   const router = useRouter();
+  const [attempt, setAttempt] = useState(0);
+  const [validationError, setValidationError] = useState("");
+
   useEffect(() => {
     let active = true;
-    validateSession()
+    validateSession(attempt > 0)
       .then((current) => {
         if (!active) return;
+        setValidationError("");
         if (current.mustChangePassword) {
           router.replace(Routes.changePassword);
           return;
@@ -29,15 +33,44 @@ export default function RoleDashboardPage() {
           router.replace(routeForRole(current.roleName));
         }
       })
-      .catch(() => {
-        if (active) router.replace(Routes.login);
+      .catch((reason: unknown) => {
+        if (!active) return;
+        if (reason instanceof ApiRequestError && reason.status === 401) {
+          router.replace(Routes.login);
+          return;
+        }
+        setValidationError(
+          "Không thể xác thực phiên với máy chủ. Hãy kiểm tra kết nối backend rồi thử lại.",
+        );
       });
     return () => {
       active = false;
     };
-  }, [role, router]);
+  }, [attempt, role, router]);
 
-  return <HorseShell><RoleDashboardContent /></HorseShell>;
+  return (
+    <HorseShell>
+      {validationError && (
+        <div
+          role="alert"
+          className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+        >
+          <span>{validationError}</span>
+          <button
+            type="button"
+            className="font-semibold underline underline-offset-2"
+            onClick={() => {
+              setValidationError("");
+              setAttempt((value) => value + 1);
+            }}
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
+      <RoleDashboardContent />
+    </HorseShell>
+  );
 }
 
 function RoleDashboardContent() {
