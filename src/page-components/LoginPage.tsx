@@ -27,7 +27,13 @@ function loginErrorMessage(error: unknown) {
   }
   if (error instanceof ApiRequestError) {
     const message = error.message.toLowerCase();
-    if (message.includes("email or password is incorrect") || message.includes("user not found")) {
+    if (
+      message.includes("email or password is incorrect")
+      || message.includes("email or password")
+      || message.includes("invalid credentials")
+      || message.includes("invalid email or password")
+      || message.includes("user not found")
+    ) {
       return "Email hoặc mật khẩu không chính xác.";
     }
     if (message.includes("awaiting club manager approval")) {
@@ -35,6 +41,9 @@ function loginErrorMessage(error: unknown) {
     }
     if (message.includes("account is locked") || message.includes("account is deleted")) {
       return "Tài khoản hiện không thể đăng nhập. Vui lòng liên hệ Quản lý Câu lạc bộ.";
+    }
+    if (error.status === 401) {
+      return "Thông tin đăng nhập hoặc trạng thái tài khoản bị backend từ chối (401). Hãy kiểm tra tài khoản trong backend.";
     }
   }
   return error instanceof Error ? error.message : "Đăng nhập không thành công. Vui lòng thử lại.";
@@ -78,12 +87,12 @@ export default function LoginPage() {
   return (
     <main className="auth-page auth-page--standard overflow-x-hidden">
       <div className="auth-topbar">
-        <Link
+        <a
           className="auth-back"
           href={Routes.home}
         >
           <ArrowLeft size={17} /> Về trang chủ
-        </Link>
+        </a>
       </div>
 
       <div className="auth-layout">

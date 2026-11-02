@@ -6,8 +6,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinnedModel } from "three/addons/utils/SkeletonUtils.js";
 import type { InjuryMarker } from "@/api/veterinarian/api";
-import MuscleAnatomyPanel from "./MuscleAnatomyPanel";
-import OrganAnatomyPanel from "./OrganAnatomyPanel";
+import MuscleAnatomyPanel from "@/components/veterinarian/MuscleAnatomyPanel";
+import OrganAnatomyPanel from "@/components/veterinarian/OrganAnatomyPanel";
 import SkeletonAnatomyPanel from "./SkeletonAnatomyPanel";
 import { buildEquineSkeletonLayer, type SkeletonRecord } from "./skeleton-builder";
 import {
@@ -15,7 +15,7 @@ import {
   equineMuscles,
   type EquineMuscleRecord,
   type MuscleFilters,
-} from "./muscle-builder";
+} from "@/components/veterinarian/muscle-builder";
 import {
   buildEquineOrganLayer,
   type OrganRecord,
