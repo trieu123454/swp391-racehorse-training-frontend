@@ -1175,6 +1175,49 @@ function isScheduleOverdue(schedule: CareSchedule): boolean {
   return false;
 }
 
+function isAssignedDoctor(
+  event: CalendarCareItem,
+  schedule?: CareSchedule,
+  currentUser?: { id?: number | string; fullName?: string; name?: string } | null,
+): boolean {
+  if (!currentUser) return false;
+
+  const currentUserId = String(currentUser.id ?? "");
+  const currentName = (currentUser.fullName ?? currentUser.name ?? "").trim().toLowerCase();
+
+  // 1. So sánh ID bác sĩ
+  const eventDocId = event.assigned_doctor?.id != null ? String(event.assigned_doctor.id) : null;
+  const schedDocId = schedule?.assigned_doctor_id != null
+    ? String(schedule.assigned_doctor_id)
+    : schedule?.assigned_doctor?.id != null
+    ? String(schedule.assigned_doctor.id)
+    : null;
+
+  if (currentUserId && (eventDocId === currentUserId || schedDocId === currentUserId)) {
+    return true;
+  }
+
+  // 2. So sánh tên bác sĩ (chuẩn hóa bỏ tiền tố BS/Bác sĩ)
+  const docName = (event.assigned_doctor?.name ?? schedule?.doctor_name ?? schedule?.assigned_doctor?.name ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (docName && currentName) {
+    const cleanDoc = docName.replace(/^(bs|bác sĩ|dr|b\.s)\.?\s+/i, "").trim();
+    const cleanCur = currentName.replace(/^(bs|bác sĩ|dr|b\.s)\.?\s+/i, "").trim();
+    if (cleanDoc && cleanCur && (cleanDoc === cleanCur || cleanDoc.includes(cleanCur) || cleanCur.includes(cleanDoc))) {
+      return true;
+    }
+  }
+
+  // Nếu cả event và schedule đều không có thông tin bác sĩ phụ trách, mặc định cho phép
+  if (!eventDocId && !schedDocId && !docName) {
+    return true;
+  }
+
+  return false;
+}
+
 type CalendarCareItem = CareEvent & { is_periodic_due?: boolean; due_date?: string };
 
 function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; selectedHorse: VetHorse; onChanged: (message: string) => void }) {
@@ -1644,8 +1687,9 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                               const isCompleted = event.status === "Completed";
                               const isCancelled = event.status === "Cancelled";
                               const isOverdue = isEventOverdue(event, schedule);
-                              const canComplete = !event.context && Boolean(scheduleId) && event.status === "Scheduled" && event.event_date <= today();
-                              const canManage = !event.context && Boolean(scheduleId);
+                              const isMyCareEvent = scope === "mine" || isAssignedDoctor(event, schedule, currentUser);
+                              const canManage = !event.context && Boolean(scheduleId) && isMyCareEvent;
+                              const canComplete = canManage && event.status === "Scheduled" && event.event_date <= today();
                               const canBook = canManage && (Boolean(event.is_periodic_due) || isCancelled || schedule?.event_status === "Cancelled");
                               const hasBookedEvent = !event.is_periodic_due && event.status === "Scheduled";
                               const horse = horses.find((h) => h.id === event.horse?.id || h.id === schedule?.horse_id);
@@ -1728,7 +1772,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                   </div>
 
                                   {/* Action Buttons */}
-                                  {canManage && (
+                                  {canManage ? (
                                     <div className="mt-2 flex flex-wrap gap-1 border-t border-slate-200 pt-1.5">
                                       {canBook && (
                                         <button
@@ -1736,7 +1780,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                           className="rounded bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-900 hover:bg-blue-200 border border-blue-300"
                                           onClick={() => { setBookId(bookId === scheduleId ? "" : scheduleId!); setMoveId(""); setCompleteId(""); }}
                                         >
-                                          {isCancelled || schedule?.event_status === "Cancelled" ? "Đặt lại" : "Chốt giờ"}
+                                          {isCancelled || schedule?.event_status === "Cancelled" ? "Đặt lại" : "Chốt ca"}
                                         </button>
                                       )}
                                       {event.status === "Scheduled" && scheduleId && (
@@ -1776,7 +1820,12 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                         </>
                                       )}
                                     </div>
-                                  )}
+                                  ) : !event.context && Boolean(scheduleId) ? (
+                                    <div className="mt-2 flex items-center justify-between border-t border-slate-200 pt-1.5 text-[10px] text-slate-500 font-semibold italic">
+                                      <span>Lịch của {doctorName}</span>
+                                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] not-italic font-bold text-slate-600 border border-slate-200">Chỉ xem</span>
+                                    </div>
+                                  ) : null}
 
                                   {/* Forms */}
                                   {scheduleId && bookId === scheduleId && (
