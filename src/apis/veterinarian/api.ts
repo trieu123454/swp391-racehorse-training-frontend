@@ -334,6 +334,9 @@ export const veterinarianApi = {
   readAllNotifications() {
     return call<{ updated: number }>("/api/notifications/read-all", "POST");
   },
+  veterinarians() {
+    return call<{ id: number | string; name: string; email: string }[]>("/api/veterinarians");
+  },
 };
 
 export function fieldError(error: unknown) {

@@ -438,6 +438,7 @@ export default function VeterinarianWorkspace() {
                   horses={horses}
                   selectedHorse={horse}
                   onChanged={changed}
+                  onSelectHorse={(id) => setSelectedId(id)}
                   onGoToExam={(horseId, scheduleId) => {
                     if (horseId) setSelectedId(horseId);
                     setLinkedScheduleId(scheduleId);
@@ -1403,15 +1404,18 @@ function CarePanel({
   selectedHorse,
   onChanged,
   onGoToExam,
+  onSelectHorse,
 }: {
   horses: VetHorse[];
   selectedHorse: VetHorse;
   onChanged: (message: string) => void;
   onGoToExam?: (horseId?: string, scheduleId?: string) => void;
+  onSelectHorse?: (horseId: string) => void;
 }) {
   const [schedules, setSchedules] = useState<CareSchedule[]>([]);
   const [events, setEvents] = useState<CareEvent[]>([]);
   const [contextEvents, setContextEvents] = useState<CareEvent[]>([]);
+  const [doctors, setDoctors] = useState<{ id: number | string; name: string; email: string }[]>([]);
   const [weekStart, setWeekStart] = useState(() => mondayOfWeek(today()));
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const [horseFilter, setHorseFilter] = useState("all");
@@ -1516,6 +1520,28 @@ function CarePanel({
     (schedule.frequency_days || schedule.event_status !== "Completed") && ((schedule.next_due_date >= from && schedule.next_due_date <= to) || (weekStart === currentWeekStart && (Boolean(schedule.is_overdue) || schedule.next_due_date < today()) && schedule.next_due_date < from)),
   ).length;
 
+  const horseCoverage = useMemo(() => {
+    return horses.map((h) => {
+      const horseRules = schedules.filter((s) => s.horse_id === h.id);
+      const overdueRules = horseRules.filter((s) => isScheduleOverdue(s));
+      const hasOverdue = overdueRules.length > 0;
+      const isUncovered = horseRules.length === 0;
+      const nearestSchedule = [...horseRules].sort((a, b) => a.next_due_date.localeCompare(b.next_due_date))[0];
+      return {
+        horse: h,
+        horseRules,
+        overdueRules,
+        hasOverdue,
+        isUncovered,
+        nearestSchedule,
+      };
+    });
+  }, [horses, schedules]);
+
+  const coveredCount = horseCoverage.filter((h) => !h.isUncovered).length;
+  const uncoveredCount = horseCoverage.filter((h) => h.isUncovered).length;
+  const overdueHorsesCount = horseCoverage.filter((h) => h.hasOverdue).length;
+
   const activeSlots = useMemo(() => {
     const usedSlotIds = new Set<number>();
     weekDays.forEach((day) => {
@@ -1548,12 +1574,25 @@ function CarePanel({
   }, [from, includeContext, scope, to]);
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    let active = true;
+    veterinarianApi
+      .veterinarians()
+      .then((res) => {
+        if (active && Array.isArray(res)) setDoctors(res);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
   async function createSchedule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(""); setNotice("");
     const form = event.currentTarget;
     const formData = new FormData(form);
     const book = formData.get("book_event") === "on";
-    const values = formValues(form, ["frequency_days"], ["frequency_days", "last_done_date", "notes", "start_time", "end_time"]);
+    const values = formValues(form, ["frequency_days", "assigned_doctor_id"], ["frequency_days", "last_done_date", "notes", "start_time", "end_time"]);
     values.book_event = book;
     if (book) {
       const slotRange = formData.get("slot_time_range") as string;
@@ -1654,12 +1693,31 @@ function CarePanel({
       </div>
       <input type="hidden" name="horse_id" value={selectedHorse.id} />
       <SelectField label="Loại chăm sóc" name="care_type" required options={[{ value: "HoofCheck", label: "Kiểm tra móng" }, { value: "Deworming", label: "Tẩy giun" }, { value: "Vaccination", label: "Tiêm phòng" }, { value: "MedicalCheckup", label: "Khám định kỳ" }]} />
+      <label className="block">
+        <span className="field-label">Bác sĩ phụ trách <span className="text-rose-600">*</span></span>
+        <select
+          name="assigned_doctor_id"
+          defaultValue={currentUser?.id ? String(currentUser.id) : (doctors[0]?.id ? String(doctors[0].id) : "")}
+          required
+          className="field-control px-3"
+        >
+          {doctors.length > 0 ? (
+            doctors.map((doc) => (
+              <option key={doc.id} value={doc.id}>
+                BS. {doc.name}{currentUser?.id && String(doc.id) === String(currentUser.id) ? " (Tôi)" : ""}
+              </option>
+            ))
+          ) : (
+            <option value={currentUser?.id ? String(currentUser.id) : ""}>
+              {currentUser?.fullName ?? "Bác sĩ hiện tại"} (Tôi)
+            </option>
+          )}
+        </select>
+      </label>
       <Field label="Chu kỳ lặp (ngày) · bỏ trống nếu làm một lần" name="frequency_days" type="number" min={1} step="1" />
       <Field label="Ngày đến hạn" name="next_due_date" type="date" required defaultValue={today()} />
       <Field label="Lần gần nhất" name="last_done_date" type="date" />
-      <div className="sm:col-span-2 lg:col-span-2">
-        <TextAreaField label="Ghi chú" name="notes" rows={2} />
-      </div>
+      <TextAreaField label="Ghi chú" name="notes" rows={2} />
       <label className="flex min-h-11 items-center gap-2 rounded-xl border border-equine-line bg-white px-3 py-2 text-sm sm:col-span-2 lg:col-span-3"><input type="checkbox" name="book_event" checked={bookNow} onChange={(event) => setBookNow(event.target.checked)} /> Chốt ca ngay và tạo nhắc nhở</label>
       {bookNow ? (
         <label className="block sm:col-span-2 lg:col-span-3">
@@ -1775,6 +1833,135 @@ function CarePanel({
         <p className="mt-0.5 text-xl font-extrabold text-blue-950">{weeklyDueRuleCount}</p>
       </div>
     </div>
+
+    {/* Horse Care Coverage Tracker */}
+    <details className="mb-5 rounded-xl border border-slate-300 bg-white shadow-xs overflow-hidden">
+      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-bold text-slate-900 transition hover:bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5 text-slate-900 font-bold">
+            <Check size={16} className="text-emerald-600" />
+            Độ phủ chăm sóc toàn đàn:
+          </span>
+          <span className="text-sm font-black text-slate-900">
+            {coveredCount}/{horses.length} ngựa đã có lịch
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {uncoveredCount > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-900 border border-amber-300">
+              <AlertTriangle size={12} /> {uncoveredCount} ngựa chưa có lịch
+            </span>
+          )}
+          {overdueHorsesCount > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-900 border border-rose-300">
+              <AlertTriangle size={12} /> {overdueHorsesCount} ngựa có việc quá hạn
+            </span>
+          )}
+          <span className="text-xs font-semibold text-blue-700">· mở để kiểm tra chi tiết</span>
+        </div>
+      </summary>
+      <div className="border-t border-slate-200 p-4">
+        <p className="mb-3 text-xs text-slate-500">
+          Danh sách theo dõi toàn bộ ngựa trong câu lạc bộ nhằm phát hiện sớm ngựa chưa được lập quy tắc chăm sóc hoặc đang bị quá hạn.
+        </p>
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
+              <tr>
+                <th className="px-3 py-2.5">Ngựa & Vị trí</th>
+                <th className="px-3 py-2.5">Quy tắc chăm sóc</th>
+                <th className="px-3 py-2.5">Hạn gần nhất</th>
+                <th className="px-3 py-2.5">Trạng thái</th>
+                <th className="px-3 py-2.5 text-right">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {horseCoverage.map((item) => {
+                const boxStr = item.horse.stable_box
+                  ? `Khu ${item.horse.stable_box.section ?? "A"} · Chuồng ${item.horse.stable_box.box_code}`
+                  : "Khu chuồng chung";
+                return (
+                  <tr key={item.horse.id} className="hover:bg-slate-50/80">
+                    <td className="px-3 py-2.5 font-bold text-slate-900">
+                      <div>{item.horse.horse_name}</div>
+                      <div className="text-[10px] font-normal text-slate-500">{boxStr}</div>
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-700">
+                      {item.horseRules.length > 0 ? (
+                        <span>
+                          {item.horseRules.length} quy tắc:{" "}
+                          <span className="font-semibold text-slate-800">
+                            {item.horseRules.map((r) => careTypeLabels[r.care_type] ?? r.care_type).join(", ")}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="italic text-slate-400">Chưa thiết lập quy tắc nào</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-slate-700">
+                      {item.nearestSchedule ? (
+                        <div>
+                          <span className="font-semibold text-slate-900">{displayDate(item.nearestSchedule.next_due_date)}</span>
+                          {item.nearestSchedule.doctor_name && (
+                            <span className="text-[10px] text-slate-500 ml-1">({item.nearestSchedule.doctor_name})</span>
+                          )}
+                        </div>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {item.hasOverdue ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-rose-100 px-2 py-0.5 text-[10px] font-black text-rose-900 border border-rose-300 shadow-xs">
+                          <AlertTriangle size={10} /> Quá hạn ({item.overdueRules.length})
+                        </span>
+                      ) : item.isUncovered ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900 border border-amber-300">
+                          Chưa có lịch
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-900 border border-emerald-300">
+                          ✓ Đầy đủ
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-right">
+                      {item.isUncovered ? (
+                        <button
+                          type="button"
+                          className="rounded bg-amber-500 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-amber-600 shadow-xs"
+                          onClick={() => {
+                            onSelectHorse?.(item.horse.id);
+                            setHorseFilter(item.horse.id);
+                            setCreateOpen(true);
+                          }}
+                        >
+                          + Lập lịch ngay
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="rounded bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-200 border border-slate-300"
+                          onClick={() => {
+                            onSelectHorse?.(item.horse.id);
+                            setHorseFilter(item.horse.id);
+                            if (item.nearestSchedule) {
+                              setWeekStart(mondayOfWeek(item.nearestSchedule.next_due_date));
+                            }
+                          }}
+                        >
+                          Xem lịch
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
 
     {/* Tracked Rules Accordion */}
     <details className="mb-5 rounded-xl border border-slate-300 bg-white shadow-xs">
