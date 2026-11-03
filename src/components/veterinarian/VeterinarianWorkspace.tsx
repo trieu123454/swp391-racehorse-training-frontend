@@ -33,6 +33,7 @@ import { CompactId } from "@/components/shared/CompactId";
 import type { Horse } from "@/api/horses/api";
 import { APP_MUTATION_COMPLETED_EVENT } from "@/api/client";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
+import { getUser } from "@/lib/session";
 import {
   veterinarianApi,
   veterinarianError,
@@ -1067,11 +1068,12 @@ interface TimetableSlot {
 }
 
 const TIMETABLE_SLOTS: TimetableSlot[] = [
-  { id: 1, label: "1", timeRange: "07h00 - 09h15" },
-  { id: 2, label: "2", timeRange: "09h30 - 11h45" },
-  { id: 3, label: "3", timeRange: "12h30 - 14h45" },
-  { id: 4, label: "4", timeRange: "15h00 - 17h15" },
-  { id: 5, label: "5", timeRange: "17h30 - 20h00" },
+  { id: 1, label: "1", timeRange: "07h00 - 08h30" },
+  { id: 2, label: "2", timeRange: "08h45 - 10h15" },
+  { id: 3, label: "3", timeRange: "10h30 - 12h00" },
+  { id: 4, label: "4", timeRange: "12h30 - 14h00" },
+  { id: 5, label: "5", timeRange: "14h15 - 15h45" },
+  { id: 6, label: "6", timeRange: "16h15 - 17h45" },
 ];
 
 function getEventSlot(event: CalendarCareItem): number {
@@ -1080,18 +1082,41 @@ function getEventSlot(event: CalendarCareItem): number {
   const h = parseInt(hStr, 10);
   const m = parseInt(mStr || "0", 10);
   const total = h + m / 60;
-  if (total < 9.5) return 1;
-  if (total < 12.25) return 2;
-  if (total < 15.0) return 3;
-  if (total < 17.5) return 4;
-  return 5;
+  if (total < 8.625) return 1;
+  if (total < 10.375) return 2;
+  if (total < 12.25) return 3;
+  if (total < 14.125) return 4;
+  if (total < 16.0) return 5;
+  return 6;
 }
 
 function formatTimeDisplay(start: string | null | undefined, end: string | null | undefined) {
-  if (!start) return "07h00-09h15";
+  if (!start) return "07h00 - 08h30";
   const s = start.slice(0, 5).replace(":", "h");
   const e = end ? end.slice(0, 5).replace(":", "h") : "";
-  return e ? `${s}-${e}` : s;
+  return e ? `${s} - ${e}` : s;
+}
+
+function formatDoctorName(
+  event: CalendarCareItem,
+  schedule?: CareSchedule,
+  currentUser?: { id?: number | string; fullName?: string; name?: string } | null,
+): string {
+  const doctorName =
+    event.assigned_doctor?.name ??
+    schedule?.doctor_name ??
+    schedule?.assigned_doctor?.name ??
+    (currentUser?.fullName || currentUser?.name);
+
+  if (!doctorName || typeof doctorName !== "string") {
+    return "Bác sĩ thú y";
+  }
+  const trimmed = doctorName.trim();
+  if (!trimmed) return "Bác sĩ thú y";
+  if (/^(bs|bác sĩ|dr|b\.s)\.?\s+/i.test(trimmed)) {
+    return trimmed;
+  }
+  return `BS. ${trimmed}`;
 }
 
 type CalendarCareItem = CareEvent & { is_periodic_due?: boolean; due_date?: string };
@@ -1109,6 +1134,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
   const [bookId, setBookId] = useState("");
   const [moveId, setMoveId] = useState("");
   const [completeId, setCompleteId] = useState("");
+  const currentUser = useMemo(() => getUser(), []);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -1165,6 +1191,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
         horse: { id: schedule.horse_id, horse_name: horseName },
         schedule_id: schedule.id,
         is_periodic_due: true,
+        assigned_doctor: schedule.assigned_doctor ?? (schedule.doctor_name ? { name: schedule.doctor_name } : null),
       }];
     });
     const items: CalendarCareItem[] = [
@@ -1208,7 +1235,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
     });
     const filtered = TIMETABLE_SLOTS.filter((slot) => usedSlotIds.has(slot.id));
     if (filtered.length === 0) {
-      return [TIMETABLE_SLOTS[0], TIMETABLE_SLOTS[2]];
+      return [TIMETABLE_SLOTS[0], TIMETABLE_SLOTS[1], TIMETABLE_SLOTS[2]];
     }
     return filtered;
   }, [weekDays]);
@@ -1285,7 +1312,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
       <Field label="Ngày đến hạn" name="next_due_date" type="date" required defaultValue={today()} />
       <TextAreaField label="Ghi chú" name="notes" rows={2} />
       <label className="flex min-h-11 items-center gap-2 rounded-xl border border-equine-line bg-white px-3 py-2 text-sm sm:col-span-2 lg:col-span-3"><input type="checkbox" name="book_event" checked={bookNow} onChange={(event) => setBookNow(event.target.checked)} /> Chốt giờ ngay và tạo nhắc nhở</label>
-      {bookNow ? <><Field label="Giờ bắt đầu" name="start_time" type="time" required defaultValue="08:00" /><Field label="Giờ kết thúc" name="end_time" type="time" required defaultValue="09:00" /></> : <p className="rounded-lg bg-white px-3 py-2 text-xs text-slate-600 sm:col-span-2 lg:col-span-3">Lịch sẽ hiện là “Chưa chốt giờ”. Bạn có thể đặt giờ trực tiếp trên mục lịch khi cần.</p>}
+      {bookNow ? <><Field label="Giờ bắt đầu" name="start_time" type="time" required defaultValue="07:00" /><Field label="Giờ kết thúc" name="end_time" type="time" required defaultValue="08:30" /></> : <p className="rounded-lg bg-white px-3 py-2 text-xs text-slate-600 sm:col-span-2 lg:col-span-3">Lịch sẽ hiện là “Chưa chốt giờ”. Bạn có thể đặt giờ trực tiếp trên mục lịch khi cần.</p>}
       <div className="flex gap-2 sm:col-span-2 lg:col-span-3"><button className="gold-button h-10" disabled={busy}>{bookNow ? "Tạo lịch và nhắc nhở" : "Lưu lịch định kỳ"}</button><button type="button" className="soft-button h-10 px-3" onClick={() => setCreateOpen(false)}>Hủy</button></div>
     </form>}
 
@@ -1393,7 +1420,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
           const isOverdue = (Boolean(schedule.is_overdue) || schedule.next_due_date < today()) && (schedule.event_status !== "Completed" || Boolean(schedule.frequency_days));
           const isCompletedOnce = !schedule.frequency_days && schedule.event_status === "Completed";
           return <div key={schedule.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0"><p className="font-semibold text-slate-900">{horseName} · {careTypeLabels[schedule.care_type] ?? schedule.care_type}</p><p className="mt-0.5 text-xs text-slate-700 font-medium">{schedule.frequency_days ? `Lặp mỗi ${schedule.frequency_days} ngày` : "Một lần"} · Đến hạn {displayDate(schedule.next_due_date)}{schedule.last_done_date ? ` · Gần nhất ${displayDate(schedule.last_done_date)}` : ""}</p>{schedule.notes && <p className="mt-0.5 truncate text-xs text-slate-600">{schedule.notes}</p>}</div>
+            <div className="min-w-0"><p className="font-semibold text-slate-900">{horseName} · {careTypeLabels[schedule.care_type] ?? schedule.care_type}</p><p className="mt-0.5 text-xs text-slate-700 font-medium">{schedule.frequency_days ? `Lặp mỗi ${schedule.frequency_days} ngày` : "Một lần"} · Đến hạn {displayDate(schedule.next_due_date)}{schedule.last_done_date ? ` · Gần nhất ${displayDate(schedule.last_done_date)}` : ""}{schedule.doctor_name ? ` · BS: ${schedule.doctor_name}` : ""}</p>{schedule.notes && <p className="mt-0.5 truncate text-xs text-slate-600">{schedule.notes}</p>}</div>
             <div className="flex shrink-0 items-center gap-2"><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${isOverdue ? "bg-rose-100 text-rose-900 border border-rose-300" : schedule.event_status === "Scheduled" ? "bg-blue-100 text-blue-900 border border-blue-300" : isCompletedOnce ? "bg-emerald-100 text-emerald-900 border border-emerald-300" : "bg-slate-200 text-slate-800"}`}>{isOverdue ? "Quá hạn" : schedule.event_status === "Scheduled" ? "Đã đặt giờ" : isCompletedOnce ? "Đã hoàn thành" : "Chưa chốt giờ"}</span><button type="button" className="soft-button h-8 px-2.5 text-xs font-semibold text-slate-800" onClick={() => setWeekStart(schedule.next_due_date < today() ? currentWeekStart : mondayOfWeek(schedule.next_due_date))}>Xem trên lịch</button></div>
           </div>;
         })}
@@ -1416,7 +1443,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
             onClick={() => setShowAllSlots(!showAllSlots)}
             className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline"
           >
-            {showAllSlots ? "Thu gọn slot trống" : "Hiện đủ 5 slot"}
+            {showAllSlots ? "Thu gọn ca trống" : "Hiện đủ 6 ca"}
           </button>
           <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-900">
             {weeklyCareEvents.length} việc trong tuần
@@ -1501,6 +1528,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                               const eventName = careTypeLabels[rawName] ?? rawName;
                               const horseLocation = horse?.stable_box ? `Khu ${horse.stable_box.section ?? "A"} · Chuồng ${horse.stable_box.box_code}` : "Khu chuồng trại · Ô khám";
                               const timeStr = formatTimeDisplay(event.start_time, event.end_time);
+                              const doctorName = formatDoctorName(event, schedule, currentUser);
 
                               return (
                                 <article
@@ -1562,9 +1590,9 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                   </div>
 
                                   {/* Staff / Doctor */}
-                                  <div className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-slate-800">
+                                  <div className="mt-0.5 flex items-center gap-1.5 text-[11px] font-semibold text-slate-800">
                                     <User className="h-3 w-3 shrink-0 text-slate-600" />
-                                    <span>{scope === "mine" ? "BS. Phụ trách" : "Bác sĩ thú y"}</span>
+                                    <span className="truncate">{doctorName}</span>
                                   </div>
 
                                   {/* Action Buttons */}
@@ -1618,8 +1646,8 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                   {scheduleId && bookId === scheduleId && (
                                     <form onSubmit={(submitEvent) => void submitBook(submitEvent, scheduleId)} className="mt-2 grid gap-1.5 rounded-lg border border-blue-300 bg-blue-50/80 p-2 text-left">
                                       <Field label="Ngày hẹn" name="event_date" type="date" required defaultValue={event.event_date} />
-                                      <Field label="Bắt đầu" name="start_time" type="time" required defaultValue={event.start_time?.slice(0, 5) ?? "08:00"} />
-                                      <Field label="Kết thúc" name="end_time" type="time" required defaultValue={event.end_time?.slice(0, 5) ?? "09:00"} />
+                                      <Field label="Bắt đầu" name="start_time" type="time" required defaultValue={event.start_time?.slice(0, 5) ?? "07:00"} />
+                                      <Field label="Kết thúc" name="end_time" type="time" required defaultValue={event.end_time?.slice(0, 5) ?? "08:30"} />
                                       <button className="gold-button h-8 text-[11px] font-bold" disabled={busy}>Lưu giờ và tạo nhắc</button>
                                     </form>
                                   )}
