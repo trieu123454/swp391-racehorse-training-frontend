@@ -164,15 +164,23 @@ export default function LoginPage() {
                 </span>
               </label>
 
-              <label className="auth-checkbox-row cursor-pointer">
-                <input
-                  checked={remember}
-                  className="h-4 w-4"
-                  onChange={(event) => setRemember(event.target.checked)}
-                  type="checkbox"
-                />
-                Ghi nhớ đăng nhập
-              </label>
+              <div className="flex items-center justify-between text-sm">
+                <label className="auth-checkbox-row cursor-pointer">
+                  <input
+                    checked={remember}
+                    className="h-4 w-4"
+                    onChange={(event) => setRemember(event.target.checked)}
+                    type="checkbox"
+                  />
+                  Ghi nhớ đăng nhập
+                </label>
+                <Link
+                  className="font-medium text-equine-gold hover:underline"
+                  href={Routes.forgotPassword}
+                >
+                  Quên mật khẩu?
+                </Link>
+              </div>
 
               {error ? (
                 <p className="auth-feedback auth-feedback--error" role="alert">

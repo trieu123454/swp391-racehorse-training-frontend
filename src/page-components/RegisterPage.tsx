@@ -60,12 +60,17 @@ export default function RegisterPage() {
       setError("Mật khẩu xác nhận chưa trùng khớp.");
       return;
     }
+    const trimmedPhone = form.phone.trim();
+    if (trimmedPhone && !/^(?:\+84|0)[35789]\d{8}$/.test(trimmedPhone)) {
+      setError("Số điện thoại không đúng định dạng Việt Nam (ví dụ: 0912345678 hoặc +84912345678).");
+      return;
+    }
     setLoading(true);
     try {
       await register({
         fullName: form.fullName,
         email: form.email,
-        phone: form.phone,
+        phone: trimmedPhone || undefined,
         password: form.password,
         roleName: "HORSE_OWNER",
       });
@@ -102,7 +107,14 @@ export default function RegisterPage() {
           className="field-control"
           autoComplete={key === "fullName" ? "name" : key === "email" ? "email" : key === "phone" ? "tel" : "new-password"}
           minLength={type === "password" ? 8 : undefined}
-          onChange={(event) => update(key)(event.target.value)}
+          inputMode={key === "phone" ? "tel" : undefined}
+          maxLength={key === "phone" ? 15 : undefined}
+          onChange={(event) => {
+            const val = key === "phone"
+              ? event.target.value.replace(/[^\d+]/g, "").replace(/(?!^)\+/g, "")
+              : event.target.value;
+            update(key)(val);
+          }}
           placeholder={placeholder}
           required={key !== "phone"}
           type={type}

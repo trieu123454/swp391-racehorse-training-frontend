@@ -66,7 +66,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       error = { message: response.statusText };
     }
 
-    const message = error.error?.message || error.message || "Request failed";
+    const rawError = error.error;
+    const message = (typeof rawError === "string" ? rawError : rawError?.message) || error.message || response.statusText || "Request failed";
     let details = Array.isArray(error.error?.details)
       ? error.error.details
       ?.map((item) => [item.field, item.message].filter(Boolean).join(": "))
@@ -155,6 +156,20 @@ export function changePassword(currentPassword: string, newPassword: string) {
   return authenticatedRequest<AuthResponse>("/api/auth/change-password", {
     method: "POST",
     body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export function forgotPassword(email: string) {
+  return request<{ message: string }>("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPassword(email: string, code: string, newPassword: string) {
+  return request<{ message: string }>("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ email, code, newPassword }),
   });
 }
 
