@@ -1065,15 +1065,17 @@ interface TimetableSlot {
   id: number;
   label: string;
   timeRange: string;
+  startTime: string;
+  endTime: string;
 }
 
 const TIMETABLE_SLOTS: TimetableSlot[] = [
-  { id: 1, label: "1", timeRange: "07h00 - 08h30" },
-  { id: 2, label: "2", timeRange: "08h45 - 10h15" },
-  { id: 3, label: "3", timeRange: "10h30 - 12h00" },
-  { id: 4, label: "4", timeRange: "12h30 - 14h00" },
-  { id: 5, label: "5", timeRange: "14h15 - 15h45" },
-  { id: 6, label: "6", timeRange: "16h15 - 17h45" },
+  { id: 1, label: "1", timeRange: "07h00 - 08h30", startTime: "07:00", endTime: "08:30" },
+  { id: 2, label: "2", timeRange: "08h45 - 10h15", startTime: "08:45", endTime: "10:15" },
+  { id: 3, label: "3", timeRange: "10h30 - 12h00", startTime: "10:30", endTime: "12:00" },
+  { id: 4, label: "4", timeRange: "12h30 - 14h00", startTime: "12:30", endTime: "14:00" },
+  { id: 5, label: "5", timeRange: "14h15 - 15h45", startTime: "14:15", endTime: "15:45" },
+  { id: 6, label: "6", timeRange: "16h15 - 17h45", startTime: "16:15", endTime: "17:45" },
 ];
 
 function getEventSlot(event: CalendarCareItem): number {
@@ -1265,10 +1267,18 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
     const book = formData.get("book_event") === "on";
     const values = formValues(form, ["frequency_days"], ["frequency_days", "last_done_date", "notes", "start_time", "end_time"]);
     values.book_event = book;
+    if (book) {
+      const slotRange = formData.get("slot_time_range") as string;
+      if (slotRange && slotRange.includes("|")) {
+        const [s, e] = slotRange.split("|");
+        values.start_time = s;
+        values.end_time = e;
+      }
+    }
     try {
       await veterinarianApi.createSchedule(values); setCreateOpen(false); await load();
-      onChanged(book ? "Đã tạo lịch chăm sóc và hẹn thông báo." : "Đã lưu quy tắc chăm sóc; lịch chưa được chốt giờ.");
-      setNotice(book ? "Lịch đã được chốt. Thông báo sẽ hiện trước ngày hẹn." : "Quy tắc đã lưu, chưa tạo sự kiện hoặc thông báo.");
+      onChanged(book ? "Đã tạo lịch chăm sóc và hẹn thông báo." : "Đã lưu quy tắc chăm sóc; lịch chưa được chốt ca.");
+      setNotice(book ? "Lịch đã được chốt ca. Thông báo sẽ hiện trước ngày hẹn." : "Quy tắc đã lưu, chưa chốt ca hoặc tạo thông báo.");
     } catch (reason) { setError(veterinarianError(reason)); }
     finally { setBusy(false); }
   }
@@ -1284,15 +1294,56 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
     finally { setBusy(false); }
   }
   async function submitBook(event: FormEvent<HTMLFormElement>, id: string) {
-    event.preventDefault(); const values = formValues(event.currentTarget);
-    await act(() => veterinarianApi.bookSchedule(id, values), "Đã chốt ngày giờ và tạo thông báo nhắc.");
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const slotRange = formData.get("slot_time_range") as string;
+    let startTime = (formData.get("start_time") as string) || "";
+    let endTime = (formData.get("end_time") as string) || "";
+    if (slotRange && slotRange.includes("|")) {
+      const [s, e] = slotRange.split("|");
+      startTime = s;
+      endTime = e;
+    }
+    const values: Record<string, unknown> = {
+      event_date: formData.get("event_date"),
+      start_time: startTime,
+      end_time: endTime,
+    };
+    await act(() => veterinarianApi.bookSchedule(id, values), "Đã chốt ca làm việc và tạo thông báo nhắc.");
   }
   async function submitMove(event: FormEvent<HTMLFormElement>, id: string) {
-    event.preventDefault(); const values = formValues(event.currentTarget, [], ["event_date", "start_time", "end_time"]);
-    await act(() => veterinarianApi.moveSchedule(id, values), "Đã dời lịch và cập nhật thông báo.");
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const slotRange = formData.get("slot_time_range") as string;
+    let startTime = (formData.get("start_time") as string) || "";
+    let endTime = (formData.get("end_time") as string) || "";
+    if (slotRange && slotRange.includes("|")) {
+      const [s, e] = slotRange.split("|");
+      startTime = s;
+      endTime = e;
+    }
+    const values: Record<string, unknown> = {
+      event_date: formData.get("event_date"),
+      start_time: startTime,
+      end_time: endTime,
+    };
+    await act(() => veterinarianApi.moveSchedule(id, values), "Đã dời ca làm việc và cập nhật thông báo.");
   }
   async function submitComplete(event: FormEvent<HTMLFormElement>, id: string) {
-    event.preventDefault(); const values = formValues(event.currentTarget, [], ["done_date", "next_start_time", "next_end_time"]);
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const nextSlot = formData.get("next_slot_time_range") as string;
+    const values: Record<string, unknown> = {
+      done_date: formData.get("done_date"),
+    };
+    if (nextSlot && nextSlot.includes("|")) {
+      const [s, e] = nextSlot.split("|");
+      values.next_start_time = s;
+      values.next_end_time = e;
+    }
     await act(() => veterinarianApi.completeSchedule(id, values), "Đã ghi nhận hoàn thành lịch chăm sóc.");
   }
   async function cancel(id: string) {
@@ -1311,8 +1362,26 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
       <Field label="Lần gần nhất" name="last_done_date" type="date" />
       <Field label="Ngày đến hạn" name="next_due_date" type="date" required defaultValue={today()} />
       <TextAreaField label="Ghi chú" name="notes" rows={2} />
-      <label className="flex min-h-11 items-center gap-2 rounded-xl border border-equine-line bg-white px-3 py-2 text-sm sm:col-span-2 lg:col-span-3"><input type="checkbox" name="book_event" checked={bookNow} onChange={(event) => setBookNow(event.target.checked)} /> Chốt giờ ngay và tạo nhắc nhở</label>
-      {bookNow ? <><Field label="Giờ bắt đầu" name="start_time" type="time" required defaultValue="07:00" /><Field label="Giờ kết thúc" name="end_time" type="time" required defaultValue="08:30" /></> : <p className="rounded-lg bg-white px-3 py-2 text-xs text-slate-600 sm:col-span-2 lg:col-span-3">Lịch sẽ hiện là “Chưa chốt giờ”. Bạn có thể đặt giờ trực tiếp trên mục lịch khi cần.</p>}
+      <label className="flex min-h-11 items-center gap-2 rounded-xl border border-equine-line bg-white px-3 py-2 text-sm sm:col-span-2 lg:col-span-3"><input type="checkbox" name="book_event" checked={bookNow} onChange={(event) => setBookNow(event.target.checked)} /> Chốt ca ngay và tạo nhắc nhở</label>
+      {bookNow ? (
+        <label className="block sm:col-span-2 lg:col-span-3">
+          <span className="field-label text-xs font-bold text-slate-800">Chọn ca làm việc <span className="text-rose-600">*</span></span>
+          <select
+            name="slot_time_range"
+            defaultValue={`${TIMETABLE_SLOTS[0].startTime}|${TIMETABLE_SLOTS[0].endTime}`}
+            required
+            className="field-control h-10 px-3 text-xs font-bold text-slate-900 border-slate-300 bg-white"
+          >
+            {TIMETABLE_SLOTS.map((s) => (
+              <option key={s.id} value={`${s.startTime}|${s.endTime}`}>
+                Ca {s.id}: {s.timeRange}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <p className="rounded-lg bg-white px-3 py-2 text-xs text-slate-600 sm:col-span-2 lg:col-span-3">Lịch sẽ hiện là “Chưa chốt ca”. Bạn có thể đặt ca trực tiếp trên thời khóa biểu khi cần.</p>
+      )}
       <div className="flex gap-2 sm:col-span-2 lg:col-span-3"><button className="gold-button h-10" disabled={busy}>{bookNow ? "Tạo lịch và nhắc nhở" : "Lưu lịch định kỳ"}</button><button type="button" className="soft-button h-10 px-3" onClick={() => setCreateOpen(false)}>Hủy</button></div>
     </form>}
 
@@ -1529,6 +1598,8 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                               const horseLocation = horse?.stable_box ? `Khu ${horse.stable_box.section ?? "A"} · Chuồng ${horse.stable_box.box_code}` : "Khu chuồng trại · Ô khám";
                               const timeStr = formatTimeDisplay(event.start_time, event.end_time);
                               const doctorName = formatDoctorName(event, schedule, currentUser);
+                              const currentSlotObj = TIMETABLE_SLOTS.find((s) => s.id === getEventSlot(event)) ?? TIMETABLE_SLOTS[0];
+                              const defaultSlotValue = `${currentSlotObj.startTime}|${currentSlotObj.endTime}`;
 
                               return (
                                 <article
@@ -1539,7 +1610,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                       : isCompleted
                                       ? "border-emerald-300 bg-emerald-50/80"
                                       : isOverdue
-                                      ? "border-rose-300 bg-rose-50/80"
+                                      ? "border-rose-400 bg-rose-50/90 ring-1 ring-rose-400"
                                       : isCancelled
                                       ? "border-slate-300 bg-slate-50"
                                       : "border-blue-300 bg-white"
@@ -1547,8 +1618,12 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                 >
                                   {/* Title & Badge */}
                                   <div className="flex items-start justify-between gap-1.5">
-                                    <div className="flex items-start gap-1 font-bold text-[#0A389C] break-words leading-tight text-xs">
-                                      <BookOpen className="h-3.5 w-3.5 shrink-0 text-[#0A389C] mt-0.5" />
+                                    <div className={`flex items-start gap-1 font-bold break-words leading-tight text-xs ${isOverdue ? "text-rose-900" : "text-[#0A389C]"}`}>
+                                      {isOverdue ? (
+                                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-rose-600 mt-0.5" />
+                                      ) : (
+                                        <BookOpen className="h-3.5 w-3.5 shrink-0 text-[#0A389C] mt-0.5" />
+                                      )}
                                       <span>{eventName} - {horseName}</span>
                                     </div>
                                     {isCompleted && (
@@ -1557,8 +1632,8 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                       </span>
                                     )}
                                     {isOverdue && (
-                                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-black text-rose-900 bg-rose-100 border border-rose-400">
-                                        Quá hạn
+                                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-black text-rose-950 bg-rose-200 border border-rose-500">
+                                        <AlertTriangle size={9} /> Quá hạn
                                       </span>
                                     )}
                                     {event.is_periodic_due && (
@@ -1574,8 +1649,8 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                   </div>
 
                                   {/* Time */}
-                                  <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-bold text-amber-900">
-                                    <Clock className="h-3 w-3 shrink-0 text-amber-700" />
+                                  <div className={`mt-1.5 flex items-center gap-1.5 text-[11px] font-bold ${isOverdue ? "text-rose-800" : "text-amber-900"}`}>
+                                    <Clock className={`h-3 w-3 shrink-0 ${isOverdue ? "text-rose-600" : "text-amber-700"}`} />
                                     <span>{timeStr}</span>
                                     <span className="text-slate-400">·</span>
                                     <span className="text-slate-700 font-semibold">
@@ -1644,27 +1719,87 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
 
                                   {/* Forms */}
                                   {scheduleId && bookId === scheduleId && (
-                                    <form onSubmit={(submitEvent) => void submitBook(submitEvent, scheduleId)} className="mt-2 grid gap-1.5 rounded-lg border border-blue-300 bg-blue-50/80 p-2 text-left">
+                                    <form onSubmit={(submitEvent) => void submitBook(submitEvent, scheduleId)} className="mt-2 grid gap-2 rounded-lg border border-blue-300 bg-blue-50/90 p-2.5 text-left shadow-xs">
+                                      <div className="flex items-center justify-between text-xs font-bold text-blue-900">
+                                        <span>Chốt ca lịch hẹn</span>
+                                        <button type="button" className="text-[10px] text-slate-500 hover:text-slate-800" onClick={() => setBookId("")}>✕</button>
+                                      </div>
                                       <Field label="Ngày hẹn" name="event_date" type="date" required defaultValue={event.event_date} />
-                                      <Field label="Bắt đầu" name="start_time" type="time" required defaultValue={event.start_time?.slice(0, 5) ?? "07:00"} />
-                                      <Field label="Kết thúc" name="end_time" type="time" required defaultValue={event.end_time?.slice(0, 5) ?? "08:30"} />
-                                      <button className="gold-button h-8 text-[11px] font-bold" disabled={busy}>Lưu giờ và tạo nhắc</button>
+                                      <label className="block">
+                                        <span className="field-label text-xs font-bold text-slate-800">Chọn ca làm việc <span className="text-rose-600">*</span></span>
+                                        <select
+                                          name="slot_time_range"
+                                          defaultValue={defaultSlotValue}
+                                          required
+                                          className="field-control h-8 px-2 text-xs font-bold text-slate-900 border-slate-300 bg-white"
+                                        >
+                                          {TIMETABLE_SLOTS.map((s) => (
+                                            <option key={s.id} value={`${s.startTime}|${s.endTime}`}>
+                                              Ca {s.id}: {s.timeRange}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                      <div className="flex gap-1.5 pt-1">
+                                        <button className="gold-button h-8 flex-1 text-[11px] font-bold" disabled={busy}>Lưu ca và tạo nhắc</button>
+                                        <button type="button" className="soft-button h-8 px-2 text-[11px] font-semibold text-slate-700" onClick={() => setBookId("")}>Hủy</button>
+                                      </div>
                                     </form>
                                   )}
                                   {scheduleId && moveId === scheduleId && (
-                                    <form onSubmit={(submitEvent) => void submitMove(submitEvent, scheduleId)} className="mt-2 grid gap-1.5 rounded-lg border border-slate-300 bg-slate-100 p-2 text-left">
-                                      <Field label="Ngày mới" name="event_date" type="date" defaultValue={event.event_date} />
-                                      <Field label="Bắt đầu mới" name="start_time" type="time" defaultValue={event.start_time?.slice(0, 5) ?? ""} />
-                                      <Field label="Kết thúc mới" name="end_time" type="time" defaultValue={event.end_time?.slice(0, 5) ?? ""} />
-                                      <button className="gold-button h-8 text-[11px] font-bold" disabled={busy}>Lưu thay đổi</button>
+                                    <form onSubmit={(submitEvent) => void submitMove(submitEvent, scheduleId)} className="mt-2 grid gap-2 rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-left shadow-xs">
+                                      <div className="flex items-center justify-between text-xs font-bold text-slate-900">
+                                        <span>Dời sang ca khác</span>
+                                        <button type="button" className="text-[10px] text-slate-500 hover:text-slate-800" onClick={() => setMoveId("")}>✕</button>
+                                      </div>
+                                      <Field label="Ngày mới" name="event_date" type="date" required defaultValue={event.event_date} />
+                                      <label className="block">
+                                        <span className="field-label text-xs font-bold text-slate-800">Chọn ca làm việc mới <span className="text-rose-600">*</span></span>
+                                        <select
+                                          name="slot_time_range"
+                                          defaultValue={defaultSlotValue}
+                                          required
+                                          className="field-control h-8 px-2 text-xs font-bold text-slate-900 border-slate-300 bg-white"
+                                        >
+                                          {TIMETABLE_SLOTS.map((s) => (
+                                            <option key={s.id} value={`${s.startTime}|${s.endTime}`}>
+                                              Ca {s.id}: {s.timeRange}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                      <div className="flex gap-1.5 pt-1">
+                                        <button className="gold-button h-8 flex-1 text-[11px] font-bold" disabled={busy}>Lưu thay đổi</button>
+                                        <button type="button" className="soft-button h-8 px-2 text-[11px] font-semibold text-slate-700" onClick={() => setMoveId("")}>Hủy</button>
+                                      </div>
                                     </form>
                                   )}
                                   {scheduleId && completeId === scheduleId && (
-                                    <form onSubmit={(submitEvent) => void submitComplete(submitEvent, scheduleId)} className="mt-2 grid gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50/80 p-2 text-left">
+                                    <form onSubmit={(submitEvent) => void submitComplete(submitEvent, scheduleId)} className="mt-2 grid gap-2 rounded-lg border border-emerald-300 bg-emerald-50/90 p-2.5 text-left shadow-xs">
+                                      <div className="flex items-center justify-between text-xs font-bold text-emerald-950">
+                                        <span>Xác nhận hoàn thành</span>
+                                        <button type="button" className="text-[10px] text-slate-500 hover:text-slate-800" onClick={() => setCompleteId("")}>✕</button>
+                                      </div>
                                       <Field label="Ngày thực hiện" name="done_date" type="date" required defaultValue={today()} />
-                                      <Field label="Giờ lần kế tiếp (tùy chọn)" name="next_start_time" type="time" />
-                                      <Field label="Kết thúc lần kế tiếp" name="next_end_time" type="time" />
-                                      <button className="gold-button h-8 text-[11px] font-bold" disabled={busy}>Xác nhận hoàn thành</button>
+                                      <label className="block">
+                                        <span className="field-label text-xs font-bold text-slate-800">Ca lần kế tiếp (tùy chọn)</span>
+                                        <select
+                                          name="next_slot_time_range"
+                                          defaultValue=""
+                                          className="field-control h-8 px-2 text-xs font-semibold text-slate-900 border-slate-300 bg-white"
+                                        >
+                                          <option value="">-- Để trống nếu chưa chốt ca --</option>
+                                          {TIMETABLE_SLOTS.map((s) => (
+                                            <option key={s.id} value={`${s.startTime}|${s.endTime}`}>
+                                              Ca {s.id}: {s.timeRange}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                      <div className="flex gap-1.5 pt-1">
+                                        <button className="gold-button h-8 flex-1 text-[11px] font-bold" disabled={busy}>Xác nhận hoàn thành</button>
+                                        <button type="button" className="soft-button h-8 px-2 text-[11px] font-semibold text-slate-700" onClick={() => setCompleteId("")}>Hủy</button>
+                                      </div>
                                     </form>
                                   )}
                                 </article>
