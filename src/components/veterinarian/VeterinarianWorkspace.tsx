@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Bell,
   BookOpen,
+  CalendarCheck,
   CalendarDays,
   Check,
   CircleHelp,
@@ -240,6 +241,8 @@ export default function VeterinarianWorkspace() {
   const [openIncidentCount, setOpenIncidentCount] = useState(0);
   const [recentActivities, setRecentActivities] = useState<VetActivity[]>([]);
   const [activityHistoryReady, setActivityHistoryReady] = useState(false);
+  const [autoOpenExam, setAutoOpenExam] = useState(false);
+  const [linkedScheduleId, setLinkedScheduleId] = useState<string | undefined>(undefined);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -415,11 +418,35 @@ export default function VeterinarianWorkspace() {
             <HorseSummary horse={horse} />
             <div className="mt-4">
               {tab === "overview" && <HorseStatusPanel horse={horse} onChanged={changed} />}
-              {tab === "exams" && <ExamsPanel horse={horse} onChanged={changed} />}
+              {tab === "exams" && (
+                <ExamsPanel
+                  horse={horse}
+                  onChanged={changed}
+                  autoOpenCreate={autoOpenExam}
+                  linkedScheduleId={linkedScheduleId}
+                  onResetAutoOpen={() => {
+                    setAutoOpenExam(false);
+                    setLinkedScheduleId(undefined);
+                  }}
+                />
+              )}
               {tab === "medical" && <MedicalPanel horse={horse} onChanged={changed} />}
               {tab === "diet" && <DietPanel horse={horse} onChanged={changed} />}
               {tab === "injuries" && <InjuriesPanel horse={horse} onChanged={changed} />}
-              {tab === "care" && <CarePanel horses={horses} selectedHorse={horse} onChanged={changed} />}
+              {tab === "care" && (
+                <CarePanel
+                  horses={horses}
+                  selectedHorse={horse}
+                  onChanged={changed}
+                  onGoToExam={(horseId, scheduleId) => {
+                    if (horseId) setSelectedId(horseId);
+                    setLinkedScheduleId(scheduleId);
+                    setAutoOpenExam(true);
+                    selectTab("exams");
+                    setNotice("");
+                  }}
+                />
+              )}
               {tab === "incidents" && <StableIncidentsPanel onOpenHorse={(id) => { setSelectedId(id); selectTab("overview"); }} />}
               {tab === "notifications" && <NotificationsPanel horses={horses} activities={recentActivities} initialActionItems={actionItems} actionsLoading={actionItemsLoading} actionsError={actionItemsError} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} />}
             </div>
@@ -648,26 +675,149 @@ function readExamForm(form: HTMLFormElement, editing: boolean) {
   return result;
 }
 
-function ExamForm({ initial, editing, onSubmit, onCancel, busy }: { initial?: HealthExam | null; editing: boolean; onSubmit: (data: Record<string, unknown>) => Promise<void>; onCancel?: () => void; busy: boolean }) {
-  return <form key={`${initial?.id ?? "new"}-${editing ? "edit" : "create"}`} onSubmit={async (event) => { event.preventDefault(); await onSubmit(readExamForm(event.currentTarget, editing)); }} className="space-y-4">
-    <Field label="Thời điểm khám" name="exam_date" type="datetime-local" defaultValue={localDateTime(initial?.exam_date)} />
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{examFields.map((field) => <Field key={field.name} {...field} defaultValue={initial?.[field.name as keyof HealthExam] as string | number | null | undefined} />)}</div>
-    <div className="grid gap-3 md:grid-cols-2">{examLongFields.map((field) => <TextAreaField key={field.name} {...field} rows={2} defaultValue={initial?.[field.name as keyof HealthExam] as string | null | undefined} />)}</div>
-    <div className="flex flex-wrap gap-2"><button className="gold-button" disabled={busy}><Check size={15} />{editing ? "Lưu chỉnh sửa" : "Lưu hồ sơ khám"}</button>{onCancel && <button type="button" className="soft-button h-11 px-4" disabled={busy} onClick={onCancel}>Hủy</button>}</div>
-  </form>;
+function ExamForm({
+  initial,
+  editing,
+  onSubmit,
+  onCancel,
+  busy,
+  pendingSchedule,
+  autoCompleteCare,
+  onToggleAutoCompleteCare,
+}: {
+  initial?: HealthExam | null;
+  editing: boolean;
+  onSubmit: (data: Record<string, unknown>) => Promise<void>;
+  onCancel?: () => void;
+  busy: boolean;
+  pendingSchedule?: CareSchedule | null;
+  autoCompleteCare?: boolean;
+  onToggleAutoCompleteCare?: (val: boolean) => void;
+}) {
+  return (
+    <form
+      key={`${initial?.id ?? "new"}-${editing ? "edit" : "create"}`}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        await onSubmit(readExamForm(event.currentTarget, editing));
+      }}
+      className="space-y-4"
+    >
+      {!editing && pendingSchedule && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 p-3.5 text-xs text-indigo-950 shadow-xs">
+          <div className="flex flex-wrap items-center justify-between gap-1.5 font-bold">
+            <span className="flex items-center gap-1.5 text-indigo-900">
+              <CalendarCheck size={16} className="text-indigo-600" />
+              Lịch "Khám định kỳ" cần thực hiện
+            </span>
+            <span className="rounded bg-indigo-100 px-2 py-0.5 text-[10px] font-bold text-indigo-900 border border-indigo-300">
+              Hạn: {pendingSchedule.next_due_date}
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-indigo-700">
+            Hệ thống nhận diện lịch khám định kỳ đang chờ của ngựa này trên thời khóa biểu.
+          </p>
+          <label className="mt-2.5 flex items-center gap-2 font-bold text-indigo-950 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={autoCompleteCare ?? true}
+              onChange={(e) => onToggleAutoCompleteCare?.(e.target.checked)}
+              className="h-4 w-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+            />
+            <span>Tự động đánh dấu hoàn thành ca khám định kỳ này trên Lịch chăm sóc sau khi lưu</span>
+          </label>
+        </div>
+      )}
+      <Field label="Thời điểm khám" name="exam_date" type="datetime-local" defaultValue={localDateTime(initial?.exam_date)} />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {examFields.map((field) => (
+          <Field key={field.name} {...field} defaultValue={initial?.[field.name as keyof HealthExam] as string | number | null | undefined} />
+        ))}
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {examLongFields.map((field) => (
+          <TextAreaField key={field.name} {...field} rows={2} defaultValue={initial?.[field.name as keyof HealthExam] as string | null | undefined} />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button className="gold-button" disabled={busy}>
+          <Check size={15} />
+          {editing ? "Lưu chỉnh sửa" : "Lưu hồ sơ khám"}
+        </button>
+        {onCancel && (
+          <button type="button" className="soft-button h-11 px-4" disabled={busy} onClick={onCancel}>
+            Hủy
+          </button>
+        )}
+      </div>
+    </form>
+  );
 }
 
-function ExamsPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message: string) => void }) {
+function ExamsPanel({
+  horse,
+  onChanged,
+  autoOpenCreate,
+  linkedScheduleId,
+  onResetAutoOpen,
+}: {
+  horse: VetHorse;
+  onChanged: (message: string) => void;
+  autoOpenCreate?: boolean;
+  linkedScheduleId?: string;
+  onResetAutoOpen?: () => void;
+}) {
   const [response, setResponse] = useState<{ data: HealthExam[]; total: number }>({ data: [], total: 0 });
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<HealthExam | null>(null);
   const [logs, setLogs] = useState<HealthExamLog[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState(Boolean(autoOpenCreate));
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [alerts, setAlerts] = useState<HealthExam["alerts"]>([]);
+  const [pendingSchedule, setPendingSchedule] = useState<CareSchedule | null>(null);
+  const [autoCompleteCare, setAutoCompleteCare] = useState(true);
+
+  useEffect(() => {
+    if (autoOpenCreate) {
+      setCreating(true);
+      setDetail(null);
+      setEditing(false);
+      setError("");
+      onResetAutoOpen?.();
+    }
+  }, [autoOpenCreate, onResetAutoOpen]);
+
+  useEffect(() => {
+    let active = true;
+    veterinarianApi
+      .schedules()
+      .then((res) => {
+        if (!active) return;
+        const list = res.data ?? [];
+        if (linkedScheduleId) {
+          const target = list.find((s) => s.id === linkedScheduleId);
+          if (target) {
+            setPendingSchedule(target);
+            return;
+          }
+        }
+        const checkup = list.find(
+          (s) =>
+            s.horse_id === horse.id &&
+            s.care_type === "MedicalCheckup" &&
+            s.event_status !== "Completed" &&
+            s.next_due_date <= today(),
+        );
+        setPendingSchedule(checkup ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [horse.id, linkedScheduleId]);
 
   const load = useCallback(async (nextPage = 1, append = false) => {
     setLoading(true); setError("");
@@ -678,7 +828,7 @@ function ExamsPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message
     } catch (reason) { setError(veterinarianError(reason)); }
     finally { setLoading(false); }
   }, [horse.id]);
-  useEffect(() => { setDetail(null); setLogs([]); setResponse({ data: [], total: 0 }); setCreating(false); void load(); }, [load]);
+  useEffect(() => { setDetail(null); setLogs([]); setResponse({ data: [], total: 0 }); if (!autoOpenCreate) setCreating(false); void load(); }, [autoOpenCreate, load]);
 
   async function openExam(id: string) {
     setError(""); setLoading(true); setDetail(null); setLogs([]);
@@ -702,7 +852,22 @@ function ExamsPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message
       setAlerts(result.alerts ?? exam?.alerts ?? []);
       setCreating(false); setEditing(false); await load();
       if (exam && "id" in exam) await openExam(exam.id);
-      onChanged(editing ? (changed ? "Đã cập nhật hồ sơ khám và lưu lịch sử chỉnh sửa." : "Hồ sơ không thay đổi.") : "Đã tạo hồ sơ khám.");
+
+      let msg = editing ? (changed ? "Đã cập nhật hồ sơ khám và lưu lịch sử chỉnh sửa." : "Hồ sơ không thay đổi.") : "Đã tạo hồ sơ khám.";
+
+      if (!editing && autoCompleteCare && pendingSchedule) {
+        try {
+          await veterinarianApi.completeSchedule(pendingSchedule.id, {
+            done_date: today(),
+          });
+          msg = "Đã tạo hồ sơ khám và tự động xác nhận hoàn thành ca khám định kỳ trên lịch chăm sóc.";
+          setPendingSchedule(null);
+        } catch (scheduleErr) {
+          console.warn("Could not auto-complete schedule:", scheduleErr);
+        }
+      }
+
+      onChanged(msg);
     } catch (reason) { setError(veterinarianError(reason)); }
     finally { setBusy(false); }
   }
@@ -710,7 +875,20 @@ function ExamsPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message
   return <SectionCard title="Hồ sơ khám bệnh" description="Ghi nhận sinh hiệu, kết quả khám và xem lại lịch sử chỉnh sửa." icon={Stethoscope} action={<button type="button" className="gold-button h-10 px-3" onClick={() => { setCreating((value) => !value); setDetail(null); setEditing(false); setError(""); }}><Stethoscope size={15} /> Khám mới</button>}>
     <ErrorLine>{error}</ErrorLine>
     {alerts && alerts.length > 0 && <div className="my-3 space-y-2">{alerts.map((alert) => <p key={alert.field} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><AlertTriangle size={14} className="mr-2 inline" />{alert.field}: {alert.value} · ngưỡng tham khảo {alert.normal_range}</p>)}</div>}
-    {creating && <div className="mb-5 rounded-xl border border-equine-line bg-slate-50 p-4"><h4 className="mb-4 font-semibold text-equine-navy">Lần khám mới</h4><ExamForm editing={false} busy={busy} onSubmit={save} onCancel={() => setCreating(false)} /></div>}
+    {creating && (
+      <div className="mb-5 rounded-xl border border-equine-line bg-slate-50 p-4">
+        <h4 className="mb-4 font-semibold text-equine-navy">Lần khám mới</h4>
+        <ExamForm
+          editing={false}
+          busy={busy}
+          onSubmit={save}
+          onCancel={() => setCreating(false)}
+          pendingSchedule={pendingSchedule}
+          autoCompleteCare={autoCompleteCare}
+          onToggleAutoCompleteCare={setAutoCompleteCare}
+        />
+      </div>
+    )}
     {detail && <div className="mb-5 rounded-xl border border-equine-line bg-slate-50 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h4 className="font-semibold text-equine-navy">Chi tiết lần khám</h4><CompactId id={detail.id} /></div><p className="text-sm text-slate-500">{displayDate(detail.exam_date)} · {detail.doctor?.name ?? "Bác sĩ"}</p>{detail.last_edited_at && <p className="mt-1 text-xs text-slate-500">Sửa gần nhất: {displayDate(detail.last_edited_at)} · {detail.last_edited_by?.name ?? "Bác sĩ"}</p>}</div><button type="button" className="soft-button h-9 px-3" onClick={() => setEditing((value) => !value)}> {editing ? "Đóng chỉnh sửa" : "Chỉnh sửa"}</button></div>
       {editing ? <div className="mt-4"><ExamForm initial={detail} editing busy={busy} onSubmit={save} onCancel={() => setEditing(false)} /></div> : <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{[...examFields, ...examLongFields].map((field) => { const value = detail[field.name as keyof HealthExam]; return value === undefined || value === null || value === "" ? null : <p key={field.name} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="block text-xs text-slate-500">{field.label}</span><span className="whitespace-pre-wrap font-medium text-slate-800">{String(value)}</span></p>; })}</div>}
@@ -1220,7 +1398,17 @@ function isAssignedDoctor(
 
 type CalendarCareItem = CareEvent & { is_periodic_due?: boolean; due_date?: string };
 
-function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; selectedHorse: VetHorse; onChanged: (message: string) => void }) {
+function CarePanel({
+  horses,
+  selectedHorse,
+  onChanged,
+  onGoToExam,
+}: {
+  horses: VetHorse[];
+  selectedHorse: VetHorse;
+  onChanged: (message: string) => void;
+  onGoToExam?: (horseId?: string, scheduleId?: string) => void;
+}) {
   const [schedules, setSchedules] = useState<CareSchedule[]>([]);
   const [events, setEvents] = useState<CareEvent[]>([]);
   const [contextEvents, setContextEvents] = useState<CareEvent[]>([]);
@@ -1819,13 +2007,25 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                             </>
                                           )}
                                           {canComplete && (
-                                            <button
-                                              type="button"
-                                              className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-950 hover:bg-emerald-200 border border-emerald-300"
-                                              onClick={() => { setCompleteId(completeId === scheduleId ? "" : scheduleId); setBookId(""); setMoveId(""); }}
-                                            >
-                                              Hoàn thành
-                                            </button>
+                                            <>
+                                              {(event.care_type === "MedicalCheckup" || schedule?.care_type === "MedicalCheckup") && (
+                                                <button
+                                                  type="button"
+                                                  className="rounded bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white hover:bg-indigo-700 shadow-xs flex items-center gap-1"
+                                                  onClick={() => onGoToExam?.(event.horse?.id ? String(event.horse.id) : undefined, scheduleId)}
+                                                  title="Chuyển sang tab Khám bệnh để ghi nhận sinh hiệu và kết quả khám"
+                                                >
+                                                  <Stethoscope size={10} /> Vào khám
+                                                </button>
+                                              )}
+                                              <button
+                                                type="button"
+                                                className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-950 hover:bg-emerald-200 border border-emerald-300"
+                                                onClick={() => { setCompleteId(completeId === scheduleId ? "" : scheduleId); setBookId(""); setMoveId(""); }}
+                                              >
+                                                Hoàn thành
+                                              </button>
+                                            </>
                                           )}
                                         </>
                                       )}
@@ -1900,6 +2100,24 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                         <span>Xác nhận hoàn thành</span>
                                         <button type="button" className="text-[10px] text-slate-500 hover:text-slate-800" onClick={() => setCompleteId("")}>✕</button>
                                       </div>
+                                      {(event.care_type === "MedicalCheckup" || schedule?.care_type === "MedicalCheckup") && (
+                                        <div className="rounded-md border border-indigo-200 bg-indigo-100/70 p-2 text-[11px] text-indigo-950">
+                                          <p className="font-bold flex items-center gap-1 text-indigo-900">
+                                            <Stethoscope size={12} className="text-indigo-600" />
+                                            Đây là ca khám lâm sàng
+                                          </p>
+                                          <p className="mt-0.5 text-[10px] text-indigo-800">
+                                            Bạn có thể vào tab Khám bệnh để nhập sinh hiệu. Khi lưu, ca này sẽ tự động được hoàn thành.
+                                          </p>
+                                          <button
+                                            type="button"
+                                            className="mt-1.5 flex items-center justify-center gap-1 w-full rounded bg-indigo-600 py-1 text-[10px] font-bold text-white hover:bg-indigo-700 shadow-xs"
+                                            onClick={() => onGoToExam?.(event.horse?.id ? String(event.horse.id) : undefined, scheduleId)}
+                                          >
+                                            <Stethoscope size={11} /> Mở tab Khám bệnh để điền hồ sơ
+                                          </button>
+                                        </div>
+                                      )}
                                       <Field label="Ngày thực hiện" name="done_date" type="date" required defaultValue={today()} />
                                       <label className="block">
                                         <span className="field-label text-xs font-bold text-slate-800">Ca lần kế tiếp (tùy chọn)</span>
