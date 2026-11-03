@@ -1121,6 +1121,60 @@ function formatDoctorName(
   return `BS. ${trimmed}`;
 }
 
+function isEventOverdue(event: CalendarCareItem, schedule?: CareSchedule): boolean {
+  if (event.context || event.status !== "Scheduled") return false;
+
+  const curDate = today();
+  const eventDate = event.due_date ?? event.event_date;
+
+  // 1. Nếu ngày hẹn trước ngày hôm nay -> Chắc chắn quá hạn
+  if (eventDate < curDate) return true;
+
+  // 2. Nếu ngày hẹn là ngày hôm nay -> Kiểm tra đã quá giờ kết thúc ca (end_time) hoặc giờ bắt đầu ca (start_time) chưa
+  if (eventDate === curDate) {
+    const now = new Date();
+    const curTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+    const endTime = event.end_time?.slice(0, 5);
+    const startTime = event.start_time?.slice(0, 5);
+
+    if (endTime) {
+      return curTime > endTime;
+    }
+    if (startTime) {
+      return curTime > startTime;
+    }
+  }
+
+  // 3. Nếu backend đánh dấu quy tắc này là is_overdue
+  if (schedule?.is_overdue) return true;
+
+  return false;
+}
+
+function isScheduleOverdue(schedule: CareSchedule): boolean {
+  if (schedule.event_status === "Completed" && !schedule.frequency_days) return false;
+  if (schedule.is_overdue) return true;
+
+  const curDate = today();
+  if (schedule.next_due_date < curDate) return true;
+
+  if (schedule.next_due_date === curDate) {
+    const now = new Date();
+    const curTime = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+    if (schedule.event?.end_time) {
+      return curTime > schedule.event.end_time.slice(0, 5);
+    }
+    if (schedule.event?.start_time) {
+      return curTime > schedule.event.start_time.slice(0, 5);
+    }
+    if (curTime > "17:45") return true;
+  }
+
+  return false;
+}
+
 type CalendarCareItem = CareEvent & { is_periodic_due?: boolean; due_date?: string };
 
 function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; selectedHorse: VetHorse; onChanged: (message: string) => void }) {
@@ -1222,7 +1276,10 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
   );
   const weeklyCareEvents = weekDays.flatMap((day) => day.events).filter((event) => !event.context && event.status !== "Cancelled");
   const weeklyCompletedCount = weeklyCareEvents.filter((event) => event.status === "Completed").length;
-  const weeklyOverdueCount = weeklyCareEvents.filter((event) => event.status === "Scheduled" && (event.due_date ?? event.event_date) < today()).length;
+  const weeklyOverdueCount = weeklyCareEvents.filter((event) => {
+    const schedule = schedules.find((item) => item.id === event.schedule_id || Boolean(item.calendar_event_id && item.calendar_event_id === (event.event_id ?? event.id)));
+    return isEventOverdue(event, schedule);
+  }).length;
   const filteredSchedules = schedules.filter((schedule) => horseFilter === "all" || schedule.horse_id === horseFilter);
   const weeklyDueRuleCount = filteredSchedules.filter((schedule) =>
     (schedule.frequency_days || schedule.event_status !== "Completed") && ((schedule.next_due_date >= from && schedule.next_due_date <= to) || (weekStart === currentWeekStart && (Boolean(schedule.is_overdue) || schedule.next_due_date < today()) && schedule.next_due_date < from)),
@@ -1486,11 +1543,11 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
       <div className="divide-y divide-slate-200 border-t border-slate-200 px-4">
         {loading ? <p className="py-3 text-sm font-medium text-slate-600">Đang tải quy tắc...</p> : filteredSchedules.length === 0 ? <p className="py-3 text-sm font-medium text-slate-600">Chưa có lịch định kỳ cho ngựa này.</p> : [...filteredSchedules].sort((left, right) => left.next_due_date.localeCompare(right.next_due_date)).map((schedule) => {
           const horseName = horses.find((horse) => horse.id === schedule.horse_id)?.horse_name ?? schedule.horse_name ?? "Ngựa";
-          const isOverdue = (Boolean(schedule.is_overdue) || schedule.next_due_date < today()) && (schedule.event_status !== "Completed" || Boolean(schedule.frequency_days));
+          const isOverdue = isScheduleOverdue(schedule);
           const isCompletedOnce = !schedule.frequency_days && schedule.event_status === "Completed";
           return <div key={schedule.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0"><p className="font-semibold text-slate-900">{horseName} · {careTypeLabels[schedule.care_type] ?? schedule.care_type}</p><p className="mt-0.5 text-xs text-slate-700 font-medium">{schedule.frequency_days ? `Lặp mỗi ${schedule.frequency_days} ngày` : "Một lần"} · Đến hạn {displayDate(schedule.next_due_date)}{schedule.last_done_date ? ` · Gần nhất ${displayDate(schedule.last_done_date)}` : ""}{schedule.doctor_name ? ` · BS: ${schedule.doctor_name}` : ""}</p>{schedule.notes && <p className="mt-0.5 truncate text-xs text-slate-600">{schedule.notes}</p>}</div>
-            <div className="flex shrink-0 items-center gap-2"><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${isOverdue ? "bg-rose-100 text-rose-900 border border-rose-300" : schedule.event_status === "Scheduled" ? "bg-blue-100 text-blue-900 border border-blue-300" : isCompletedOnce ? "bg-emerald-100 text-emerald-900 border border-emerald-300" : "bg-slate-200 text-slate-800"}`}>{isOverdue ? "Quá hạn" : schedule.event_status === "Scheduled" ? "Đã đặt giờ" : isCompletedOnce ? "Đã hoàn thành" : "Chưa chốt giờ"}</span><button type="button" className="soft-button h-8 px-2.5 text-xs font-semibold text-slate-800" onClick={() => setWeekStart(schedule.next_due_date < today() ? currentWeekStart : mondayOfWeek(schedule.next_due_date))}>Xem trên lịch</button></div>
+            <div className="flex shrink-0 items-center gap-2"><span className={`rounded-full px-2 py-1 text-[10px] font-bold ${isOverdue ? "bg-rose-600 text-white border border-rose-700 shadow-xs" : schedule.event_status === "Scheduled" ? "bg-blue-100 text-blue-900 border border-blue-300" : isCompletedOnce ? "bg-emerald-100 text-emerald-900 border border-emerald-300" : "bg-slate-200 text-slate-800"}`}>{isOverdue ? "Quá hạn" : schedule.event_status === "Scheduled" ? "Đã đặt ca" : isCompletedOnce ? "Đã hoàn thành" : "Chưa chốt ca"}</span><button type="button" className="soft-button h-8 px-2.5 text-xs font-semibold text-slate-800" onClick={() => setWeekStart(schedule.next_due_date < today() ? currentWeekStart : mondayOfWeek(schedule.next_due_date))}>Xem trên lịch</button></div>
           </div>;
         })}
       </div>
@@ -1586,7 +1643,7 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                               const scheduleId = event.schedule_id ?? schedule?.id;
                               const isCompleted = event.status === "Completed";
                               const isCancelled = event.status === "Cancelled";
-                              const isOverdue = !event.context && event.status === "Scheduled" && (event.due_date ?? event.event_date) < today();
+                              const isOverdue = isEventOverdue(event, schedule);
                               const canComplete = !event.context && Boolean(scheduleId) && event.status === "Scheduled" && event.event_date <= today();
                               const canManage = !event.context && Boolean(scheduleId);
                               const canBook = canManage && (Boolean(event.is_periodic_due) || isCancelled || schedule?.event_status === "Cancelled");
@@ -1604,21 +1661,21 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                               return (
                                 <article
                                   key={event.event_id ?? event.id ?? `${day.date}-${index}`}
-                                  className={`rounded-lg border p-2.5 shadow-xs transition hover:shadow-md ${
+                                  className={`rounded-lg p-2.5 shadow-xs transition hover:shadow-md ${
                                     event.context
-                                      ? "border-slate-300 bg-slate-50"
+                                      ? "border border-slate-300 bg-slate-50"
                                       : isCompleted
-                                      ? "border-emerald-300 bg-emerald-50/80"
+                                      ? "border border-emerald-300 bg-emerald-50/80"
                                       : isOverdue
-                                      ? "border-rose-400 bg-rose-50/90 ring-1 ring-rose-400"
+                                      ? "border-2 border-rose-600 bg-rose-50 shadow-md ring-2 ring-rose-500/20"
                                       : isCancelled
-                                      ? "border-slate-300 bg-slate-50"
-                                      : "border-blue-300 bg-white"
+                                      ? "border border-slate-300 bg-slate-50"
+                                      : "border border-blue-300 bg-white"
                                   }`}
                                 >
                                   {/* Title & Badge */}
                                   <div className="flex items-start justify-between gap-1.5">
-                                    <div className={`flex items-start gap-1 font-bold break-words leading-tight text-xs ${isOverdue ? "text-rose-900" : "text-[#0A389C]"}`}>
+                                    <div className={`flex items-start gap-1 font-bold break-words leading-tight text-xs ${isOverdue ? "text-rose-950 font-black" : "text-[#0A389C]"}`}>
                                       {isOverdue ? (
                                         <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-rose-600 mt-0.5" />
                                       ) : (
@@ -1632,11 +1689,11 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                       </span>
                                     )}
                                     {isOverdue && (
-                                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-black text-rose-950 bg-rose-200 border border-rose-500">
+                                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-black text-white bg-rose-600 border border-rose-700 shadow-xs">
                                         <AlertTriangle size={9} /> Quá hạn
                                       </span>
                                     )}
-                                    {event.is_periodic_due && (
+                                    {event.is_periodic_due && !isOverdue && (
                                       <span className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-black text-amber-950 bg-amber-100 border border-amber-400">
                                         Đến hạn
                                       </span>
@@ -1649,12 +1706,12 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                   </div>
 
                                   {/* Time */}
-                                  <div className={`mt-1.5 flex items-center gap-1.5 text-[11px] font-bold ${isOverdue ? "text-rose-800" : "text-amber-900"}`}>
+                                  <div className={`mt-1.5 flex items-center gap-1.5 text-[11px] font-bold ${isOverdue ? "text-rose-900 font-extrabold" : "text-amber-900"}`}>
                                     <Clock className={`h-3 w-3 shrink-0 ${isOverdue ? "text-rose-600" : "text-amber-700"}`} />
                                     <span>{timeStr}</span>
                                     <span className="text-slate-400">·</span>
-                                    <span className="text-slate-700 font-semibold">
-                                      {event.context ? "Offline" : "Trực tiếp"}
+                                    <span className={isOverdue ? "text-rose-700 font-bold" : "text-slate-700 font-semibold"}>
+                                      {event.context ? "Offline" : isOverdue ? "Đã quá ca" : "Trực tiếp"}
                                     </span>
                                   </div>
 
@@ -1688,7 +1745,11 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
                                             <>
                                               <button
                                                 type="button"
-                                                className="rounded bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-900 hover:bg-slate-300 border border-slate-300"
+                                                className={`rounded px-2 py-0.5 text-[10px] font-bold border transition ${
+                                                  isOverdue
+                                                    ? "bg-rose-600 text-white hover:bg-rose-700 border-rose-700 shadow-xs"
+                                                    : "bg-slate-200 text-slate-900 hover:bg-slate-300 border-slate-300"
+                                                }`}
                                                 onClick={() => { setMoveId(moveId === scheduleId ? "" : scheduleId); setBookId(""); setCompleteId(""); }}
                                               >
                                                 Dời lịch
