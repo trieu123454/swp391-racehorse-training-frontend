@@ -228,8 +228,8 @@ function AccountManagement() {
       {/* Page Header */}
       <div className="flex flex-col gap-4 border-b border-equine-line pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="font-sans text-3xl font-normal text-equine-navy">Quản lý tài khoản</h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <h1 className="font-sans text-3xl font-semibold text-slate-900">Quản lý tài khoản</h1>
+          <p className="mt-1 text-sm font-medium text-slate-700">
             Xem danh sách thành viên, cập nhật vai trò, khóa/mở khóa tài khoản hoặc cấp tài khoản nhân sự mới.
           </p>
         </div>
@@ -546,28 +546,28 @@ function AccountManagement() {
                           </div>
 
                           {/* Contact: Email & Phone */}
-                          <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-slate-600">
+                          <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-sm text-slate-800">
                             <a
                               href={`mailto:${account.email}`}
-                              className="inline-flex items-center gap-1.5 text-slate-700 hover:text-primary transition-colors"
+                              className="inline-flex items-center gap-1.5 text-slate-900 font-medium hover:text-primary transition-colors"
                               title="Gửi email"
                             >
-                              <Mail size={15} className="text-slate-400 shrink-0" />
+                              <Mail size={15} className="text-slate-600 shrink-0" />
                               <span className="font-mono text-xs sm:text-sm">{account.email}</span>
                             </a>
 
                             {account.phone ? (
                               <a
                                 href={`tel:${account.phone}`}
-                                className="inline-flex items-center gap-1.5 text-slate-700 hover:text-primary transition-colors"
+                                className="inline-flex items-center gap-1.5 text-slate-900 font-medium hover:text-primary transition-colors"
                                 title="Gọi điện"
                               >
-                                <Phone size={15} className="text-slate-400 shrink-0" />
-                                <span className="font-mono text-xs sm:text-sm font-medium">{account.phone}</span>
+                                <Phone size={15} className="text-slate-600 shrink-0" />
+                                <span className="font-mono text-xs sm:text-sm font-semibold">{account.phone}</span>
                               </a>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-xs text-slate-400 italic">
-                                <Phone size={13} className="text-slate-300" /> Chưa cập nhật SĐT
+                              <span className="inline-flex items-center gap-1 text-xs text-slate-500 font-medium italic">
+                                <Phone size={13} className="text-slate-400" /> Chưa cập nhật SĐT
                               </span>
                             )}
                           </div>
