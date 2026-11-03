@@ -203,36 +203,40 @@ export default function RegisterPage() {
                   "Nhập lại mật khẩu",
                 )}
               </div>
-              <div className="auth-register-notice">
-                <AlertTriangle className="shrink-0" size={19} />
-                <p>
+              <div className="auth-register-notice flex items-center gap-2.5 rounded-lg border border-amber-200/90 bg-amber-50/80 px-3.5 py-2.5 text-xs text-amber-900 shadow-sm">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+                <p className="leading-relaxed">
                   Chỉ chủ ngựa tự đăng ký. Nhân sự do quản lý CLB cấp tài khoản.
                 </p>
               </div>
-              <label className="auth-legal cursor-pointer">
+              <label className="auth-legal flex items-start gap-2.5 cursor-pointer text-xs text-slate-600 select-none pt-0.5">
                 <input
                   checked={accepted}
-                  className="mt-1 h-4 w-4"
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-primary accent-primary focus:ring-primary cursor-pointer"
                   onChange={(event) => setAccepted(event.target.checked)}
                   required
                   type="checkbox"
                 />
-                <span>
+                <span className="leading-snug">
                   Tôi đồng ý với{" "}
-                  <strong className="font-semibold text-[#a03b00]">
+                  <Link href="#" className="font-semibold text-primary hover:underline">
                     Điều khoản sử dụng
-                  </strong>{" "}
-                  và Chính sách bảo mật câu lạc bộ.
+                  </Link>{" "}
+                  và{" "}
+                  <Link href="#" className="font-semibold text-primary hover:underline">
+                    Chính sách bảo mật
+                  </Link>{" "}
+                  câu lạc bộ.
                 </span>
               </label>
               {message ? (
-                <p className="auth-feedback auth-feedback--success">
+                <p className="auth-feedback auth-feedback--success rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-800">
                   {message}
                 </p>
               ) : null}
               {error ? (
                 <p
-                  className="auth-feedback auth-feedback--error"
+                  className="auth-feedback auth-feedback--error rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs text-red-800"
                   role="alert"
                 >
                   {error}
