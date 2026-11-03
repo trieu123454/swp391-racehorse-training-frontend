@@ -33,7 +33,6 @@ import {
   type PendingUser,
 } from "@/api/club-manager/api";
 import { roleLabels } from "@/lib/roles";
-import type { RoleName } from "@/lib/types";
 
 const ROLE_FILTERS = ["HEAD_TRAINER", "VETERINARIAN", "GROOM", "HORSE_OWNER", "CLUB_MANAGER"] as const;
 

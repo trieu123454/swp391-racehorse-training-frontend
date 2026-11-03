@@ -3,22 +3,26 @@
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
   Bell,
+  BookOpen,
   CalendarDays,
   Check,
-  ChevronLeft,
-  ChevronRight,
   CircleHelp,
   ClipboardCheck,
+  Clock,
   FileHeart,
   HeartPulse,
   LockKeyhole,
+  MapPin,
   Pill,
   RefreshCw,
   Search,
   ShieldAlert,
   Stethoscope,
   UnlockKeyhole,
+  User,
   Utensils,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
@@ -1030,12 +1034,64 @@ function mondayOfWeek(value: string) {
   return dateKey(date);
 }
 
-function weekdayLabel(value: string) {
-  return new Intl.DateTimeFormat("vi-VN", { weekday: "long" }).format(dateFromKey(value));
+function getISOWeekNumber(d: Date): number {
+  const target = new Date(d.valueOf());
+  const dayNr = (d.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setMonth(0, 1);
+  if (target.getDay() !== 4) {
+    target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+  }
+  return 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
 }
 
-function shortDateLabel(value: string) {
-  return new Intl.DateTimeFormat("vi-VN", { day: "numeric", month: "short" }).format(dateFromKey(value));
+function formatDayMonth(value: string) {
+  const parts = value.split("-").map(Number);
+  const day = parts[2];
+  const month = parts[1];
+  return `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}`;
+}
+
+function vietnameseDayName(value: string) {
+  const d = dateFromKey(value);
+  const day = d.getDay();
+  if (day === 0) return "Chủ nhật";
+  return `Thứ ${day + 1}`;
+}
+
+interface TimetableSlot {
+  id: number;
+  label: string;
+  timeRange: string;
+}
+
+const TIMETABLE_SLOTS: TimetableSlot[] = [
+  { id: 1, label: "1", timeRange: "07h00 - 09h15" },
+  { id: 2, label: "2", timeRange: "09h30 - 11h45" },
+  { id: 3, label: "3", timeRange: "12h30 - 14h45" },
+  { id: 4, label: "4", timeRange: "15h00 - 17h15" },
+  { id: 5, label: "5", timeRange: "17h30 - 20h00" },
+];
+
+function getEventSlot(event: CalendarCareItem): number {
+  if (!event.start_time) return 1;
+  const [hStr, mStr] = event.start_time.split(":");
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr || "0", 10);
+  const total = h + m / 60;
+  if (total < 9.5) return 1;
+  if (total < 12.25) return 2;
+  if (total < 15.0) return 3;
+  if (total < 17.5) return 4;
+  return 5;
+}
+
+function formatTimeDisplay(start: string | null | undefined, end: string | null | undefined) {
+  if (!start) return "07h00-09h15";
+  const s = start.slice(0, 5).replace(":", "h");
+  const e = end ? end.slice(0, 5).replace(":", "h") : "";
+  return e ? `${s}-${e}` : s;
 }
 
 type CalendarCareItem = CareEvent & { is_periodic_due?: boolean; due_date?: string };
@@ -1060,6 +1116,25 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
   const from = weekStart;
   const to = addCalendarDays(weekStart, 6);
   const currentWeekStart = mondayOfWeek(today());
+  const [showAllSlots, setShowAllSlots] = useState(false);
+
+  const weekOptions = useMemo(() => {
+    const options = [];
+    const curr = dateFromKey(currentWeekStart);
+    for (let i = -8; i <= 12; i++) {
+      const monday = new Date(curr);
+      monday.setDate(monday.getDate() + i * 7);
+      const sunday = new Date(monday);
+      sunday.setDate(sunday.getDate() + 6);
+      const key = dateKey(monday);
+      const weekNum = getISOWeekNumber(monday);
+      const year = monday.getFullYear();
+      const mStr = `${String(monday.getDate()).padStart(2, "0")}/${String(monday.getMonth() + 1).padStart(2, "0")}`;
+      const sStr = `${String(sunday.getDate()).padStart(2, "0")}/${String(sunday.getMonth() + 1).padStart(2, "0")}`;
+      options.push({ key, weekNum, year, label: `Week ${weekNum}, ${year}`, fullLabel: `Week ${weekNum}, ${year} (${mStr} - ${sStr})` });
+    }
+    return options;
+  }, [currentWeekStart]);
   const calendarItems = useMemo<CalendarCareItem[]>(() => {
     const dueItems = schedules.flatMap((schedule): CalendarCareItem[] => {
       if (!schedule.frequency_days && schedule.event_status === "Completed") return [];
@@ -1123,6 +1198,22 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
   const weeklyDueRuleCount = filteredSchedules.filter((schedule) =>
     (schedule.frequency_days || schedule.event_status !== "Completed") && ((schedule.next_due_date >= from && schedule.next_due_date <= to) || (weekStart === currentWeekStart && (Boolean(schedule.is_overdue) || schedule.next_due_date < today()) && schedule.next_due_date < from)),
   ).length;
+
+  const activeSlots = useMemo(() => {
+    const usedSlotIds = new Set<number>();
+    weekDays.forEach((day) => {
+      day.events.forEach((event) => {
+        usedSlotIds.add(getEventSlot(event));
+      });
+    });
+    const filtered = TIMETABLE_SLOTS.filter((slot) => usedSlotIds.has(slot.id));
+    if (filtered.length === 0) {
+      return [TIMETABLE_SLOTS[0], TIMETABLE_SLOTS[2]];
+    }
+    return filtered;
+  }, [weekDays]);
+
+  const displaySlots = showAllSlots ? TIMETABLE_SLOTS : activeSlots;
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -1198,104 +1289,371 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
       <div className="flex gap-2 sm:col-span-2 lg:col-span-3"><button className="gold-button h-10" disabled={busy}>{bookNow ? "Tạo lịch và nhắc nhở" : "Lưu lịch định kỳ"}</button><button type="button" className="soft-button h-10 px-3" onClick={() => setCreateOpen(false)}>Hủy</button></div>
     </form>}
 
-    <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center rounded-lg border border-equine-line bg-white p-1">
-          <button type="button" className="grid h-9 w-9 place-items-center rounded-md text-equine-navy transition hover:bg-equine-mist" aria-label="Tuần trước" onClick={() => setWeekStart(addCalendarDays(weekStart, -7))}><ChevronLeft size={18} /></button>
-          <div className="min-w-36 px-3 text-center"><p className="text-sm font-semibold text-equine-navy">{shortDateLabel(weekStart)} – {shortDateLabel(to)}</p><p className="text-[11px] text-slate-500">{dateFromKey(to).getFullYear()}</p></div>
-          <button type="button" className="grid h-9 w-9 place-items-center rounded-md text-equine-navy transition hover:bg-equine-mist" aria-label="Tuần sau" onClick={() => setWeekStart(addCalendarDays(weekStart, 7))}><ChevronRight size={18} /></button>
+    {/* TOP SELECTOR BAR: "Chọn tuần" & Navigation */}
+    <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="space-y-2">
+          <label className="block text-xs font-semibold text-slate-700">Chọn tuần</label>
+          <div className="relative w-full sm:w-80">
+            <select
+              value={weekStart}
+              onChange={(e) => setWeekStart(e.target.value)}
+              className="w-full appearance-none rounded-lg border border-slate-300 bg-white py-2.5 pl-3.5 pr-10 text-sm font-semibold text-slate-800 shadow-sm transition hover:border-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+            >
+              {weekOptions.map((opt) => (
+                <option key={opt.key} value={opt.key}>
+                  {opt.fullLabel}
+                </option>
+              ))}
+            </select>
+            <CalendarDays className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+              onClick={() => setWeekStart(addCalendarDays(weekStart, -7))}
+            >
+              <ArrowLeft size={14} /> Tuần trước
+            </button>
+            <button
+              type="button"
+              className={`inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold shadow-sm transition ${
+                weekStart === currentWeekStart
+                  ? "bg-[#2563EB] text-white hover:bg-blue-700 active:bg-blue-800"
+                  : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+              onClick={() => setWeekStart(currentWeekStart)}
+            >
+              <CalendarDays size={14} /> Tuần hiện tại
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 active:bg-slate-100"
+              onClick={() => setWeekStart(addCalendarDays(weekStart, 7))}
+            >
+              Tuần sau <ArrowRight size={14} />
+            </button>
+          </div>
         </div>
-        <button type="button" className="soft-button h-11 px-3 text-sm" disabled={weekStart === currentWeekStart} onClick={() => setWeekStart(currentWeekStart)}>Tuần này</button>
-      </div>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="block min-w-40"><span className="field-label">Lọc theo ngựa</span><select value={horseFilter} onChange={(event) => setHorseFilter(event.target.value)} className="field-control px-3"><option value="all">Tất cả ngựa</option>{horses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}</option>)}</select></label>
-        <label className="block min-w-40"><span className="field-label">Phạm vi bác sĩ</span><select value={scope} onChange={(event) => setScope(event.target.value as "mine" | "all")} className="field-control px-3"><option value="mine">Lịch của tôi</option><option value="all">Tất cả bác sĩ</option></select></label>
-        <label className="inline-flex h-11 items-center gap-2 rounded-lg border border-equine-line bg-white px-3 text-sm text-slate-700"><input type="checkbox" checked={includeContext} onChange={(event) => setIncludeContext(event.target.checked)} /> Hiện lịch tập và đua</label>
+
+        {/* Filters */}
+        <div className="flex flex-wrap items-end gap-2.5">
+          <label className="block min-w-36">
+            <span className="field-label text-[11px]">Lọc theo ngựa</span>
+            <select value={horseFilter} onChange={(event) => setHorseFilter(event.target.value)} className="field-control h-9 px-2.5 text-xs">
+              <option value="all">Tất cả ngựa</option>
+              {horses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}</option>)}
+            </select>
+          </label>
+          <label className="block min-w-36">
+            <span className="field-label text-[11px]">Phạm vi bác sĩ</span>
+            <select value={scope} onChange={(event) => setScope(event.target.value as "mine" | "all")} className="field-control h-9 px-2.5 text-xs">
+              <option value="mine">Lịch của tôi</option>
+              <option value="all">Tất cả bác sĩ</option>
+            </select>
+          </label>
+          <label className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-700">
+            <input type="checkbox" checked={includeContext} onChange={(event) => setIncludeContext(event.target.checked)} className="rounded text-blue-600 accent-blue-600" />
+            Hiện lịch tập & đua
+          </label>
+        </div>
       </div>
     </div>
 
-    <div className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-      <div className="rounded-lg border border-equine-line bg-white px-3 py-2.5"><p className="text-xs text-slate-500">Cần thực hiện</p><p className="mt-0.5 text-lg font-semibold text-equine-navy">{weeklyCareEvents.filter((event) => event.status === "Scheduled").length}</p></div>
-      <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5"><p className="text-xs text-rose-700">Quá hạn</p><p className="mt-0.5 text-lg font-semibold text-rose-800">{weeklyOverdueCount}</p></div>
-      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5"><p className="text-xs text-emerald-700">Đã hoàn thành</p><p className="mt-0.5 text-lg font-semibold text-emerald-800">{weeklyCompletedCount}</p></div>
-      <div className="rounded-lg border border-equine-line bg-equine-mist/60 px-3 py-2.5"><p className="text-xs text-slate-600">Lịch định kỳ đến hạn</p><p className="mt-0.5 text-lg font-semibold text-equine-navy">{weeklyDueRuleCount}</p></div>
+    {/* Quick stats banner */}
+    <div className="mb-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 shadow-xs">
+        <p className="text-xs text-slate-500">Cần thực hiện</p>
+        <p className="mt-0.5 text-lg font-semibold text-slate-800">{weeklyCareEvents.filter((event) => event.status === "Scheduled").length}</p>
+      </div>
+      <div className="rounded-lg border border-rose-200 bg-rose-50/70 px-3.5 py-2.5 shadow-xs">
+        <p className="text-xs text-rose-700">Quá hạn</p>
+        <p className="mt-0.5 text-lg font-semibold text-rose-800">{weeklyOverdueCount}</p>
+      </div>
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-3.5 py-2.5 shadow-xs">
+        <p className="text-xs text-emerald-700">Đã hoàn thành</p>
+        <p className="mt-0.5 text-lg font-semibold text-emerald-800">{weeklyCompletedCount}</p>
+      </div>
+      <div className="rounded-lg border border-blue-200 bg-blue-50/60 px-3.5 py-2.5 shadow-xs">
+        <p className="text-xs text-blue-700">Lịch định kỳ đến hạn</p>
+        <p className="mt-0.5 text-lg font-semibold text-blue-900">{weeklyDueRuleCount}</p>
+      </div>
     </div>
-    {events.length >= 100 && <p className="mb-3 text-xs text-slate-500">Đang hiển thị tối đa 100 việc trong tuần.</p>}
 
-    <details className="mb-4 rounded-lg border border-equine-line bg-white">
-      <summary className="cursor-pointer list-none px-3 py-3 text-sm font-semibold text-equine-navy">Quy tắc định kỳ đang theo dõi ({filteredSchedules.length}) <span className="ml-1 text-xs font-normal text-slate-500">· mở để xem ngày đến hạn</span></summary>
-      <div className="divide-y divide-equine-line border-t border-equine-line px-3">
+    {/* Tracked Rules Accordion */}
+    <details className="mb-5 rounded-xl border border-slate-200 bg-white shadow-xs">
+      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-50">
+        Quy tắc định kỳ đang theo dõi ({filteredSchedules.length}) <span className="ml-1 text-xs font-normal text-slate-500">· mở để xem ngày đến hạn</span>
+      </summary>
+      <div className="divide-y divide-slate-100 border-t border-slate-200 px-4">
         {loading ? <p className="py-3 text-sm text-slate-500">Đang tải quy tắc...</p> : filteredSchedules.length === 0 ? <p className="py-3 text-sm text-slate-500">Chưa có lịch định kỳ cho ngựa này.</p> : [...filteredSchedules].sort((left, right) => left.next_due_date.localeCompare(right.next_due_date)).map((schedule) => {
           const horseName = horses.find((horse) => horse.id === schedule.horse_id)?.horse_name ?? schedule.horse_name ?? "Ngựa";
           const isOverdue = (Boolean(schedule.is_overdue) || schedule.next_due_date < today()) && (schedule.event_status !== "Completed" || Boolean(schedule.frequency_days));
           const isCompletedOnce = !schedule.frequency_days && schedule.event_status === "Completed";
           return <div key={schedule.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0"><p className="font-medium text-equine-navy">{horseName} · {careTypeLabels[schedule.care_type] ?? schedule.care_type}</p><p className="mt-0.5 text-xs text-slate-500">{schedule.frequency_days ? `Lặp mỗi ${schedule.frequency_days} ngày` : "Một lần"} · Đến hạn {displayDate(schedule.next_due_date)}{schedule.last_done_date ? ` · Gần nhất ${displayDate(schedule.last_done_date)}` : ""}</p>{schedule.notes && <p className="mt-0.5 truncate text-xs text-slate-500">{schedule.notes}</p>}</div>
+            <div className="min-w-0"><p className="font-medium text-slate-800">{horseName} · {careTypeLabels[schedule.care_type] ?? schedule.care_type}</p><p className="mt-0.5 text-xs text-slate-500">{schedule.frequency_days ? `Lặp mỗi ${schedule.frequency_days} ngày` : "Một lần"} · Đến hạn {displayDate(schedule.next_due_date)}{schedule.last_done_date ? ` · Gần nhất ${displayDate(schedule.last_done_date)}` : ""}</p>{schedule.notes && <p className="mt-0.5 truncate text-xs text-slate-500">{schedule.notes}</p>}</div>
             <div className="flex shrink-0 items-center gap-2"><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${isOverdue ? "bg-rose-100 text-rose-800" : schedule.event_status === "Scheduled" ? "bg-blue-50 text-blue-800" : isCompletedOnce ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>{isOverdue ? "Quá hạn" : schedule.event_status === "Scheduled" ? "Đã đặt giờ" : isCompletedOnce ? "Đã hoàn thành" : "Chưa chốt giờ"}</span><button type="button" className="soft-button h-8 px-2.5 text-xs" onClick={() => setWeekStart(schedule.next_due_date < today() ? currentWeekStart : mondayOfWeek(schedule.next_due_date))}>Xem trên lịch</button></div>
           </div>;
         })}
       </div>
     </details>
 
-    {loading ? <Notice>Đang tải lịch trong tuần...</Notice> : <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-7">
-      {weekDays.map((day) => {
-        const dayCareEvents = day.events.filter((event) => !event.context && event.status !== "Cancelled");
-        const completedCount = dayCareEvents.filter((event) => event.status === "Completed").length;
-        const isToday = day.date === today();
-        return <section key={day.date} aria-label={`Lịch ${weekdayLabel(day.date)} ${shortDateLabel(day.date)}`} className={`overflow-hidden rounded-xl border bg-white shadow-sm ${isToday ? "border-equine-blue ring-2 ring-equine-blue/20" : "border-equine-line"}`}>
-          <header className="flex min-h-[68px] items-center justify-between gap-2 bg-equine-navy px-3 py-2.5 text-white">
-            <div><div className="flex flex-wrap items-center gap-1.5"><h4 className="capitalize text-sm font-semibold">{weekdayLabel(day.date)}</h4>{isToday && <span className="rounded-full bg-equine-teal px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">Hôm nay</span>}</div><p className="mt-0.5 text-xs text-white/75">{shortDateLabel(day.date)}</p></div>
-            <span className="shrink-0 rounded-full bg-white/15 px-2 py-1 text-[10px] font-semibold text-white">{completedCount}/{dayCareEvents.length}</span>
-          </header>
-          <div className="min-h-[112px] p-2">
-            {day.events.length === 0 ? <p className="rounded-lg bg-equine-mist/70 px-2 py-4 text-center text-xs text-slate-500">Không có việc trong ngày này.</p> : <ul className="space-y-2">
-              {day.events.map((event, index) => {
-                const schedule = schedules.find((item) => item.id === event.schedule_id || Boolean(item.calendar_event_id && item.calendar_event_id === (event.event_id ?? event.id)));
-                const scheduleId = event.schedule_id ?? schedule?.id;
-                const isCompleted = event.status === "Completed";
-                const isCancelled = event.status === "Cancelled";
-                const isOverdue = !event.context && event.status === "Scheduled" && (event.due_date ?? event.event_date) < today();
-                const canComplete = !event.context && Boolean(scheduleId) && event.status === "Scheduled" && event.event_date <= today();
-                const canManage = !event.context && Boolean(scheduleId);
-                const canBook = canManage && (Boolean(event.is_periodic_due) || isCancelled || schedule?.event_status === "Cancelled");
-                const hasBookedEvent = !event.is_periodic_due && event.status === "Scheduled";
-                const horseName = event.horse?.horse_name ?? event.horse_name ?? "Ngựa";
-                const rawName = event.care_type ?? event.event_type ?? event.title ?? "Chăm sóc";
-                const eventName = careTypeLabels[rawName] ?? rawName;
-                const timeLabel = event.start_time ? `${event.start_time.slice(0, 5)}–${event.end_time?.slice(0, 5) ?? "?"}` : scheduleId ? "Chưa chốt giờ" : "Cả ngày";
-                const statusLabel = event.context ? "Tham khảo" : isCompleted ? "Hoàn thành" : isCancelled ? "Đã hủy" : isOverdue ? "Quá hạn" : event.is_periodic_due ? "Đến hạn · chưa chốt giờ" : "Đã đặt lịch";
-                const cardTone = event.context ? "border-slate-200 bg-slate-50" : isCompleted ? "border-emerald-200 bg-emerald-50/70" : isOverdue ? "border-rose-200 bg-rose-50/60" : isCancelled ? "border-slate-200 bg-slate-50" : "border-equine-blue/15 bg-equine-mist/40";
-                return <li key={event.event_id ?? event.id ?? `${day.date}-${index}`}>
-                  <article className={`rounded-lg border p-2.5 ${cardTone}`}>
-                    <div className="flex items-start gap-2"><span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${event.context ? "bg-slate-200 text-slate-600" : isCompleted ? "bg-emerald-100 text-emerald-700" : isOverdue ? "bg-rose-100 text-rose-700" : "bg-white text-equine-blue"}`}>{event.context ? <CalendarDays size={14} /> : isCompleted ? <Check size={14} /> : <HeartPulse size={14} />}</span>
-                      <div className="min-w-0 flex-1"><p className="break-words text-xs font-semibold text-equine-navy">{horseName} · {eventName}</p><p className="mt-1 text-[11px] text-slate-600">{timeLabel}</p>
-                        {event.is_periodic_due && event.due_date && event.due_date < today() && <p className="mt-1 text-[10px] font-medium text-rose-700">Đến hạn từ {displayDate(event.due_date)}</p>}
-                        {schedule && <p className="mt-1 text-[10px] text-slate-500">{schedule.frequency_days ? `Lặp mỗi ${schedule.frequency_days} ngày` : "Chăm sóc một lần"}{schedule.last_done_date ? ` · Gần nhất ${displayDate(schedule.last_done_date)}` : ""}</p>}
-                        {schedule?.notes && <p className="mt-1 break-words text-[10px] text-slate-500">{schedule.notes}</p>}
-                        <span className={`mt-1.5 inline-flex rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${isCompleted ? "bg-emerald-100 text-emerald-800" : isOverdue ? "bg-rose-100 text-rose-800" : event.context ? "bg-slate-200 text-slate-700" : isCancelled ? "bg-slate-200 text-slate-700" : "bg-equine-teal/10 text-equine-blue"}`}>{statusLabel}</span>
+    {/* MAIN TIMETABLE CARD: "Thời khóa biểu tuần" */}
+    <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden mb-6">
+      <div className="flex flex-wrap items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+        <div>
+          <h3 className="text-base font-bold text-slate-800">Thời khóa biểu tuần</h3>
+          <p className="mt-0.5 text-xs font-medium text-slate-500">
+            Tuần ({formatDayMonth(weekStart)} - {formatDayMonth(to)})
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowAllSlots(!showAllSlots)}
+            className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+          >
+            {showAllSlots ? "Thu gọn slot trống" : "Hiện đủ 5 slot"}
+          </button>
+          <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+            {weeklyCareEvents.length} việc trong tuần
+          </span>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="p-8 text-center text-sm text-slate-500">
+          <Notice>Đang tải lịch trong tuần...</Notice>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[960px] border-collapse text-left text-xs">
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th className="w-20 border-r border-slate-200 bg-slate-50 p-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wide">
+                  Slot
+                </th>
+                {weekDays.map((day) => {
+                  const isToday = day.date === today();
+                  const dayName = vietnameseDayName(day.date);
+                  const dateStr = formatDayMonth(day.date);
+                  return (
+                    <th
+                      key={day.date}
+                      className={`border-r border-slate-200 p-3 text-center transition-colors ${
+                        isToday
+                          ? "bg-[#D1E7DD] text-[#0F5132] font-bold border-b-2 border-emerald-600"
+                          : "bg-slate-50 text-slate-700 font-semibold"
+                      }`}
+                    >
+                      <div className="flex flex-col items-center justify-center">
+                        <span>{dayName} ({dateStr})</span>
+                        {isToday && (
+                          <span className="mt-0.5 inline-block rounded bg-emerald-700 px-1.5 py-0.2 text-[9px] font-bold text-white uppercase tracking-wider">
+                            Hôm nay
+                          </span>
+                        )}
                       </div>
-                    </div>
-                    {canManage && <div className="mt-2 flex flex-wrap gap-1.5">
-                      {canBook && <button type="button" className="soft-button h-8 px-2.5 text-[11px]" onClick={() => { setBookId(bookId === scheduleId ? "" : scheduleId!); setMoveId(""); setCompleteId(""); }}>{isCancelled || schedule?.event_status === "Cancelled" ? "Đặt lại giờ" : "Chốt giờ"}</button>}
-                      {event.status === "Scheduled" && scheduleId && <>{hasBookedEvent && <><button type="button" className="soft-button h-8 px-2.5 text-[11px]" onClick={() => { setMoveId(moveId === scheduleId ? "" : scheduleId); setBookId(""); setCompleteId(""); }}>Dời lịch</button><button type="button" className="soft-button h-8 border-rose-200 bg-rose-50 px-2.5 text-[11px] text-rose-800" disabled={busy} onClick={() => void cancel(scheduleId)}>Hủy</button></>}{canComplete && <button type="button" className="soft-button h-8 border-emerald-200 bg-emerald-50 px-2.5 text-[11px] text-emerald-800" onClick={() => { setCompleteId(completeId === scheduleId ? "" : scheduleId); setBookId(""); setMoveId(""); }}>Hoàn thành</button>}</>}
-                    </div>}
-                    {scheduleId && bookId === scheduleId && <form onSubmit={(submitEvent) => void submitBook(submitEvent, scheduleId)} className="mt-2 grid gap-2 rounded-lg bg-white p-2.5">
-                      <Field label="Ngày hẹn" name="event_date" type="date" required defaultValue={event.event_date} /><Field label="Bắt đầu" name="start_time" type="time" required defaultValue={event.start_time?.slice(0, 5) ?? "08:00"} /><Field label="Kết thúc" name="end_time" type="time" required defaultValue={event.end_time?.slice(0, 5) ?? "09:00"} /><button className="gold-button h-9 text-xs" disabled={busy}>Lưu giờ và tạo nhắc</button>
-                    </form>}
-                    {scheduleId && moveId === scheduleId && <form onSubmit={(submitEvent) => void submitMove(submitEvent, scheduleId)} className="mt-2 grid gap-2 rounded-lg bg-white p-2.5">
-                      <Field label="Ngày mới" name="event_date" type="date" defaultValue={event.event_date} /><Field label="Bắt đầu mới" name="start_time" type="time" defaultValue={event.start_time?.slice(0, 5) ?? ""} /><Field label="Kết thúc mới" name="end_time" type="time" defaultValue={event.end_time?.slice(0, 5) ?? ""} /><button className="gold-button h-9 text-xs" disabled={busy}>Lưu thay đổi</button>
-                    </form>}
-                    {scheduleId && completeId === scheduleId && <form onSubmit={(submitEvent) => void submitComplete(submitEvent, scheduleId)} className="mt-2 grid gap-2 rounded-lg bg-white p-2.5">
-                      <Field label="Ngày thực hiện" name="done_date" type="date" required defaultValue={today()} /><Field label="Giờ lần kế tiếp (tùy chọn)" name="next_start_time" type="time" /><Field label="Kết thúc lần kế tiếp" name="next_end_time" type="time" /><button className="gold-button h-9 text-xs" disabled={busy}>Xác nhận hoàn thành</button>
-                    </form>}
-                  </article>
-                </li>;
-              })}
-            </ul>}
-          </div>
-        </section>;
-      })}
-    </div>}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {displaySlots.map((slot) => (
+                <tr key={slot.id} className="transition-colors hover:bg-slate-50/40">
+                  <td className="border-r border-slate-200 bg-slate-50/80 p-3 text-center align-middle font-bold text-slate-800">
+                    <span className="text-base font-bold text-slate-800">{slot.id}</span>
+                    <p className="mt-0.5 text-[10px] font-normal text-slate-500 whitespace-nowrap">{slot.timeRange}</p>
+                  </td>
+                  {weekDays.map((day) => {
+                    const isToday = day.date === today();
+                    const cellEvents = day.events.filter((event) => getEventSlot(event) === slot.id);
+                    return (
+                      <td
+                        key={`${slot.id}-${day.date}`}
+                        className={`border-r border-slate-200 p-2.5 align-top transition-colors ${
+                          isToday ? "bg-[#F8FDFA]" : "bg-white"
+                        }`}
+                      >
+                        {cellEvents.length === 0 ? (
+                          <div className="flex h-full min-h-[96px] items-center justify-center text-sm font-medium text-slate-400 select-none">
+                            -
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {cellEvents.map((event, index) => {
+                              const schedule = schedules.find((item) => item.id === event.schedule_id || Boolean(item.calendar_event_id && item.calendar_event_id === (event.event_id ?? event.id)));
+                              const scheduleId = event.schedule_id ?? schedule?.id;
+                              const isCompleted = event.status === "Completed";
+                              const isCancelled = event.status === "Cancelled";
+                              const isOverdue = !event.context && event.status === "Scheduled" && (event.due_date ?? event.event_date) < today();
+                              const canComplete = !event.context && Boolean(scheduleId) && event.status === "Scheduled" && event.event_date <= today();
+                              const canManage = !event.context && Boolean(scheduleId);
+                              const canBook = canManage && (Boolean(event.is_periodic_due) || isCancelled || schedule?.event_status === "Cancelled");
+                              const hasBookedEvent = !event.is_periodic_due && event.status === "Scheduled";
+                              const horse = horses.find((h) => h.id === event.horse?.id || h.id === schedule?.horse_id);
+                              const horseName = horse?.horse_name ?? event.horse?.horse_name ?? event.horse_name ?? "Ngựa";
+                              const rawName = event.care_type ?? event.event_type ?? event.title ?? "Chăm sóc";
+                              const eventName = careTypeLabels[rawName] ?? rawName;
+                              const horseLocation = horse?.stable_box ? `Khu ${horse.stable_box.section ?? "A"} · Chuồng ${horse.stable_box.box_code}` : "Khu chuồng trại · Ô khám";
+                              const timeStr = formatTimeDisplay(event.start_time, event.end_time);
+
+                              return (
+                                <article
+                                  key={event.event_id ?? event.id ?? `${day.date}-${index}`}
+                                  className={`rounded-lg border p-2.5 shadow-xs transition hover:shadow-md ${
+                                    event.context
+                                      ? "border-slate-200 bg-slate-50"
+                                      : isCompleted
+                                      ? "border-emerald-200 bg-emerald-50/60"
+                                      : isOverdue
+                                      ? "border-rose-200 bg-rose-50/70"
+                                      : isCancelled
+                                      ? "border-slate-200 bg-slate-50"
+                                      : "border-blue-200 bg-white"
+                                  }`}
+                                >
+                                  {/* Title & Badge */}
+                                  <div className="flex items-start justify-between gap-1.5">
+                                    <div className="flex items-start gap-1 font-bold text-[#1040C5] break-words leading-tight">
+                                      <BookOpen className="h-3.5 w-3.5 shrink-0 text-[#1040C5] mt-0.5" />
+                                      <span>{eventName} - {horseName}</span>
+                                    </div>
+                                    {isCompleted && (
+                                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold text-emerald-800 bg-emerald-100 border border-emerald-300">
+                                        <Check size={10} /> Có mặt
+                                      </span>
+                                    )}
+                                    {isOverdue && (
+                                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold text-rose-800 bg-rose-100 border border-rose-300">
+                                        Quá hạn
+                                      </span>
+                                    )}
+                                    {event.is_periodic_due && (
+                                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-semibold text-amber-800 bg-amber-100 border border-amber-300">
+                                        Đến hạn
+                                      </span>
+                                    )}
+                                    {event.context && (
+                                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-slate-600 bg-slate-200">
+                                        Tham khảo
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Time */}
+                                  <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-amber-700">
+                                    <Clock className="h-3 w-3 shrink-0 text-amber-600" />
+                                    <span>{timeStr}</span>
+                                    <span className="text-slate-300">·</span>
+                                    <span className="text-slate-500 font-normal">
+                                      {event.context ? "Offline" : "Trực tiếp"}
+                                    </span>
+                                  </div>
+
+                                  {/* Location */}
+                                  <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-600">
+                                    <MapPin className="h-3 w-3 shrink-0 text-slate-400" />
+                                    <span className="truncate">{horseLocation}</span>
+                                  </div>
+
+                                  {/* Staff / Doctor */}
+                                  <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-600">
+                                    <User className="h-3 w-3 shrink-0 text-slate-400" />
+                                    <span>{scope === "mine" ? "BS. Phụ trách" : "Bác sĩ thú y"}</span>
+                                  </div>
+
+                                  {/* Action Buttons */}
+                                  {canManage && (
+                                    <div className="mt-2 flex flex-wrap gap-1 border-t border-slate-100 pt-1.5">
+                                      {canBook && (
+                                        <button
+                                          type="button"
+                                          className="rounded bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 hover:bg-blue-100"
+                                          onClick={() => { setBookId(bookId === scheduleId ? "" : scheduleId!); setMoveId(""); setCompleteId(""); }}
+                                        >
+                                          {isCancelled || schedule?.event_status === "Cancelled" ? "Đặt lại" : "Chốt giờ"}
+                                        </button>
+                                      )}
+                                      {event.status === "Scheduled" && scheduleId && (
+                                        <>
+                                          {hasBookedEvent && (
+                                            <>
+                                              <button
+                                                type="button"
+                                                className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700 hover:bg-slate-200"
+                                                onClick={() => { setMoveId(moveId === scheduleId ? "" : scheduleId); setBookId(""); setCompleteId(""); }}
+                                              >
+                                                Dời lịch
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="rounded bg-rose-50 px-2 py-0.5 text-[10px] font-medium text-rose-700 hover:bg-rose-100"
+                                                disabled={busy}
+                                                onClick={() => void cancel(scheduleId)}
+                                              >
+                                                Hủy
+                                              </button>
+                                            </>
+                                          )}
+                                          {canComplete && (
+                                            <button
+                                              type="button"
+                                              className="rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 hover:bg-emerald-100"
+                                              onClick={() => { setCompleteId(completeId === scheduleId ? "" : scheduleId); setBookId(""); setMoveId(""); }}
+                                            >
+                                              Hoàn thành
+                                            </button>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Forms */}
+                                  {scheduleId && bookId === scheduleId && (
+                                    <form onSubmit={(submitEvent) => void submitBook(submitEvent, scheduleId)} className="mt-2 grid gap-1.5 rounded-lg border border-blue-200 bg-blue-50/60 p-2 text-left">
+                                      <Field label="Ngày hẹn" name="event_date" type="date" required defaultValue={event.event_date} />
+                                      <Field label="Bắt đầu" name="start_time" type="time" required defaultValue={event.start_time?.slice(0, 5) ?? "08:00"} />
+                                      <Field label="Kết thúc" name="end_time" type="time" required defaultValue={event.end_time?.slice(0, 5) ?? "09:00"} />
+                                      <button className="gold-button h-8 text-[11px]" disabled={busy}>Lưu giờ và tạo nhắc</button>
+                                    </form>
+                                  )}
+                                  {scheduleId && moveId === scheduleId && (
+                                    <form onSubmit={(submitEvent) => void submitMove(submitEvent, scheduleId)} className="mt-2 grid gap-1.5 rounded-lg border border-slate-200 bg-slate-50 p-2 text-left">
+                                      <Field label="Ngày mới" name="event_date" type="date" defaultValue={event.event_date} />
+                                      <Field label="Bắt đầu mới" name="start_time" type="time" defaultValue={event.start_time?.slice(0, 5) ?? ""} />
+                                      <Field label="Kết thúc mới" name="end_time" type="time" defaultValue={event.end_time?.slice(0, 5) ?? ""} />
+                                      <button className="gold-button h-8 text-[11px]" disabled={busy}>Lưu thay đổi</button>
+                                    </form>
+                                  )}
+                                  {scheduleId && completeId === scheduleId && (
+                                    <form onSubmit={(submitEvent) => void submitComplete(submitEvent, scheduleId)} className="mt-2 grid gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50/60 p-2 text-left">
+                                      <Field label="Ngày thực hiện" name="done_date" type="date" required defaultValue={today()} />
+                                      <Field label="Giờ lần kế tiếp (tùy chọn)" name="next_start_time" type="time" />
+                                      <Field label="Kết thúc lần kế tiếp" name="next_end_time" type="time" />
+                                      <button className="gold-button h-8 text-[11px]" disabled={busy}>Xác nhận hoàn thành</button>
+                                    </form>
+                                  )}
+                                </article>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   </SectionCard>;
 }
 
