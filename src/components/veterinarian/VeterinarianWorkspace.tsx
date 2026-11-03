@@ -1455,13 +1455,23 @@ function CarePanel({ horses, selectedHorse, onChanged }: { horses: VetHorse[]; s
     <ErrorLine>{error}</ErrorLine>
     {notice && <div className="mb-3"><Notice>{notice}</Notice></div>}
     {createOpen && <form onSubmit={(event) => void createSchedule(event)} className="mb-5 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-3">
-      <div className="sm:col-span-2 lg:col-span-3"><h4 className="font-semibold text-equine-navy">Thêm việc chăm sóc vào lịch</h4><p className="mt-1 text-xs text-slate-500">Việc sẽ xuất hiện đúng ngày đến hạn. Có thể lưu chu kỳ trước rồi chốt giờ sau.</p></div>
-      <label className="block"><span className="field-label">Ngựa <span className="text-rose-600">*</span></span><select name="horse_id" defaultValue={selectedHorse.id} required className="field-control px-3">{horses.map((item) => <option key={item.id} value={item.id}>{item.horse_name}</option>)}</select></label>
+      <div className="sm:col-span-2 lg:col-span-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h4 className="font-semibold text-equine-navy">Thêm việc chăm sóc vào lịch</h4>
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900">
+            Ngựa đang chọn: <span className="font-bold text-amber-950">{selectedHorse.horse_name}</span>
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">Việc sẽ xuất hiện đúng ngày đến hạn. Có thể lưu chu kỳ trước rồi chốt giờ sau.</p>
+      </div>
+      <input type="hidden" name="horse_id" value={selectedHorse.id} />
       <SelectField label="Loại chăm sóc" name="care_type" required options={[{ value: "HoofCheck", label: "Kiểm tra móng" }, { value: "Deworming", label: "Tẩy giun" }, { value: "Vaccination", label: "Tiêm phòng" }, { value: "MedicalCheckup", label: "Khám định kỳ" }]} />
       <Field label="Chu kỳ lặp (ngày) · bỏ trống nếu làm một lần" name="frequency_days" type="number" min={1} step="1" />
-      <Field label="Lần gần nhất" name="last_done_date" type="date" />
       <Field label="Ngày đến hạn" name="next_due_date" type="date" required defaultValue={today()} />
-      <TextAreaField label="Ghi chú" name="notes" rows={2} />
+      <Field label="Lần gần nhất" name="last_done_date" type="date" />
+      <div className="sm:col-span-2 lg:col-span-2">
+        <TextAreaField label="Ghi chú" name="notes" rows={2} />
+      </div>
       <label className="flex min-h-11 items-center gap-2 rounded-xl border border-equine-line bg-white px-3 py-2 text-sm sm:col-span-2 lg:col-span-3"><input type="checkbox" name="book_event" checked={bookNow} onChange={(event) => setBookNow(event.target.checked)} /> Chốt ca ngay và tạo nhắc nhở</label>
       {bookNow ? (
         <label className="block sm:col-span-2 lg:col-span-3">
