@@ -4,10 +4,10 @@ import { Routes } from "@/routes/Routes";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { Activity, ArrowUpRight, Bell, BookOpen, Boxes, CalendarDays, ChevronDown, ClipboardList, FilePlus2, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, Warehouse, X } from "lucide-react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { Activity, ArrowUpRight, Bell, BookOpen, Boxes, CalendarDays, CheckCircle2, ChevronDown, ClipboardList, FilePlus2, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, Warehouse, X } from "lucide-react";
 import { Brand } from "@/components/shared/Brand";
-import { ApiRequestError, SESSION_EXPIRED_EVENT, logout, validateSession } from "@/api/client";
+import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, NOTIFICATION_COUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT, authenticatedRequest, logout, validateSession } from "@/api/client";
 import { clearSession, getLogoutRefreshToken, getUser } from "@/lib/session";
 import { roleLabels, routeForRole } from "@/lib/roles";
 import type { AuthUser } from "@/lib/types";
@@ -16,6 +16,8 @@ import { Notice } from "./HorseUI";
 
 const UserContext = createContext<AuthUser | null>(null);
 export function useHorseUser() { return useContext(UserContext)!; }
+const WorkspaceToastContext = createContext<(message: string) => void>(() => {});
+export function useWorkspaceToast() { return useContext(WorkspaceToastContext); }
 
 export default function HorseShell({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -24,9 +26,12 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [todayLabel, setTodayLabel] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const profileRef = useRef<HTMLDivElement>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const router = useRouter();
   const pathname = usePathname();
   const currentPathname = pathname ?? "";
@@ -72,6 +77,50 @@ export default function HorseShell({ children }: { children: ReactNode }) {
       day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Ho_Chi_Minh",
     }).format(new Date()));
   }, []);
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastMessage("");
+      toastTimerRef.current = null;
+    }, 5000);
+  }, []);
+  const dismissToast = useCallback(() => {
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = null;
+    setToastMessage("");
+  }, []);
+  useEffect(() => () => {
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+  }, []);
+  const loadUnreadNotificationCount = useCallback(async () => {
+    try {
+      const result = await authenticatedRequest<{ unread_count: number }>("/api/notifications?page=1&limit=1");
+      setUnreadNotificationCount(result.unread_count);
+    } catch {
+      // Keep the last known count when notifications are temporarily unavailable.
+    }
+  }, []);
+  useEffect(() => {
+    if (!user) return;
+    void loadUnreadNotificationCount();
+    const refresh = () => void loadUnreadNotificationCount();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    const interval = window.setInterval(refresh, 60_000);
+    window.addEventListener(APP_MUTATION_COMPLETED_EVENT, refresh);
+    window.addEventListener(NOTIFICATION_COUNT_CHANGED_EVENT, refresh);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refresh);
+      window.removeEventListener(NOTIFICATION_COUNT_CHANGED_EVENT, refresh);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [loadUnreadNotificationCount, user]);
   useEffect(() => {
     if (!profileOpen) return;
     function closeProfile(event: PointerEvent) {
@@ -143,7 +192,22 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   const navigation = workspaceNavigation[user.roleName];
   const currentLabel = isDashboard ? navigation.find(item => item.id === activeTab)?.label ?? navigation[0].label : pathname?.startsWith(Routes.horses) ? "Hồ sơ ngựa" : "Quản lý tài khoản";
 
-  return <UserContext.Provider value={user}><div className="horse-app" data-role={user.roleName}>
+  function openNotifications() {
+    const targetTab = navigation.find(item => item.id === "notifications")?.id ?? "overview";
+    const targetHref = Routes.dashboardTab(dashboardRoute, targetTab);
+    if (pathname === dashboardRoute) {
+      if (`${window.location.pathname}${window.location.search}` === targetHref) {
+        document.getElementById("notification-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      window.history.pushState(null, "", targetHref);
+      window.dispatchEvent(new Event("workspace-tab-change"));
+      return;
+    }
+    router.push(targetHref);
+  }
+
+  return <UserContext.Provider value={user}><WorkspaceToastContext.Provider value={showToast}><div className="horse-app" data-role={user.roleName}>
     <a className="skip-link" href="#workspace-content">Đến nội dung chính</a>
     {open && <button className="horse-nav-overlay" aria-label="Đóng menu" onClick={() => setOpen(false)} />}
     <aside className={`horse-sidebar ${open ? "is-open" : ""}`}>
@@ -194,6 +258,10 @@ export default function HorseShell({ children }: { children: ReactNode }) {
         </div>
         <div className="horse-topbar-actions">
           <span className="horse-date-pill"><CalendarDays size={16} /><span>{todayLabel || "Hôm nay"}</span></span>
+          <button type="button" onClick={openNotifications} className="relative grid h-10 w-10 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-equine-navy transition-colors hover:bg-slate-50" aria-label={`Thông báo: ${unreadNotificationCount} chưa đọc`} title="Mở thông báo">
+            <Bell size={18} />
+            <span aria-hidden="true" className={`absolute -right-1 -top-1 min-w-5 rounded-full px-1 text-center text-[10px] font-bold leading-5 ${unreadNotificationCount > 0 ? "bg-rose-600 text-white" : "bg-slate-200 text-slate-600"}`}>{unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}</span>
+          </button>
           <div className="horse-profile-menu" ref={profileRef}>
             <button type="button" className="horse-profile-trigger" aria-expanded={profileOpen} onClick={() => setProfileOpen(value => !value)}>
               <span className="horse-profile-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span>
@@ -204,7 +272,12 @@ export default function HorseShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
+      {toastMessage && <div role="status" aria-live="polite" className="fixed right-4 top-[5.75rem] z-[80] flex w-[calc(100vw_-_2rem)] max-w-md items-start gap-3 rounded-lg border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-950 shadow-xl sm:right-6">
+        <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" />
+        <p className="min-w-0 flex-1">{toastMessage}</p>
+        <button type="button" className="shrink-0 rounded p-1 text-slate-500 hover:bg-slate-100" aria-label="Đóng thông báo" onClick={dismissToast}><X size={15} /></button>
+      </div>}
       <main id="workspace-content" className="horse-main" key={pathname}>{children}</main>
     </div>
-  </div></UserContext.Provider>;
+  </div></WorkspaceToastContext.Provider></UserContext.Provider>;
 }

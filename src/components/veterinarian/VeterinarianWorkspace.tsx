@@ -30,11 +30,13 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import InjuryModel3D from "@/components/veterinarian/InjuryModel3D";
+import HorseStableYard from "@/components/veterinarian/HorseStableYard";
 import { CompactId } from "@/components/shared/CompactId";
 import type { Horse } from "@/api/horses/api";
-import { APP_MUTATION_COMPLETED_EVENT } from "@/api/client";
+import { APP_MUTATION_COMPLETED_EVENT, NOTIFICATION_COUNT_CHANGED_EVENT } from "@/api/client";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import { getUser } from "@/lib/session";
+import { useWorkspaceToast } from "@/components/horses/HorseShell";
 import {
   veterinarianApi,
   veterinarianError,
@@ -92,6 +94,12 @@ const injuryStatusLabels: Record<InjuryMarker["recovery_status"], string> = {
   Recovering: "đang hồi phục",
   Recovered: "đã hồi phục",
 };
+
+const injuryStatusGroups: { status: InjuryMarker["recovery_status"]; label: string; accent: string }[] = [
+  { status: "Active", label: "Đang chấn thương", accent: "border-rose-200 bg-rose-50/50" },
+  { status: "Recovering", label: "Đang hồi phục", accent: "border-amber-200 bg-amber-50/50" },
+  { status: "Recovered", label: "Đã hồi phục", accent: "border-emerald-200 bg-emerald-50/50" },
+];
 
 const injurySeverityLabels: Record<InjuryMarker["severity"], string> = {
   Mild: "nhẹ",
@@ -226,13 +234,13 @@ function formatNotificationMessage(message: string, horses: VetHorse[]) {
 }
 
 export default function VeterinarianWorkspace() {
+  const showToast = useWorkspaceToast();
   const [overview, setOverview] = useState<HealthOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
-  const [notice, setNotice] = useState("");
   const [unread, setUnread] = useState(0);
   const [actionCount, setActionCount] = useState(0);
   const [actionItems, setActionItems] = useState<VetActionItem[]>([]);
@@ -367,7 +375,7 @@ export default function VeterinarianWorkspace() {
   });
 
   function changed(message: string) {
-    setNotice(message);
+    showToast(message);
     const activity: VetActivity = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       horseId: horse?.id ?? null,
@@ -382,23 +390,21 @@ export default function VeterinarianWorkspace() {
   function openNotificationAction(horseId: string, nextTab: NotificationActionTab) {
     setSelectedId(horseId);
     selectTab(nextTab);
-    setNotice("");
   }
 
   return (
     <section className="dashboard-workspace mx-auto w-full" aria-label="Không gian bác sĩ thú y">
       {error && <div className="mt-5"><Notice error>{error}</Notice></div>}
-      {notice && <div className="mt-5"><Notice>{notice}</Notice></div>}
 
       {tab !== "stables" && <div className="relative mt-4 w-full max-w-2xl">
         <label className="flex items-center gap-2 rounded-xl border border-equine-line bg-white px-3 py-2.5 shadow-sm"><Search size={16} className="shrink-0 text-slate-500" /><span className="sr-only">Tìm ngựa theo tên hoặc mã số</span><input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none" placeholder="Tìm theo tên hoặc mã số ngựa..." /></label>
         {search.trim() && <div className="absolute left-0 right-0 top-full z-20 mt-2 max-h-[65vh] space-y-2 overflow-y-auto rounded-xl border border-equine-line bg-white p-2 shadow-lg">
-          {loading && !overview ? <Notice>Đang tìm ngựa...</Notice> : visibleHorses.length === 0 ? <Notice>Không tìm thấy ngựa phù hợp.</Notice> : visibleHorses.map((item) => <HorseChoice key={item.id} horse={item} selected={item.id === selectedId} onClick={() => { setSelectedId(item.id); setSearch(""); setNotice(""); }} />)}
+          {loading && !overview ? <Notice>Đang tìm ngựa...</Notice> : visibleHorses.length === 0 ? <Notice>Không tìm thấy ngựa phù hợp.</Notice> : visibleHorses.map((item) => <HorseChoice key={item.id} horse={item} selected={item.id === selectedId} onClick={() => { setSelectedId(item.id); setSearch(""); }} />)}
         </div>}
       </div>}
 
       {tab === "stables" ? (
-        <div className="mt-5 max-w-[430px]">
+        <div className="mt-5 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(280px,430px)_minmax(0,1fr)]">
           <StableMapPanel
             horses={horses}
             stableGroups={stableGroups}
@@ -406,14 +412,16 @@ export default function VeterinarianWorkspace() {
             openIncidentCount={openIncidentCount}
             unread={unread}
             actionCount={actionCount}
-            onIncident={() => { selectTab("incidents"); setNotice(""); }}
-            onNotifications={() => { selectTab("notifications"); setNotice(""); }}
+            onIncident={() => { selectTab("incidents"); }}
+            onNotifications={() => { selectTab("notifications"); }}
             onRefresh={() => { void loadOverview(); void loadUnread(); }}
-            onSelectHorse={(id) => { setSelectedId(id); selectTab("overview"); setNotice(""); }}
+            onSelectHorse={(id) => { setSelectedId(id); selectTab("overview"); }}
           />
+          <HorseStableYard horses={horses} onSelectHorse={setSelectedId} />
         </div>
       ) : (
       <div className="mt-4 min-w-0">
+          {tab === "exams" && <ExamHorseRoster horses={horses} selectedId={selectedId} onSelectHorse={setSelectedId} />}
           {horse && <>
             <HorseSummary horse={horse} />
             <div className="mt-4">
@@ -444,7 +452,6 @@ export default function VeterinarianWorkspace() {
                     setLinkedScheduleId(scheduleId);
                     setAutoOpenExam(true);
                     selectTab("exams");
-                    setNotice("");
                   }}
                 />
               )}
@@ -753,6 +760,57 @@ function ExamForm({
       </div>
     </form>
   );
+}
+
+type ExamHorseSummary = { horse: VetHorse; total: number; latestExamDate: string | null };
+
+function ExamHorseRoster({ horses, selectedId, onSelectHorse }: { horses: VetHorse[]; selectedId: string; onSelectHorse: (id: string) => void }) {
+  const [items, setItems] = useState<ExamHorseSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    if (horses.length === 0) {
+      setItems([]);
+      setError("");
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError("");
+    const results = await Promise.allSettled(horses.map((horse) => veterinarianApi.exams(horse.id)));
+    const summaries: ExamHorseSummary[] = [];
+    let failedCount = 0;
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        failedCount += 1;
+        return;
+      }
+      const total = Math.max(result.value.total, result.value.data.length);
+      if (total > 0) summaries.push({ horse: horses[index], total, latestExamDate: result.value.data[0]?.exam_date ?? null });
+    });
+    summaries.sort((left, right) => Date.parse(right.latestExamDate ?? "") - Date.parse(left.latestExamDate ?? ""));
+    setItems(summaries);
+    setError(failedCount > 0 ? `Không tải được hồ sơ khám của ${failedCount} ngựa.` : "");
+    setLoading(false);
+  }, [horses]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  return <SectionCard title="Ngựa đã có hồ sơ khám" description="Danh sách ngựa từng được khám, kèm số lần và ngày khám gần nhất. Chọn ngựa để xem lịch sử khám." icon={Stethoscope} action={<button type="button" className="soft-button h-9 px-3 text-xs" disabled={loading} onClick={() => void load()}><RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Làm mới</button>}>
+    {error && <div className="mb-3"><Notice error>{error}</Notice></div>}
+    {loading && items.length === 0 ? <Notice>Đang tải danh sách ngựa đã khám...</Notice> : items.length === 0 ? error ? null : <Empty>Chưa có ngựa nào có hồ sơ khám.</Empty> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {items.map((item) => <button key={item.horse.id} type="button" aria-pressed={selectedId === item.horse.id} onClick={() => onSelectHorse(item.horse.id)} className={`flex min-w-0 items-center gap-3 rounded-lg border p-3 text-left transition ${selectedId === item.horse.id ? "border-equine-navy bg-slate-50 ring-1 ring-equine-navy/20" : "border-equine-line bg-white hover:bg-slate-50"}`}>
+        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-equine-mist"><HorseImage horse={item.horse as unknown as Horse} /></div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold text-equine-navy">{item.horse.horse_name}</p>
+          <p className="mt-0.5 truncate text-xs text-slate-500">{item.horse.stable_box ? `Chuồng ${item.horse.stable_box.box_code} · Khu ${item.horse.stable_box.section}` : "Chưa xếp chuồng"}</p>
+          <p className="mt-1 text-xs text-slate-600">{item.total} lần khám · gần nhất {displayDate(item.latestExamDate)}</p>
+        </div>
+      </button>)}
+    </div>}
+    {loading && items.length > 0 && <p className="mt-2 text-xs text-slate-500" role="status">Đang cập nhật danh sách...</p>}
+  </SectionCard>;
 }
 
 function ExamsPanel({
@@ -1068,6 +1126,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
   const [suggestLock, setSuggestLock] = useState(false);
   const [assessmentFor, setAssessmentFor] = useState<InjuryMarker | null>(null);
   const [draftCoordinates, setDraftCoordinates] = useState<InjuryCoordinateFields>({ coordinate_x: "", coordinate_y: "", coordinate_z: "" });
+  const [draftBodyPart, setDraftBodyPart] = useState("");
   const selectedCoordinates = {
     coordinate_x: draftCoordinates.coordinate_x === "" ? null : Number(draftCoordinates.coordinate_x),
     coordinate_y: draftCoordinates.coordinate_y === "" ? null : Number(draftCoordinates.coordinate_y),
@@ -1106,7 +1165,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
         return;
       }
       await veterinarianApi.createInjury(horse.id, values);
-      setCreating(false); setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); await load();
+      setCreating(false); setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); setDraftBodyPart(""); await load();
       if (values.recovery_status !== "Recovered") {
         const lockReason = `Chấn thương ${String(values.body_part)}: ${String(values.description || values.severity)}`.slice(0, 255);
         try {
@@ -1131,15 +1190,39 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     finally { setBusy(false); }
   }
 
-  return <SectionCard title="Chấn thương & phục hồi" description="Đánh dấu trên mô hình 3D và lưu từng lần đánh giá để theo dõi tiến triển." icon={Activity} action={<button type="button" className="gold-button h-10 px-3" onClick={() => { setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); setCreating((value) => !value); setSuggestLock(false); }}>+ Đánh dấu</button>}>
+  return <SectionCard title="Chấn thương & phục hồi" description="Đánh dấu trên mô hình 3D và lưu từng lần đánh giá để theo dõi tiến triển." icon={Activity} action={<button type="button" className="gold-button h-10 px-3" onClick={() => { setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); setDraftBodyPart(""); setCreating((value) => !value); setSuggestLock(false); }}>+ Đánh dấu</button>}>
     <ErrorLine>{error}</ErrorLine>
     {!creating && latestByBodyPart.some((marker) => marker.recovery_status !== "Recovered") && <div className="mb-4 flex flex-wrap gap-2">{latestByBodyPart.filter((marker) => marker.recovery_status !== "Recovered").map((marker) => <button key={marker.id} type="button" className="soft-button h-9 px-3 text-xs" onClick={() => { setAssessmentFor(marker); setCreating(false); setDraftCoordinates({ coordinate_x: marker.coordinate_x == null ? "" : String(marker.coordinate_x), coordinate_y: marker.coordinate_y == null ? "" : String(marker.coordinate_y), coordinate_z: marker.coordinate_z == null ? "" : String(marker.coordinate_z) }); }}>{marker.body_part}: đánh giá phục hồi</button>)}</div>}
-    {(!loading || creating || assessmentFor) && !error.includes("Điểm chấn thương:") && <InjuryModel3D markers={markers} placementMode={creating || Boolean(assessmentFor)} selectedCoordinates={selectedCoordinates} onSelectLocation={(coordinates) => setDraftCoordinates({ coordinate_x: coordinates.coordinate_x == null ? "" : coordinates.coordinate_x.toFixed(3), coordinate_y: coordinates.coordinate_y == null ? "" : coordinates.coordinate_y.toFixed(3), coordinate_z: coordinates.coordinate_z == null ? "" : coordinates.coordinate_z.toFixed(3) })} />}
+    {(!loading || creating || assessmentFor) && !error.includes("Điểm chấn thương:") && <InjuryModel3D markers={markers} placementMode={creating || Boolean(assessmentFor)} selectedCoordinates={selectedCoordinates} onSelectLocation={(coordinates, bodyPart) => { setDraftCoordinates({ coordinate_x: coordinates.coordinate_x == null ? "" : coordinates.coordinate_x.toFixed(3), coordinate_y: coordinates.coordinate_y == null ? "" : coordinates.coordinate_y.toFixed(3), coordinate_z: coordinates.coordinate_z == null ? "" : coordinates.coordinate_z.toFixed(3) }); if (creating) setDraftBodyPart(bodyPart ?? "Da"); }} onSelectAnatomyPart={(bodyPart) => { if (creating) { setDraftBodyPart(bodyPart); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); } }} />}
     {assessmentFor && <form key={assessmentFor.id} onSubmit={(event) => void create(event)} className="mb-4 mt-4 grid gap-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">Đánh giá phục hồi mới</h4><Field label="Vị trí cơ thể" name="body_part" required maxLength={50} defaultValue={assessmentFor.body_part} /><SelectField label="Mức độ" name="severity" required defaultValue={assessmentFor.severity} options={[{ value: "Mild", label: "Nhẹ · Mild" }, { value: "Moderate", label: "Vừa · Moderate" }, { value: "Severe", label: "Nặng · Severe" }]} /><SelectField label="Tình trạng phục hồi" name="recovery_status" defaultValue={assessmentFor.recovery_status === "Active" ? "Recovering" : "Recovered"} options={[{ value: "Active", label: "Đang chấn thương" }, { value: "Recovering", label: "Đang hồi phục" }, { value: "Recovered", label: "Đã hồi phục" }]} /><label className="block sm:col-span-2"><span className="field-label">Chẩn đoán liên quan</span><select name="medical_record_id" defaultValue={assessmentFor.medical_record_id ?? ""} className="field-control px-3"><option value="">Không gắn chẩn đoán</option>{records.map((record) => <option key={record.id} value={record.id}>{record.diagnosis}</option>)}</select></label><CoordinateFields value={draftCoordinates} onChange={setDraftCoordinates} /><div className="sm:col-span-2"><TextAreaField label="Mô tả" name="description" rows={3} defaultValue={assessmentFor.description} /></div><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>Lưu đánh giá phục hồi</button><button type="button" className="soft-button h-10 px-3" onClick={() => { setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); }}>Hủy</button></div></form>}
     <label className="mb-4 inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={latestOnly} onChange={(event) => setLatestOnly(event.target.checked)} /> Chỉ điểm mới nhất của mỗi vị trí</label>
-    {creating && <form onSubmit={(event) => void create(event)} className="mb-4 mt-4 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">Đánh giá chấn thương mới</h4><Field label="Vị trí cơ thể" name="body_part" required maxLength={50} placeholder="Ví dụ: Chân trước trái" /><SelectField label="Mức độ" name="severity" required options={[{ value: "Mild", label: "Nhẹ · Mild" }, { value: "Moderate", label: "Vừa · Moderate" }, { value: "Severe", label: "Nặng · Severe" }]} /><SelectField label="Tình trạng phục hồi" name="recovery_status" options={[{ value: "Active", label: "Đang chấn thương" }, { value: "Recovering", label: "Đang hồi phục" }, { value: "Recovered", label: "Đã hồi phục" }]} /><label className="block sm:col-span-2"><span className="field-label">Chẩn đoán liên quan</span><select name="medical_record_id" defaultValue="" className="field-control px-3"><option value="">Không gắn chẩn đoán</option>{records.map((record) => <option key={record.id} value={record.id}>{record.diagnosis}</option>)}</select></label><CoordinateFields value={draftCoordinates} onChange={setDraftCoordinates} /><div className="sm:col-span-2"><TextAreaField label="Mô tả" name="description" rows={3} /></div><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>Lưu đánh giá</button><button type="button" className="soft-button h-10 px-3" onClick={() => { setCreating(false); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); }}>Hủy</button></div></form>}
+    {creating && <form onSubmit={(event) => void create(event)} className="mb-4 mt-4 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">Đánh giá chấn thương mới</h4><label className="block"><span className="field-label">Vị trí cơ thể<span className="text-rose-600"> *</span></span><input name="body_part" required maxLength={50} placeholder="Chọn cơ, nội tạng, xương hoặc da" value={draftBodyPart} onChange={(event) => setDraftBodyPart(event.target.value)} className="field-control px-3" /></label><SelectField label="Mức độ" name="severity" required options={[{ value: "Mild", label: "Nhẹ · Mild" }, { value: "Moderate", label: "Vừa · Moderate" }, { value: "Severe", label: "Nặng · Severe" }]} /><SelectField label="Tình trạng phục hồi" name="recovery_status" options={[{ value: "Active", label: "Đang chấn thương" }, { value: "Recovering", label: "Đang hồi phục" }, { value: "Recovered", label: "Đã hồi phục" }]} /><label className="block sm:col-span-2"><span className="field-label">Chẩn đoán liên quan</span><select name="medical_record_id" defaultValue="" className="field-control px-3"><option value="">Không gắn chẩn đoán</option>{records.map((record) => <option key={record.id} value={record.id}>{record.diagnosis}</option>)}</select></label><CoordinateFields value={draftCoordinates} onChange={setDraftCoordinates} /><div className="sm:col-span-2"><TextAreaField label="Mô tả" name="description" rows={3} /></div><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>Lưu đánh giá</button><button type="button" className="soft-button h-10 px-3" onClick={() => { setCreating(false); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); setDraftBodyPart(""); }}>Hủy</button></div></form>}
     {suggestLock && <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle size={15} className="mr-1 inline" />Ngựa đã chuyển sang trạng thái Chấn thương, sẵn sàng thi đấu bị đặt thành Chưa sẵn sàng và lịch tập đã khóa.</p>}
-    {loading ? <Notice>Đang tải điểm chấn thương...</Notice> : error.includes("Điểm chấn thương:") ? null : markers.length === 0 ? (!creating && !assessmentFor ? <Empty>Chưa có đánh giá chấn thương.</Empty> : null) : <div className="mt-4 space-y-3">{markers.map((marker) => <article key={marker.id} className={`rounded-xl border p-4 ${marker.recovery_status === "Recovered" ? "border-emerald-200 bg-emerald-50/60" : marker.severity === "Severe" ? "border-rose-200 bg-rose-50/50" : "border-equine-line"}`}><div className="flex flex-wrap items-start justify-between gap-2"><div><h4 className="font-semibold text-equine-navy">{marker.body_part}</h4><p className="mt-1 text-xs text-slate-500">{displayDate(marker.marked_at)} · {marker.coordinate_x == null ? "Chưa đặt tọa độ" : `X ${marker.coordinate_x}, Y ${marker.coordinate_y}${marker.coordinate_z == null ? "" : `, Z ${marker.coordinate_z}`}`}</p></div><div className="flex gap-2"><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold">{marker.severity}</span><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold">{marker.recovery_status}</span></div></div>{marker.description && <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{marker.description}</p>}</article>)}</div>}
+    {loading ? <Notice>Đang tải điểm chấn thương...</Notice> : error.includes("Điểm chấn thương:") ? null : <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
+      {injuryStatusGroups.map((group) => {
+        const groupMarkers = markers.filter((marker) => marker.recovery_status === group.status);
+        return <section key={group.status} className={`overflow-hidden rounded-xl border ${group.accent}`} aria-label={`Bảng ${group.label}`}>
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <h4 className="font-semibold text-equine-navy">{group.label}</h4>
+            <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">{groupMarkers.length}</span>
+          </div>
+          <div className="overflow-x-auto bg-white">
+            <table className="w-full min-w-[520px] text-left text-sm">
+              <thead><tr className="border-y border-equine-line bg-slate-50 text-xs uppercase text-slate-500"><th className="px-4 py-3">Vị trí</th><th className="px-4 py-3">Mức độ</th><th className="px-4 py-3">Ngày ghi nhận</th><th className="px-4 py-3">Tọa độ</th><th className="px-4 py-3">Mô tả</th></tr></thead>
+              <tbody>
+                {groupMarkers.length === 0 ? <tr><td colSpan={5} className="px-4 py-5 text-center text-sm text-slate-500">Chưa có chấn thương ở trạng thái này.</td></tr> : groupMarkers.map((marker) => <tr key={marker.id} className="border-b border-equine-line/70 last:border-0">
+                  <td className="px-4 py-3 font-semibold text-equine-navy">{marker.body_part}</td>
+                  <td className="px-4 py-3 capitalize">{injurySeverityLabels[marker.severity]}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-slate-600">{displayDate(marker.marked_at)}</td>
+                  <td className="px-4 py-3 text-slate-600">{marker.coordinate_x == null || marker.coordinate_y == null ? "Chưa đặt tọa độ" : `X ${marker.coordinate_x}, Y ${marker.coordinate_y}${marker.coordinate_z == null ? "" : `, Z ${marker.coordinate_z}`}`}</td>
+                  <td className="max-w-sm px-4 py-3 whitespace-pre-wrap text-slate-600">{marker.description || "—"}</td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div>
+        </section>;
+      })}
+    </div>}
   </SectionCard>;
 }
 
@@ -2385,13 +2468,13 @@ function NotificationsPanel({
 
   async function markRead(id: string) {
     setBusy(true); setError("");
-    try { await veterinarianApi.readNotification(id); await load(); }
+    try { await veterinarianApi.readNotification(id); await load(); window.dispatchEvent(new Event(NOTIFICATION_COUNT_CHANGED_EVENT)); }
     catch (reason) { setError(veterinarianError(reason)); }
     finally { setBusy(false); }
   }
   async function markAll() {
     setBusy(true); setError("");
-    try { await veterinarianApi.readAllNotifications(); await load(); }
+    try { await veterinarianApi.readAllNotifications(); await load(); window.dispatchEvent(new Event(NOTIFICATION_COUNT_CHANGED_EVENT)); }
     catch (reason) { setError(veterinarianError(reason)); }
     finally { setBusy(false); }
   }
