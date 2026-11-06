@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, AlertTriangle, ArrowUpRight, CalendarDays, Check, CircleHelp, ClipboardList, Flag, Gauge, HeartPulse, Medal, Pencil, Play, Plus, RefreshCw, Search, Trash2, Users, Utensils, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, CalendarDays, Check, CircleHelp, ClipboardList, Clock, Flag, Gauge, HeartPulse, MapPin, Medal, Pencil, Play, Plus, RefreshCw, Search, Trash2, User, Users, Utensils, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import SessionTargetsEditor from "./SessionTargetsEditor";
@@ -11,6 +11,7 @@ import RaceTrackScene3D, { type RaceTrackRunner } from "./RaceTrackScene3D";
 import NotificationCenter from "@/components/shared/NotificationCenter";
 import { listHorses, type Horse } from "@/api/horses/api";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
+import { StatTile } from "@/components/shared/StatTile";
 import {
   headTrainerApi,
   headTrainerError,
@@ -25,8 +26,8 @@ import {
   type TrainerHorse,
 } from "@/api/head-trainer/api";
 
-type Tab = "overview" | "analysis" | "plans" | "calendar" | "races" | "simulation" | "incidents" | "diet";
-const workspaceTabIds: readonly Tab[] = ["overview", "plans", "diet", "calendar", "simulation", "analysis", "races", "incidents"];
+type Tab = "overview" | "dispatch" | "analysis" | "plans" | "calendar" | "races" | "simulation" | "incidents" | "diet";
+const workspaceTabIds: readonly Tab[] = ["overview", "dispatch", "calendar", "plans", "diet", "simulation", "analysis", "races", "incidents"];
 type Groom = { user_id: number; full_name: string; email: string };
 type SensorVitals = { speed: number; heartRate: number; systolic: number; diastolic: number };
 const distanceOptions: [string, string][] = [["", "Chọn cự ly"], ...Array.from({ length: 15 }, (_, index) => {
@@ -98,8 +99,8 @@ export default function HeadTrainerWorkspace() {
   const [includeSimulated, setIncludeSimulated] = useState(true);
   const [from, setFrom] = useState(() => plusDays(today(), -30));
   const [to, setTo] = useState(() => today());
-  const [calendarFrom, setCalendarFrom] = useState(() => today());
-  const [calendarTo, setCalendarTo] = useState(() => plusDays(today(), 14));
+  const [calendarFrom, setCalendarFrom] = useState(() => plusDays(today(), -14));
+  const [calendarTo, setCalendarTo] = useState(() => plusDays(today(), 28));
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -215,7 +216,7 @@ export default function HeadTrainerWorkspace() {
   }, [calendarFrom, calendarTo, calendarQueryKey]);
 
   useEffect(() => {
-    if (tab !== "calendar") return;
+    if (tab !== "calendar" && tab !== "dispatch") return;
     let active = true;
     const timer = window.setInterval(() => {
       loadCalendar().catch((reason) => { if (active) setError(headTrainerError(reason)); });
@@ -236,7 +237,7 @@ export default function HeadTrainerWorkspace() {
     if (tab === "overview" || tab === "plans" || tab === "races") {
       loadHorseData().catch((reason) => { if (active) setError(headTrainerError(reason)); });
     }
-    if (tab === "calendar" || tab === "simulation") loadCalendar().catch((reason) => { if (active) setError(headTrainerError(reason)); });
+    if (tab === "calendar" || tab === "dispatch" || tab === "simulation") loadCalendar().catch((reason) => { if (active) setError(headTrainerError(reason)); });
     return () => { active = false; };
   }, [tab, loadHorseData, loadCalendar, plansRevision]);
 
@@ -330,7 +331,7 @@ export default function HeadTrainerWorkspace() {
   }, [simulation, finishSimulation, finishFailed, loadOverview, loadHorseData, loadCalendar]);
 
   const refresh = useCallback(async () => {
-    try { setAnalysisRevision((value) => value + 1); await Promise.all([loadOverview(), loadHorseData(), tab === "calendar" ? loadCalendar() : Promise.resolve()]); }
+    try { setAnalysisRevision((value) => value + 1); await Promise.all([loadOverview(), loadHorseData(), (tab === "calendar" || tab === "dispatch") ? loadCalendar() : Promise.resolve()]); }
     catch (reason) { setError(headTrainerError(reason)); }
   }, [loadOverview, loadHorseData, loadCalendar, tab]);
 
@@ -549,7 +550,7 @@ export default function HeadTrainerWorkspace() {
     <div className="mt-5 space-y-4">
       {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} />
         : !horses.length ? <Notice>Chưa có hồ sơ ngựa đang hoạt động.</Notice> : <>
-        {tab !== "simulation" && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-equine-line bg-white p-3">
+        {!["simulation", "dispatch", "calendar"].includes(tab) && <div className="flex flex-wrap items-center gap-3 rounded-lg border border-equine-line bg-white p-3">
           <label className="text-xs font-bold uppercase tracking-wide text-slate-500" htmlFor="trainer-horse">Ngựa đang xem</label>
           <select id="trainer-horse" className="field-control max-w-sm px-3" value={horseId} onChange={(event) => setHorseId(event.target.value)}>{horses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}{horse.is_training_locked ? " · Đang khóa" : ""}</option>)}</select>
           {selectedOverview?.is_training_locked && <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700"><AlertTriangle size={14} /> Khóa huấn luyện · {selectedOverview.lock_reason}</span>}
@@ -566,7 +567,7 @@ export default function HeadTrainerWorkspace() {
           onCancel={() => setEditingDietId(null)}
           onSave={saveStandardDiet}
         />}
-        {tab === "calendar" && <CalendarPanel onTargetsSaved={refresh} horses={horses} sessions={sessions} grooms={grooms} from={calendarFrom} setFrom={setCalendarFrom} to={calendarTo} setTo={setCalendarTo} scheduleDraft={scheduleDraft} onDraftUsed={() => setScheduleDraft(null)} onCreate={createSchedule} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onMetrics={recordMetrics} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} />}
+        {(tab === "dispatch" || tab === "calendar") && <CalendarPanel viewMode={tab === "dispatch" ? "dispatch" : "calendar"} onSwitchView={(nextView) => selectTab(nextView)} onTargetsSaved={refresh} horses={horses} sessions={sessions} grooms={grooms} from={calendarFrom} setFrom={setCalendarFrom} to={calendarTo} setTo={setCalendarTo} scheduleDraft={scheduleDraft} onDraftUsed={() => setScheduleDraft(null)} onCreate={createSchedule} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onMetrics={recordMetrics} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} />}
         {tab === "races" && <RaceEntriesPanel selectedHorse={selectedHorse} horses={horses} races={races} entries={raceEntries} onRecordResult={async (entryId,input) => { const result=await run(()=>headTrainerApi.recordRaceResult(entryId,input),"Race result saved."); if(result) await refresh(); }} onRegister={async (raceId) => { if (!horseId) return; const result = await run(() => headTrainerApi.registerRace(horseId, raceId), "Đã đăng ký ngựa vào giải."); if (result) await refresh(); }} busy={busy} />}
         {tab === "simulation" && <SimulationPanel sessions={sessions} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} />}
       </>}
@@ -986,7 +987,56 @@ function scheduleStatusLabel(value: string) {
   return ({ Scheduled: "Đã lên lịch", Blocked: "Chờ xử lý y tế", InProgress: "Đang diễn ra", Completed: "Hoàn thành", Cancelled: "Đã hủy", Missed: "Bỏ lỡ" } as Record<string, string>)[value] ?? value;
 }
 
-function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, scheduleDraft, onDraftUsed, onCreate, onAssign, onStatus, onMetrics, onVideo, showMetricsFor, setShowMetricsFor, busy, onOpenSimulation, onTargetsSaved }: {
+const TRAINER_TIMETABLE_SLOTS = [
+  { id: 1, label: "Slot 1", timeRange: "07:00 - 09:00", startTime: "07:00", endTime: "09:00", startMin: 0, endMin: 540 },
+  { id: 2, label: "Slot 2", timeRange: "09:15 - 11:15", startTime: "09:15", endTime: "11:15", startMin: 540, endMin: 690 },
+  { id: 3, label: "Slot 3", timeRange: "11:30 - 13:30", startTime: "11:30", endTime: "13:30", startMin: 690, endMin: 810 },
+  { id: 4, label: "Slot 4", timeRange: "13:45 - 15:45", startTime: "13:45", endTime: "15:45", startMin: 810, endMin: 945 },
+  { id: 5, label: "Slot 5", timeRange: "16:00 - 18:00", startTime: "16:00", endTime: "18:00", startMin: 945, endMin: 1080 },
+  { id: 6, label: "Slot 6", timeRange: "18:15 - 20:15", startTime: "18:15", endTime: "20:15", startMin: 1080, endMin: 1440 },
+] as const;
+
+function trainerMondayOfWeek(value: string) {
+  const date = new Date(`${value}T12:00:00`);
+  const day = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - day);
+  return dateInputValue(date);
+}
+
+function trainerDayName(value: string) {
+  const day = new Date(`${value}T12:00:00`).getDay();
+  return ["Chủ Nhật", "Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy"][day] ?? "";
+}
+
+function trainerFormatDayMonth(value: string) {
+  const d = new Date(`${value}T12:00:00`);
+  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function trainerISOWeek(date: Date) {
+  const target = new Date(date.valueOf());
+  const dayNr = (date.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setMonth(0, 1);
+  if (target.getDay() !== 4) {
+    target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+  }
+  return 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
+}
+
+function getTrainerSessionSlot(session: TrainingSession): number {
+  if (!session.start_time) return 1;
+  const parts = session.start_time.slice(0, 5).split(":").map(Number);
+  if (parts.length < 2 || Number.isNaN(parts[0])) return 1;
+  const minutes = parts[0] * 60 + (parts[1] || 0);
+  for (const slot of TRAINER_TIMETABLE_SLOTS) {
+    if (minutes >= slot.startMin && minutes < slot.endMin) return slot.id;
+  }
+  return 1;
+}
+
+function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, scheduleDraft, onDraftUsed, onCreate, onAssign, onStatus, onMetrics, onVideo, showMetricsFor, setShowMetricsFor, busy, onOpenSimulation, onTargetsSaved, viewMode = "calendar", onSwitchView }: {
   horses: Horse[]; sessions: TrainingSession[]; grooms: Groom[]; from: string; setFrom: (value: string) => void;
   to: string; setTo: (value: string) => void; onCreate: (event: FormEvent<HTMLFormElement>) => void;
   scheduleDraft: { horseId: string; planId: string; startDate: string | null } | null; onDraftUsed: () => void;
@@ -995,28 +1045,68 @@ function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, sch
   onAssign: (id: string, groomId: number) => void; onStatus: (id: string, status: string) => void;
   onMetrics: (event: FormEvent<HTMLFormElement>, id: string) => void; onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; showMetricsFor: string | null;
   setShowMetricsFor: (id: string | null) => void; busy: boolean;
+  viewMode?: "dispatch" | "calendar";
+  onSwitchView?: (nextView: "dispatch" | "calendar") => void;
 }) {
   const [createHorse, setCreateHorse] = useState(horses[0]?.id ?? "");
+  const [createOpen, setCreateOpen] = useState(false);
   const [horsePlans, setHorsePlans] = useState<TrainingPlan[]>([]);
   const [horsePlansLoading, setHorsePlansLoading] = useState(false);
   const [horsePlansError, setHorsePlansError] = useState("");
   const [plansReload, setPlansReload] = useState(0);
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [sessionType, setSessionType] = useState("Training");
+  const [selectedSlotRange, setSelectedSlotRange] = useState("07:00|09:00");
+  const [startTimeInput, setStartTimeInput] = useState("07:00");
+  const [endTimeInput, setEndTimeInput] = useState("09:00");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [scheduleDefaults] = useState(() => suggestedTrainingWindow());
-  const createFormRef = useRef<HTMLFormElement>(null);
+  const [dispatchSubTab, setDispatchSubTab] = useState<"coverage" | "sessions">("coverage");
+  const [coverageFilter, setCoverageFilter] = useState<"all" | "uncovered" | "locked" | "covered">("all");
+  const [horseFilter, setHorseFilter] = useState("all");
+  const [groomFilter, setGroomFilter] = useState("all");
+  const [calendarSubView, setCalendarSubView] = useState<"timetable" | "list">("timetable");
+  const [showAllSlots, setShowAllSlots] = useState(false);
+
+  const currentWeekStart = useMemo(() => trainerMondayOfWeek(today()), []);
+  const [weekStart, setWeekStart] = useState(() => trainerMondayOfWeek(today()));
+  const weekEnd = useMemo(() => plusDays(weekStart, 6), [weekStart]);
+
+  useEffect(() => {
+    const desiredFrom = plusDays(weekStart, -7);
+    const desiredTo = plusDays(weekStart, 14);
+    if (desiredFrom < from) setFrom(desiredFrom);
+    if (desiredTo > to) setTo(desiredTo);
+  }, [weekStart, from, to, setFrom, setTo]);
+
+  const weekOptions = useMemo(() => {
+    const options = [];
+    const curr = new Date(`${currentWeekStart}T12:00:00`);
+    for (let i = -8; i <= 12; i++) {
+      const monday = new Date(curr);
+      monday.setDate(monday.getDate() + i * 7);
+      const sunday = new Date(monday);
+      sunday.setDate(sunday.getDate() + 6);
+      const key = dateInputValue(monday);
+      const weekNum = trainerISOWeek(monday);
+      const year = monday.getFullYear();
+      const mStr = trainerFormatDayMonth(key);
+      const sStr = trainerFormatDayMonth(dateInputValue(sunday));
+      options.push({ key, fullLabel: `Week ${weekNum}, ${year} (${mStr} - ${sStr})` });
+    }
+    return options;
+  }, [currentWeekStart]);
+
   const selectedPlan = horsePlans.find((plan) => plan.id === selectedPlanId);
   useEffect(() => { setCreateHorse((id) => horses.some((horse) => horse.id === id) ? id : horses[0]?.id ?? ""); }, [horses]);
   useEffect(() => {
     if (scheduleDraft) {
       setCreateHorse(scheduleDraft.horseId);
       setSelectedPlanId(scheduleDraft.planId);
+      setCreateOpen(true);
     }
   }, [scheduleDraft]);
-  useEffect(() => {
-    if (scheduleDraft) createFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [scheduleDraft]);
+
   useEffect(() => {
     let active = true;
     setHorsePlans([]);
@@ -1040,75 +1130,913 @@ function CalendarPanel({ horses, sessions, grooms, from, setFrom, to, setTo, sch
     });
     return () => { active = false; };
   }, [createHorse, plansReload]);
+
   useEffect(() => {
     const interval = window.setInterval(() => setNowMs(Date.now()), 15000);
     return () => window.clearInterval(interval);
   }, []);
+
+  const groomWorkloads = useMemo(() => {
+    return grooms.map((groom) => {
+      const groomSessions = sessions.filter((s) => s.assigned_groom_id === groom.user_id && s.status !== "Cancelled");
+      const todayCount = groomSessions.filter((s) => s.event_date === today()).length;
+      // Chỉ tính buổi sắp tới (từ hôm nay trở đi), không đếm buổi cũ bị bỏ lỡ.
+      const activeCount = groomSessions.filter((s) => s.event_date >= today() && (s.status === "Scheduled" || s.status === "InProgress")).length;
+      return {
+        groom,
+        total: groomSessions.length,
+        todayCount,
+        activeCount,
+      };
+    });
+  }, [grooms, sessions]);
+
+  const horseCoverage = useMemo(() => {
+    return horses.map((h) => {
+      const horseSessions = sessions.filter((s) => s.horse_id === h.id && s.status !== "Cancelled");
+      const upcomingSessions = horseSessions.filter((s) => s.event_date >= today() && (s.status === "Scheduled" || s.status === "InProgress"));
+      // Ưu tiên buổi sắp tới gần nhất; nếu không có thì lấy buổi gần đây nhất trong quá khứ.
+      const byDate = (a: typeof horseSessions[number], b: typeof horseSessions[number]) => a.event_date.localeCompare(b.event_date) || (a.start_time ?? "").localeCompare(b.start_time ?? "");
+      const nearestSession = [...upcomingSessions].sort(byDate)[0] ?? [...horseSessions].sort(byDate).at(-1);
+      // "Đã phủ" = có ít nhất 1 buổi tập sắp tới; chỉ có buổi cũ thì vẫn coi là chưa có lịch.
+      const isUncovered = upcomingSessions.length === 0;
+      return {
+        horse: h,
+        horseSessions,
+        upcomingSessions,
+        nearestSession,
+        isUncovered,
+        isLocked: Boolean(h.is_training_locked),
+      };
+    });
+  }, [horses, sessions]);
+
+  const coveredCount = horseCoverage.filter((item) => !item.isUncovered).length;
+  const uncoveredCount = horseCoverage.filter((item) => item.isUncovered && !item.isLocked).length;
+  const lockedHorsesCount = horseCoverage.filter((item) => item.isLocked).length;
+  const unassignedSessionsCount = sessions.filter((s) => !s.assigned_groom_id && s.status === "Scheduled" && s.session_type !== "Rest" && s.event_date >= today()).length;
+  const todaySessionsCount = sessions.filter((s) => s.event_date === today() && s.status !== "Cancelled").length;
+
+  const filteredCoverage = useMemo(() => {
+    return horseCoverage.filter((item) => {
+      if (coverageFilter === "uncovered") return item.isUncovered && !item.isLocked;
+      if (coverageFilter === "locked") return item.isLocked;
+      if (coverageFilter === "covered") return !item.isUncovered;
+      return true;
+    });
+  }, [horseCoverage, coverageFilter]);
+
+  const filteredSessions = useMemo(() => {
+    return [...sessions]
+      .filter((s) => horseFilter === "all" || s.horse_id === horseFilter)
+      .filter((s) => {
+        if (groomFilter === "all") return true;
+        if (groomFilter === "unassigned") return !s.assigned_groom_id;
+        return String(s.assigned_groom_id ?? "") === groomFilter;
+      })
+      .sort((a, b) => a.event_date.localeCompare(b.event_date) || (a.start_time ?? "").localeCompare(b.start_time ?? ""));
+  }, [sessions, horseFilter, groomFilter]);
+
+  const weekDays = useMemo(() => {
+    return Array.from({ length: 7 }, (_, idx) => {
+      const date = plusDays(weekStart, idx);
+      const dayEvents = filteredSessions.filter((s) => s.event_date === date);
+      return { date, events: dayEvents };
+    });
+  }, [weekStart, filteredSessions]);
+
+  const weeklyEvents = useMemo(() => weekDays.flatMap((d) => d.events).filter((s) => s.status !== "Cancelled"), [weekDays]);
+  const weeklyScheduledCount = weeklyEvents.filter((s) => s.status === "Scheduled").length;
+  const weeklyInProgressCount = weeklyEvents.filter((s) => s.status === "InProgress").length;
+  const weeklyCompletedCount = weeklyEvents.filter((s) => s.status === "Completed").length;
+  const weeklyUnassignedCount = weeklyEvents.filter((s) => !s.assigned_groom_id && s.status === "Scheduled" && s.session_type !== "Rest" && s.event_date >= today()).length;
+
+  const activeSlots = useMemo(() => {
+    const usedIds = new Set<number>();
+    weekDays.forEach((d) => d.events.forEach((e) => usedIds.add(getTrainerSessionSlot(e))));
+    const matched = TRAINER_TIMETABLE_SLOTS.filter((s) => usedIds.has(s.id));
+    return matched.length > 0 ? matched : [TRAINER_TIMETABLE_SLOTS[0], TRAINER_TIMETABLE_SLOTS[1], TRAINER_TIMETABLE_SLOTS[3]];
+  }, [weekDays]);
+
+  const displaySlots = showAllSlots ? TRAINER_TIMETABLE_SLOTS : activeSlots;
+
+  async function handleCreateSubmit(event: FormEvent<HTMLFormElement>) {
+    await onCreate(event);
+    setCreateOpen(false);
+  }
+
   return <div className="trainer-calendar space-y-5">
-    <Section title="Tạo buổi tập" help="Ngựa không thể có lịch tập chồng thời gian." icon={Plus}>
-      <form ref={createFormRef} onSubmit={onCreate} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <SelectField label="Ngựa" name="horse_id" value={createHorse} onChange={(id) => { setCreateHorse(id); setSelectedPlanId(""); onDraftUsed(); }} options={horses.map((horse) => [horse.id, horse.horse_name])} />
-        <SelectField label="Giáo án" name="training_plan_id" required={sessionType !== "Rest"} value={selectedPlanId} onChange={setSelectedPlanId} options={[["", "Không gắn giáo án"], ...horsePlans.map((plan) => [plan.id, plan.stage_name] as [string, string])]} />
-        {(horsePlansLoading || horsePlansError || (!horsePlansLoading && !horsePlansError && createHorse && horsePlans.length === 0)) && <div aria-live="polite" className="-mt-2 text-xs text-slate-600 sm:col-span-2 lg:col-span-4">
-          {horsePlansLoading && <span>Đang tải giáo án của ngựa…</span>}
-          {horsePlansError && <span className="text-rose-700">Không tải được giáo án: {horsePlansError} <button type="button" className="ml-2 underline" onClick={() => setPlansReload((value) => value + 1)}>Thử tải lại</button></span>}
-          {!horsePlansLoading && !horsePlansError && createHorse && horsePlans.length === 0 && <span>Ngựa này chưa có giáo án. Hãy tạo giáo án cho đúng ngựa trong tab Giáo án.</span>}
-        </div>}
-        <SelectField label="Loại buổi" name="session_type" value={sessionType} onChange={setSessionType} options={[["Training", "Huấn luyện"], ["TrialRun", "Chạy thử"], ["Rest", "Nghỉ"]]} />
-        <SelectField key={"surface-"+selectedPlanId} label="Mặt sân buổi tập" name="track_surface" required={sessionType !== "Rest"} defaultValue={selectedPlan?.target_track_surface ?? ""} options={[["", "Chọn mặt sân"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
-        <SelectField key={"distance-"+selectedPlanId} label="Cự ly buổi tập (m)" name="session_distance" required={sessionType !== "Rest"} defaultValue={String(selectedPlan?.target_distance_meters ?? "")} options={distanceOptionsWithCurrent(selectedPlan?.target_distance_meters)} />
-        <SelectField key={"intensity-"+selectedPlanId} label="Cường độ buổi tập" name="session_intensity" required={sessionType !== "Rest"} defaultValue={selectedPlan?.target_intensity ?? ""} options={[["", "Chọn cường độ"], ["Low", "Thấp"], ["Medium", "Vừa"], ["High", "Cao"]]} />
-        <Field label="Ngày" name="event_date" type="date" required min={selectedPlan?.start_date && selectedPlan.start_date > today() ? selectedPlan.start_date : today()} max={selectedPlan?.end_date ?? undefined} defaultValue={scheduleDraft?.startDate && scheduleDraft.startDate > today() ? scheduleDraft.startDate : scheduleDefaults.date} />
-        <Field label="Bắt đầu (24 giờ)" name="start_time" type="text" required defaultValue={scheduleDefaults.start} maxLength={5} pattern="([01][0-9]|2[0-3]):[0-5][0-9]" placeholder="HH:mm" title="Nhập giờ theo dạng 24 giờ, ví dụ 06:30" />
-        <Field label="Kết thúc (24 giờ)" name="end_time" type="text" required defaultValue={scheduleDefaults.end} maxLength={5} pattern="([01][0-9]|2[0-3]):[0-5][0-9]" placeholder="HH:mm" title="Nhập giờ theo dạng 24 giờ, ví dụ 07:30" />
-        <SelectField label="Groom" name="assigned_groom_id" options={[["", "Chưa phân công"], ...grooms.map((groom) => [String(groom.user_id), groom.full_name] as [string, string])]} />
-        <TextArea label="Ghi chú" name="notes" rows={2} />
-        <div className="flex items-end"><button className="gold-button w-full" disabled={busy}><CalendarDays size={15} /> Tạo lịch</button></div>
-      </form>
-    </Section>
-    <Section title="Lịch tập" help="Chỉ bắt đầu trong khung giờ đã đặt; chỉ ghi chỉ số sau khi buổi tập hoàn tất." icon={CalendarDays}>
-      <div className="trainer-calendar__filters"><Field label="Từ ngày" name="from" type="date" value={from} onChange={setFrom} /><Field label="Đến ngày" name="to" type="date" value={to} onChange={setTo} /></div>
-      <div className="trainer-calendar__list-heading"><div><h4>Danh sách buổi tập</h4></div><span>{sessions.length} buổi</span></div>
-      <div className="trainer-calendar__list">{sessions.map((session) => {
-        const window = sessionWindow(session);
-        const insideTimeWindow = Boolean(window && nowMs >= window.start && nowMs < window.end);
-        const afterTimeWindow = Boolean(window && nowMs >= window.end);
-        const canStart = Boolean(session.assigned_groom_id) && session.status === "Scheduled" && session.session_type !== "Rest" && insideTimeWindow;
-        const canComplete = afterTimeWindow && (session.status === "InProgress" || (session.status === "Scheduled" && session.session_type === "Rest"));
-        const isOpen = ["Scheduled", "Blocked", "InProgress"].includes(session.status);
-        return <article key={session.training_schedule_id} className="trainer-session-card" data-status={session.status}>
-          <div className="trainer-session-card__layout">
-            <div className="trainer-session-card__identity">
-              <HorsePhoto id={session.horse_id} name={session.horse_name} image={session.image_url} />
-              <div className="trainer-session-card__details">
-                <div className="trainer-session-card__title"><h3>{session.horse_name}</h3><span className="trainer-session-card__type">{sessionTypeLabel(session.session_type)}</span><span className="trainer-session-card__status" data-status={session.status}>{scheduleStatusLabel(session.status)}</span></div>
-                <p className="trainer-session-card__time"><strong>{new Date(`${session.event_date}T12:00:00`).toLocaleDateString("vi-VN", { day: "numeric", month: "long", year: "numeric" })}</strong><span>{session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? `–${session.end_time.slice(0, 5)}` : ""}</span><span>{session.track_surface || "Chưa chọn mặt sân"}</span></p>
-                <div className="trainer-session-card__meta">
-                  <p><span>Giáo án</span><strong>{session.plan_stage_name ?? "Chưa gắn"}</strong></p>
-                  <p><span>Groom</span><strong>{session.groom_name ?? "Chưa phân công"}</strong></p>
-                  {(session.plan_target_distance_meters != null || session.plan_target_intensity) && <p><span>Chỉ tiêu giai đoạn</span><strong>{session.plan_target_distance_meters != null ? `${session.plan_target_distance_meters.toLocaleString("vi-VN")} m` : ""}{session.plan_target_distance_meters != null && session.plan_target_intensity ? " · " : ""}{session.plan_target_intensity ? `Cường độ ${{ Low: "thấp", Medium: "vừa", High: "cao" }[session.plan_target_intensity]}` : ""}</strong></p>}
+    {/* Modal Tạo buổi tập */}
+    {createOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
+          <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+            <div>
+              <h4 className="text-base font-bold text-slate-900">Lên lịch & Phân công Buổi tập</h4>
+              <p className="mt-0.5 text-xs text-slate-500">Chọn ngựa, giáo án, ca tập và Groom phụ trách. Ngựa không thể có lịch tập chồng giờ.</p>
+            </div>
+            <button
+              type="button"
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              onClick={() => setCreateOpen(false)}
+            >
+              ✕
+            </button>
+          </div>
+          <form onSubmit={(e) => void handleCreateSubmit(e)} className="mt-4 grid gap-3 sm:grid-cols-2">
+            <SelectField label="Ngựa *" name="horse_id" value={createHorse} onChange={(id) => { setCreateHorse(id); setSelectedPlanId(""); onDraftUsed(); }} options={horses.map((horse) => [horse.id, horse.horse_name])} />
+            <SelectField label="Giáo án" name="training_plan_id" required={sessionType !== "Rest"} value={selectedPlanId} onChange={setSelectedPlanId} options={[["", "Không gắn giáo án"], ...horsePlans.map((plan) => [plan.id, plan.stage_name] as [string, string])]} />
+            {(horsePlansLoading || horsePlansError || (!horsePlansLoading && !horsePlansError && createHorse && horsePlans.length === 0)) && (
+              <div aria-live="polite" className="-mt-1 text-xs text-slate-600 sm:col-span-2">
+                {horsePlansLoading && <span>Đang tải giáo án của ngựa…</span>}
+                {horsePlansError && <span className="text-rose-700">Không tải được giáo án: {horsePlansError} <button type="button" className="ml-2 underline" onClick={() => setPlansReload((value) => value + 1)}>Thử tải lại</button></span>}
+                {!horsePlansLoading && !horsePlansError && createHorse && horsePlans.length === 0 && <span>Ngựa này chưa có giáo án. Hãy tạo giáo án trong tab Giáo án trước nếu cần.</span>}
+              </div>
+            )}
+            <SelectField label="Loại buổi *" name="session_type" value={sessionType} onChange={setSessionType} options={[["Training", "Huấn luyện"], ["TrialRun", "Chạy thử"], ["Rest", "Nghỉ"]]} />
+            <SelectField key={"surface-"+selectedPlanId} label="Mặt sân buổi tập" name="track_surface" required={sessionType !== "Rest"} defaultValue={selectedPlan?.target_track_surface ?? ""} options={[["", "Chọn mặt sân"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
+            <SelectField key={"distance-"+selectedPlanId} label="Cự ly buổi tập (m)" name="session_distance" required={sessionType !== "Rest"} defaultValue={String(selectedPlan?.target_distance_meters ?? "")} options={distanceOptionsWithCurrent(selectedPlan?.target_distance_meters)} />
+            <SelectField key={"intensity-"+selectedPlanId} label="Cường độ buổi tập" name="session_intensity" required={sessionType !== "Rest"} defaultValue={selectedPlan?.target_intensity ?? ""} options={[["", "Chọn cường độ"], ["Low", "Thấp"], ["Medium", "Vừa"], ["High", "Cao"]]} />
+            <Field label="Ngày tập *" name="event_date" type="date" required min={selectedPlan?.start_date && selectedPlan.start_date > today() ? selectedPlan.start_date : today()} max={selectedPlan?.end_date ?? undefined} defaultValue={scheduleDraft?.startDate && scheduleDraft.startDate > today() ? scheduleDraft.startDate : scheduleDefaults.date} />
+            <label className="block">
+              <span className="field-label">Chọn nhanh Ca tập</span>
+              <select
+                value={selectedSlotRange}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedSlotRange(val);
+                  if (val.includes("|")) {
+                    const [s, end] = val.split("|");
+                    setStartTimeInput(s);
+                    setEndTimeInput(end);
+                  }
+                }}
+                className="field-control px-3 font-semibold text-slate-900"
+              >
+                {TRAINER_TIMETABLE_SLOTS.map((s) => (
+                  <option key={s.id} value={`${s.startTime}|${s.endTime}`}>
+                    Ca {s.id}: {s.timeRange}
+                  </option>
+                ))}
+                <option value="custom">Tùy chỉnh giờ (HH:mm)</option>
+              </select>
+            </label>
+            <Field label="Bắt đầu (24 giờ) *" name="start_time" type="text" required value={startTimeInput} onChange={setStartTimeInput} maxLength={5} pattern="([01][0-9]|2[0-3]):[0-5][0-9]" placeholder="HH:mm" />
+            <Field label="Kết thúc (24 giờ) *" name="end_time" type="text" required value={endTimeInput} onChange={setEndTimeInput} maxLength={5} pattern="([01][0-9]|2[0-3]):[0-5][0-9]" placeholder="HH:mm" />
+            <div className="sm:col-span-2">
+              <SelectField label="Groom phụ trách" name="assigned_groom_id" options={[["", "Chưa phân công"], ...grooms.map((groom) => [String(groom.user_id), groom.full_name] as [string, string])]} />
+            </div>
+            <div className="sm:col-span-2">
+              <TextArea label="Ghi chú huấn luyện" name="notes" rows={2} />
+            </div>
+            <div className="flex justify-end gap-2 pt-2 sm:col-span-2">
+              <button type="button" className="soft-button h-10 px-4 text-xs" onClick={() => setCreateOpen(false)}>Hủy</button>
+              <button className="gold-button h-10 px-5 text-xs font-bold" disabled={busy}><CalendarDays size={15} /> Lưu & Lên lịch tập</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
+
+    <Section
+      title={viewMode === "dispatch" ? "Bàn Điều phối Huấn luyện & Phân công Groom" : "Thời khóa biểu Huấn luyện Tuần"}
+      help={viewMode === "dispatch" ? "Theo dõi tải công việc đội ngũ Groom, giám sát độ phủ lịch tập toàn đàn và gán Groom phụ trách từng buổi tập." : "Theo dõi thời khóa biểu tuần theo từng ca tập, phân công Groom, bắt đầu mô phỏng và ghi nhận chỉ số."}
+      icon={viewMode === "dispatch" ? Users : CalendarDays}
+      action={
+        <div className="flex flex-wrap items-center gap-2">
+          {onSwitchView && (
+            <button
+              type="button"
+              className="soft-button h-10 px-3.5 text-xs font-bold text-slate-800"
+              onClick={() => onSwitchView(viewMode === "dispatch" ? "calendar" : "dispatch")}
+            >
+              {viewMode === "dispatch" ? "Xem Thời khóa biểu tuần →" : "← Bàn điều phối & Phân công"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="gold-button h-10 px-3.5 text-xs font-bold"
+            onClick={() => setCreateOpen(true)}
+          >
+            + Tạo lịch tập mới
+          </button>
+        </div>
+      }
+    >
+      {viewMode === "dispatch" ? (
+        /* ================================================================= */
+        /* TRANG 1: BÀN ĐIỀU PHỐI HUẤN LUYỆN (viewMode === "dispatch")       */
+        /* ================================================================= */
+        <div className="space-y-5">
+          {/* KPI tổng quan (5 ô gọn) */}
+          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-5">
+            <StatTile tone="indigo" label="Đội ngũ Groom" value={grooms.length} hint="Nhân sự hỗ trợ sân tập" />
+            <StatTile tone="emerald" label="Độ phủ lịch tập" value={coveredCount} suffix={`/${horses.length}`} hint="Ngựa có buổi tập sắp tới" />
+            <StatTile tone="blue" label="Buổi tập hôm nay" value={todaySessionsCount} hint="Không tính buổi đã hủy" />
+            <StatTile
+              tone="amber"
+              highlight={uncoveredCount > 0}
+              label="Chưa có lịch"
+              value={uncoveredCount}
+              hint={lockedHorsesCount > 0 ? `+${lockedHorsesCount} ngựa đang khóa y tế` : "Cần lên lịch tập"}
+              active={dispatchSubTab === "coverage" && coverageFilter === "uncovered"}
+              onClick={() => { setDispatchSubTab("coverage"); setCoverageFilter("uncovered"); }}
+            />
+            <StatTile
+              tone="rose"
+              highlight={unassignedSessionsCount > 0}
+              label="Chưa gán Groom"
+              value={unassignedSessionsCount}
+              hint="Buổi sắp tới thiếu người"
+              active={dispatchSubTab === "sessions" && groomFilter === "unassigned"}
+              onClick={() => { setDispatchSubTab("sessions"); setGroomFilter("unassigned"); }}
+            />
+          </div>
+
+          {/* Groom Workloads Grid */}
+          {groomWorkloads.length > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Users size={17} className="text-indigo-700" />
+                  <h4 className="text-sm font-black text-slate-900">Phân bổ tải công việc Đội ngũ Groom</h4>
                 </div>
-                {(session.plan_objective || session.notes) && <div className="trainer-session-card__notes">
-                  {session.plan_objective && <p><span>Mục tiêu giáo án</span>{session.plan_objective}</p>}
-                  {session.notes && <p><span>Ghi chú buổi tập</span>{session.notes}</p>}
-                </div>}
+                {groomFilter !== "all" ? (
+                  <button
+                    type="button"
+                    onClick={() => setGroomFilter("all")}
+                    className="rounded-lg bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-800 hover:bg-indigo-200"
+                  >
+                    Đang lọc theo Groom · Bấm để xem tất cả
+                  </button>
+                ) : (
+                  <span className="text-xs text-slate-500">Bấm vào thẻ Groom để lọc nhanh các buổi tập phụ trách</span>
+                )}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {groomWorkloads.map(({ groom, total, todayCount, activeCount }) => {
+                  const isSelected = groomFilter === String(groom.user_id);
+                  return (
+                    <button
+                      key={groom.user_id}
+                      type="button"
+                      onClick={() => {
+                        const next = isSelected ? "all" : String(groom.user_id);
+                        setGroomFilter(next);
+                        if (next !== "all") setDispatchSubTab("sessions");
+                      }}
+                      className={`rounded-xl border p-3.5 text-left transition shadow-xs ${
+                        isSelected
+                          ? "border-indigo-600 bg-indigo-50/70 ring-2 ring-indigo-500/20"
+                          : "border-slate-200 bg-slate-50/50 hover:border-indigo-300 hover:bg-white"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-slate-900">{groom.full_name}</span>
+                        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+                          Groom
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-1.5 text-center text-xs">
+                        <div className="rounded-lg bg-white border border-slate-200/80 py-1.5">
+                          <div className="text-[10px] text-slate-500 font-medium">Tổng buổi</div>
+                          <div className="text-sm font-black text-slate-900">{total}</div>
+                        </div>
+                        <div className="rounded-lg bg-emerald-50 border border-emerald-200/80 py-1.5">
+                          <div className="text-[10px] text-emerald-700 font-medium">Hôm nay</div>
+                          <div className="text-sm font-black text-emerald-900">{todayCount}</div>
+                        </div>
+                        <div className="rounded-lg bg-blue-50 border border-blue-200/80 py-1.5">
+                          <div className="text-[10px] text-blue-700 font-medium">Sắp tới</div>
+                          <div className="text-sm font-black text-blue-900">{activeCount}</div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
-            <aside className="trainer-session-card__actions" aria-label={`Thao tác buổi tập của ${session.horse_name}`}>
-              <label><span>Groom phụ trách</span><select aria-label={`Phân công Groom cho ${session.horse_name}`} className="field-control" value={session.assigned_groom_id ?? ""} disabled={session.status !== "Scheduled" || busy} onChange={(event) => event.target.value && onAssign(session.training_schedule_id, Number(event.target.value))}><option value="">Chọn Groom</option>{grooms.map((groom) => <option key={groom.user_id} value={groom.user_id}>{groom.full_name}</option>)}</select></label>
-              <button type="button" className="soft-button" disabled={session.status !== "Completed"} onClick={() => setShowMetricsFor(showMetricsFor === session.training_schedule_id ? null : session.training_schedule_id)}><HeartPulse size={14} /> Chỉ số</button>
-              {canStart && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Play size={14} /> Bắt đầu tập</button>}
-              {session.status === "Scheduled" && session.session_type !== "Rest" && <p className="trainer-session-card__hint">{afterTimeWindow ? "Đã qua giờ kết thúc" : !session.assigned_groom_id ? "Cần phân công Groom" : insideTimeWindow ? "Đang trong khung giờ tập" : `Bắt đầu lúc ${session.start_time?.slice(0, 5)}`}</p>}
-              {session.status === "InProgress" && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Activity size={14} /> Mở lại giả lập</button>}
-              {session.status === "InProgress" && <button type="button" className="soft-button" disabled={busy || !canComplete} title={!canComplete ? `Có thể hoàn tất sau ${session.end_time?.slice(0, 5) ?? "giờ kết thúc"}` : undefined} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất</button>}
-              {session.status === "Scheduled" && session.session_type === "Rest" && canComplete && <button type="button" className="soft-button" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất nghỉ</button>}
-              {isOpen && <button type="button" className="soft-button trainer-session-card__cancel" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Cancelled")}><X size={14} /> Hủy buổi tập</button>}
-            </aside>
+          )}
+
+          {/* Segmented Control for Coverage vs Sessions */}
+          <div className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="inline-flex rounded-lg border border-slate-300 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setDispatchSubTab("coverage")}
+                  className={`rounded-md px-3.5 py-1.5 text-xs font-bold transition ${
+                    dispatchSubTab === "coverage"
+                      ? "bg-slate-900 text-white shadow-xs"
+                      : "text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  Độ phủ lịch tập toàn đàn ({horses.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDispatchSubTab("sessions")}
+                  className={`rounded-md px-3.5 py-1.5 text-xs font-bold transition ${
+                    dispatchSubTab === "sessions"
+                      ? "bg-slate-900 text-white shadow-xs"
+                      : "text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  Danh sách Buổi tập & Phân công Groom ({filteredSessions.length})
+                </button>
+              </div>
+
+              {dispatchSubTab === "coverage" ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {([
+                    { id: "all", label: `Tất cả (${horses.length})` },
+                    { id: "uncovered", label: `Chưa có lịch (${uncoveredCount})` },
+                    { id: "locked", label: `Khóa y tế (${lockedHorsesCount})` },
+                    { id: "covered", label: `Đã có lịch (${coveredCount})` },
+                  ] as const).map((pill) => (
+                    <button
+                      key={pill.id}
+                      type="button"
+                      onClick={() => setCoverageFilter(pill.id)}
+                      className={`rounded-full px-3 py-1 text-xs font-bold transition ${
+                        coverageFilter === pill.id
+                          ? "bg-blue-600 text-white"
+                          : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      {pill.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={horseFilter}
+                    onChange={(e) => setHorseFilter(e.target.value)}
+                    className="field-control h-8 px-2.5 text-xs font-semibold text-slate-900 border-slate-300 bg-white"
+                  >
+                    <option value="all">Tất cả ngựa</option>
+                    {horses.map((h) => (
+                      <option key={h.id} value={h.id}>{h.horse_name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={groomFilter}
+                    onChange={(e) => setGroomFilter(e.target.value)}
+                    className="field-control h-8 px-2.5 text-xs font-semibold text-slate-900 border-slate-300 bg-white"
+                  >
+                    <option value="all">Tất cả Groom</option>
+                    <option value="unassigned">Chưa phân công Groom ({unassignedSessionsCount})</option>
+                    {grooms.map((g) => (
+                      <option key={g.user_id} value={String(g.user_id)}>{g.full_name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {dispatchSubTab === "coverage" ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50/70 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3">Ngựa</th>
+                      <th className="px-4 py-3">Buổi tập trong lịch</th>
+                      <th className="px-4 py-3">Buổi tập gần nhất & Groom</th>
+                      <th className="px-4 py-3">Trạng thái</th>
+                      <th className="px-4 py-3 text-right">Thao tác điều phối</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {filteredCoverage.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                          Không có ngựa nào thuộc bộ lọc này.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredCoverage.map((item) => (
+                        <tr key={item.horse.id} className="hover:bg-slate-50/80">
+                          <td className="px-4 py-3 font-bold text-slate-900">
+                            <div className="flex items-center gap-2.5">
+                              <HorsePhoto id={item.horse.id} name={item.horse.horse_name} image={item.horse.image_url} />
+                              <div>
+                                <div>{item.horse.horse_name}</div>
+                                <div className="text-[11px] font-normal text-slate-500">
+                                  {item.horse.readiness_status === "Ready" ? "Sẵn sàng thi đấu" : "Đang rèn luyện"}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {item.horseSessions.length > 0 ? (
+                              <span className="font-semibold text-slate-800">
+                                {item.horseSessions.length} buổi tập ({item.upcomingSessions.length} buổi sắp tới)
+                              </span>
+                            ) : (
+                              <span className="italic text-slate-400">Chưa có buổi tập nào</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700">
+                            {item.nearestSession ? (
+                              <div>
+                                <div className="font-bold text-slate-900">
+                                  {trainerFormatDayMonth(item.nearestSession.event_date)} · {item.nearestSession.start_time?.slice(0, 5) ?? "Cả ngày"}
+                                </div>
+                                <div className="text-[11px] text-slate-600">
+                                  Groom: <span className="font-semibold">{item.nearestSession.groom_name ?? "Chưa phân công"}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {item.isLocked ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[11px] font-black text-rose-900 border border-rose-300">
+                                <AlertTriangle size={11} /> Đang khóa y tế
+                              </span>
+                            ) : item.isUncovered ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-900 border border-amber-300">
+                                Chưa có lịch tập
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-900 border border-emerald-300">
+                                ✓ Đã lên lịch
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {!item.isLocked && (
+                                <button
+                                  type="button"
+                                  className="rounded-lg bg-amber-500 px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-amber-600 shadow-xs"
+                                  onClick={() => {
+                                    setCreateHorse(item.horse.id);
+                                    setCreateOpen(true);
+                                  }}
+                                >
+                                  + Giao lịch tập
+                                </button>
+                              )}
+                              {item.nearestSession && (
+                                <button
+                                  type="button"
+                                  className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-200 border border-slate-300"
+                                  onClick={() => {
+                                    setHorseFilter(item.horse.id);
+                                    setWeekStart(trainerMondayOfWeek(item.nearestSession.event_date));
+                                    onSwitchView?.("calendar");
+                                  }}
+                                >
+                                  Xem lịch →
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50/70 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-3">Ngựa & Buổi tập</th>
+                      <th className="px-4 py-3">Ngày & Khung giờ</th>
+                      <th className="px-4 py-3">Giáo án & Chỉ tiêu</th>
+                      <th className="px-4 py-3">Phân công Groom</th>
+                      <th className="px-4 py-3">Trạng thái</th>
+                      <th className="px-4 py-3 text-right">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {filteredSessions.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                          Không có buổi tập nào khớp bộ lọc.
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredSessions.map((session) => (
+                        <tr key={session.training_schedule_id} className="hover:bg-slate-50/80">
+                          <td className="px-4 py-3">
+                            <div className="font-bold text-slate-900">{session.horse_name}</div>
+                            <div className="text-[11px] font-semibold text-blue-800">{sessionTypeLabel(session.session_type)}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-bold text-slate-900">{trainerFormatDayMonth(session.event_date)} ({trainerDayName(session.event_date)})</div>
+                            <div className="text-[11px] text-slate-600">
+                              {session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? ` - ${session.end_time.slice(0, 5)}` : ""}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-semibold text-slate-800">{session.plan_stage_name ?? "Không gắn giáo án"}</div>
+                            <div className="text-[11px] text-slate-500">
+                              {surfaceLabel(session.track_surface)}
+                              {session.plan_target_distance_meters ? ` · ${session.plan_target_distance_meters.toLocaleString("vi-VN")} m` : ""}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <select
+                              aria-label={`Phân công Groom cho ${session.horse_name}`}
+                              className="field-control h-8 min-w-36 px-2 text-xs font-semibold text-slate-900 border-slate-300 bg-white"
+                              value={session.assigned_groom_id ?? ""}
+                              disabled={session.status !== "Scheduled" || busy}
+                              onChange={(event) => event.target.value && onAssign(session.training_schedule_id, Number(event.target.value))}
+                            >
+                              <option value="">-- Chọn Groom --</option>
+                              {grooms.map((groom) => (
+                                <option key={groom.user_id} value={groom.user_id}>{groom.full_name}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                              session.status === "Completed"
+                                ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
+                                : session.status === "InProgress"
+                                ? "bg-amber-100 text-amber-900 border border-amber-300"
+                                : session.status === "Blocked"
+                                ? "bg-rose-100 text-rose-900 border border-rose-300"
+                                : "bg-blue-100 text-blue-900 border border-blue-300"
+                            }`}>
+                              {scheduleStatusLabel(session.status)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-200 border border-slate-300"
+                              onClick={() => {
+                                setHorseFilter(session.horse_id);
+                                setWeekStart(trainerMondayOfWeek(session.event_date));
+                                onSwitchView?.("calendar");
+                              }}
+                            >
+                              Xem trên lịch →
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        {session.status === "Scheduled" && !afterTimeWindow && session.session_type !== "Rest" && <SessionTargetsEditor key={`${session.training_schedule_id}-${session.plan_target_distance_meters}-${session.plan_target_intensity}-${session.track_surface}`} session={session} onSaved={onTargetsSaved}/>}
-        {showMetricsFor === session.training_schedule_id && <SessionMetrics session={session} onMetrics={onMetrics} onVideo={onVideo} busy={busy} />}
-      </article>;
-      })}{sessions.length === 0 && <Notice>Không có buổi tập trong khoảng ngày này.</Notice>}</div>
+        </div>
+      ) : (
+        /* ================================================================= */
+        /* TRANG 2: THỜI KHÓA BIỂU HUẤN LUYỆN TUẦN (viewMode === "calendar") */
+        /* ================================================================= */
+        <div>
+          {/* Compact Week Selector & Filter Toolbar */}
+          <div className="mb-4 rounded-xl border border-slate-300 bg-white p-3.5 shadow-xs">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative w-full sm:w-72">
+                  <select
+                    value={weekStart}
+                    onChange={(e) => setWeekStart(e.target.value)}
+                    className="w-full appearance-none rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-9 text-xs font-bold text-slate-950 shadow-xs transition hover:border-slate-400 focus:border-blue-600 focus:outline-none cursor-pointer"
+                  >
+                    {weekOptions.map((opt) => (
+                      <option key={opt.key} value={opt.key} className="text-slate-900 font-semibold">
+                        {opt.fullLabel}
+                      </option>
+                    ))}
+                  </select>
+                  <CalendarDays className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-600" size={15} />
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+                    onClick={() => setWeekStart(plusDays(weekStart, -7))}
+                  >
+                    <ArrowLeft size={13} /> Tuần trước
+                  </button>
+                  <button
+                    type="button"
+                    className={`inline-flex h-9 items-center gap-1 rounded-lg px-3.5 text-xs font-bold transition ${
+                      weekStart === currentWeekStart
+                        ? "bg-[#1D4ED8] text-white"
+                        : "border border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
+                    }`}
+                    onClick={() => setWeekStart(currentWeekStart)}
+                  >
+                    Tuần hiện tại
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+                    onClick={() => setWeekStart(plusDays(weekStart, 7))}
+                  >
+                    Tuần sau <ArrowRight size={13} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={horseFilter}
+                  onChange={(e) => setHorseFilter(e.target.value)}
+                  className="field-control h-9 min-w-36 px-2.5 text-xs font-semibold text-slate-900 border-slate-300"
+                >
+                  <option value="all">Tất cả ngựa ({horses.length})</option>
+                  {horses.map((h) => <option key={h.id} value={h.id}>{h.horse_name}</option>)}
+                </select>
+                <select
+                  value={groomFilter}
+                  onChange={(e) => setGroomFilter(e.target.value)}
+                  className="field-control h-9 min-w-36 px-2.5 text-xs font-semibold text-slate-900 border-slate-300"
+                >
+                  <option value="all">Tất cả Groom</option>
+                  <option value="unassigned">Chưa gán Groom</option>
+                  {grooms.map((g) => <option key={g.user_id} value={String(g.user_id)}>{g.full_name}</option>)}
+                </select>
+                <div className="inline-flex rounded-lg border border-slate-300 bg-slate-50 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setCalendarSubView("timetable")}
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-bold transition ${
+                      calendarSubView === "timetable" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-200/70"
+                    }`}
+                  >
+                    Thời khóa biểu
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCalendarSubView("list")}
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-bold transition ${
+                      calendarSubView === "list" ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-200/70"
+                    }`}
+                  >
+                    Chi tiết & Chỉ số
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Thống kê tuần (gọn) */}
+          <div className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+            <StatTile tone="blue" label="Đã lên lịch" value={weeklyScheduledCount} hint={`Tổng ${weeklyEvents.length} buổi trong tuần`} />
+            <StatTile tone="amber" highlight={weeklyInProgressCount > 0} label="Đang diễn ra" value={weeklyInProgressCount} hint="Buổi tập đang chạy" />
+            <StatTile tone="emerald" label="Đã hoàn thành" value={weeklyCompletedCount} suffix={weeklyEvents.length ? `/${weeklyEvents.length}` : undefined} hint="Đã ghi nhận kết quả" />
+            <StatTile tone="rose" highlight={weeklyUnassignedCount > 0} label="Chưa gán Groom" value={weeklyUnassignedCount} hint="Buổi sắp tới thiếu người" />
+          </div>
+
+          {calendarSubView === "timetable" ? (
+            <div className="rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden mb-6">
+              <div className="flex flex-wrap items-center justify-between border-b border-slate-200 bg-white px-5 py-3.5">
+                <h3 className="text-base font-black text-slate-900">
+                  Thời khóa biểu tuần ({trainerFormatDayMonth(weekStart)} - {trainerFormatDayMonth(weekEnd)})
+                </h3>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllSlots(!showAllSlots)}
+                    className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline"
+                  >
+                    {showAllSlots ? "Thu gọn ca trống" : "Hiện đủ 6 ca"}
+                  </button>
+                  <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-900">
+                    {weeklyEvents.length} buổi tập trong tuần
+                  </span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[960px] border-collapse text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-300">
+                      <th className="w-20 border-r border-slate-300 bg-slate-100 p-3 text-center text-xs font-black text-slate-900 uppercase tracking-wide">
+                        Slot
+                      </th>
+                      {weekDays.map((day) => {
+                        const isToday = day.date === today();
+                        return (
+                          <th
+                            key={day.date}
+                            className={`border-r border-slate-300 p-3 text-center transition-colors ${
+                              isToday
+                                ? "bg-[#C3E6CB] text-[#0A4125] font-black border-b-2 border-emerald-700"
+                                : "bg-slate-100 text-slate-900 font-bold"
+                            }`}
+                          >
+                            <div className="flex flex-col items-center justify-center">
+                              <span className="text-xs font-black">{trainerDayName(day.date)} ({trainerFormatDayMonth(day.date)})</span>
+                              {isToday && (
+                                <span className="mt-0.5 inline-block rounded bg-emerald-800 px-1.5 py-0.2 text-[9px] font-black text-white uppercase tracking-wider">
+                                  Hôm nay
+                                </span>
+                              )}
+                            </div>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-300">
+                    {displaySlots.map((slot) => (
+                      <tr key={slot.id} className="transition-colors hover:bg-slate-50/60">
+                        <td className="border-r border-slate-300 bg-slate-100/90 p-3 text-center align-middle font-black text-slate-950">
+                          <span className="text-lg font-black text-slate-950">{slot.id}</span>
+                          <p className="mt-0.5 text-[11px] font-bold text-slate-700 whitespace-nowrap">{slot.timeRange}</p>
+                        </td>
+                        {weekDays.map((day) => {
+                          const isToday = day.date === today();
+                          const cellSessions = day.events.filter((s) => getTrainerSessionSlot(s) === slot.id);
+                          return (
+                            <td
+                              key={`${slot.id}-${day.date}`}
+                              className={`border-r border-slate-300 p-2.5 align-top transition-colors ${
+                                isToday ? "bg-[#F3FAF5]" : "bg-white"
+                              }`}
+                            >
+                              {cellSessions.length === 0 ? (
+                                <div className="flex h-full min-h-[96px] items-center justify-center text-base font-bold text-slate-400 select-none">
+                                  -
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {cellSessions.map((session) => {
+                                    const window = sessionWindow(session);
+                                    const insideTimeWindow = Boolean(window && nowMs >= window.start && nowMs < window.end);
+                                    const afterTimeWindow = Boolean(window && nowMs >= window.end);
+                                    const canStart = Boolean(session.assigned_groom_id) && session.status === "Scheduled" && session.session_type !== "Rest" && insideTimeWindow;
+                                    const canComplete = afterTimeWindow && (session.status === "InProgress" || (session.status === "Scheduled" && session.session_type === "Rest"));
+                                    const isOpen = ["Scheduled", "Blocked", "InProgress"].includes(session.status);
+                                    return (
+                                      <article
+                                        key={session.training_schedule_id}
+                                        className={`rounded-lg p-2.5 shadow-xs transition hover:shadow-md ${
+                                          session.status === "Completed"
+                                            ? "border border-emerald-300 bg-emerald-50/80"
+                                            : session.status === "Blocked"
+                                            ? "border-2 border-rose-600 bg-rose-50"
+                                            : session.status === "InProgress"
+                                            ? "border-2 border-amber-500 bg-amber-50/80"
+                                            : "border border-blue-300 bg-white"
+                                        }`}
+                                      >
+                                        <div className="flex items-start justify-between gap-1.5">
+                                          <div className="font-bold text-xs text-[#0A389C] leading-tight">
+                                            {sessionTypeLabel(session.session_type)} - {session.horse_name}
+                                          </div>
+                                          <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-black ${
+                                            session.status === "Completed"
+                                              ? "bg-emerald-100 text-emerald-900 border border-emerald-400"
+                                              : session.status === "Blocked"
+                                              ? "bg-rose-600 text-white"
+                                              : session.status === "InProgress"
+                                              ? "bg-amber-200 text-amber-950"
+                                              : "bg-blue-100 text-blue-900"
+                                          }`}>
+                                            {scheduleStatusLabel(session.status)}
+                                          </span>
+                                        </div>
+
+                                        <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-bold text-amber-900">
+                                          <Clock className="h-3 w-3 shrink-0 text-amber-700" />
+                                          <span>{session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? ` - ${session.end_time.slice(0, 5)}` : ""}</span>
+                                        </div>
+
+                                        <div className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-slate-800">
+                                          <MapPin className="h-3 w-3 shrink-0 text-slate-600" />
+                                          <span className="truncate">
+                                            {surfaceLabel(session.track_surface)}
+                                            {session.plan_target_distance_meters ? ` · ${session.plan_target_distance_meters.toLocaleString("vi-VN")} m` : ""}
+                                          </span>
+                                        </div>
+
+                                        <div className="mt-1 flex items-center gap-1.5 text-[11px] font-semibold text-slate-800">
+                                          <User className="h-3 w-3 shrink-0 text-slate-600" />
+                                          <span className="truncate">{session.groom_name ? `Groom: ${session.groom_name}` : "Chưa phân công Groom"}</span>
+                                        </div>
+
+                                        <div className="mt-2 flex flex-wrap gap-1 border-t border-slate-200 pt-1.5">
+                                          {canStart && (
+                                            <button
+                                              type="button"
+                                              className="rounded bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white hover:bg-indigo-700"
+                                              disabled={busy}
+                                              onClick={() => onOpenSimulation(session)}
+                                            >
+                                              Bắt đầu tập
+                                            </button>
+                                          )}
+                                          {session.status === "InProgress" && (
+                                            <button
+                                              type="button"
+                                              className="rounded bg-amber-600 px-2 py-0.5 text-[10px] font-bold text-white hover:bg-amber-700"
+                                              disabled={busy}
+                                              onClick={() => onOpenSimulation(session)}
+                                            >
+                                              Mở giả lập
+                                            </button>
+                                          )}
+                                          {canComplete && (
+                                            <button
+                                              type="button"
+                                              className="rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-950 hover:bg-emerald-200 border border-emerald-300"
+                                              disabled={busy}
+                                              onClick={() => onStatus(session.training_schedule_id, "Completed")}
+                                            >
+                                              Hoàn tất
+                                            </button>
+                                          )}
+                                          {session.status === "Completed" && (
+                                            <button
+                                              type="button"
+                                              className="rounded bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-900 hover:bg-blue-200 border border-blue-300"
+                                              onClick={() => {
+                                                setShowMetricsFor(session.training_schedule_id);
+                                                setCalendarSubView("list");
+                                              }}
+                                            >
+                                              Chỉ số
+                                            </button>
+                                          )}
+                                          {isOpen && (
+                                            <button
+                                              type="button"
+                                              className="rounded bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-900 hover:bg-rose-200 border border-rose-300"
+                                              disabled={busy}
+                                              onClick={() => onStatus(session.training_schedule_id, "Cancelled")}
+                                            >
+                                              Hủy
+                                            </button>
+                                          )}
+                                        </div>
+                                      </article>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="trainer-calendar__list">
+              {filteredSessions.map((session) => {
+                const window = sessionWindow(session);
+                const insideTimeWindow = Boolean(window && nowMs >= window.start && nowMs < window.end);
+                const afterTimeWindow = Boolean(window && nowMs >= window.end);
+                const canStart = Boolean(session.assigned_groom_id) && session.status === "Scheduled" && session.session_type !== "Rest" && insideTimeWindow;
+                const canComplete = afterTimeWindow && (session.status === "InProgress" || (session.status === "Scheduled" && session.session_type === "Rest"));
+                const isOpen = ["Scheduled", "Blocked", "InProgress"].includes(session.status);
+                return <article key={session.training_schedule_id} className="trainer-session-card" data-status={session.status}>
+                  <div className="trainer-session-card__layout">
+                    <div className="trainer-session-card__identity">
+                      <HorsePhoto id={session.horse_id} name={session.horse_name} image={session.image_url} />
+                      <div className="trainer-session-card__details">
+                        <div className="trainer-session-card__title"><h3>{session.horse_name}</h3><span className="trainer-session-card__type">{sessionTypeLabel(session.session_type)}</span><span className="trainer-session-card__status" data-status={session.status}>{scheduleStatusLabel(session.status)}</span></div>
+                        <p className="trainer-session-card__time"><strong>{new Date(`${session.event_date}T12:00:00`).toLocaleDateString("vi-VN", { day: "numeric", month: "long", year: "numeric" })}</strong><span>{session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? `–${session.end_time.slice(0, 5)}` : ""}</span><span>{session.track_surface || "Chưa chọn mặt sân"}</span></p>
+                        <div className="trainer-session-card__meta">
+                          <p><span>Giáo án</span><strong>{session.plan_stage_name ?? "Chưa gắn"}</strong></p>
+                          <p><span>Groom</span><strong>{session.groom_name ?? "Chưa phân công"}</strong></p>
+                          {(session.plan_target_distance_meters != null || session.plan_target_intensity) && <p><span>Chỉ tiêu giai đoạn</span><strong>{session.plan_target_distance_meters != null ? `${session.plan_target_distance_meters.toLocaleString("vi-VN")} m` : ""}{session.plan_target_distance_meters != null && session.plan_target_intensity ? " · " : ""}{session.plan_target_intensity ? `Cường độ ${{ Low: "thấp", Medium: "vừa", High: "cao" }[session.plan_target_intensity]}` : ""}</strong></p>}
+                        </div>
+                        {(session.plan_objective || session.notes) && <div className="trainer-session-card__notes">
+                          {session.plan_objective && <p><span>Mục tiêu giáo án</span>{session.plan_objective}</p>}
+                          {session.notes && <p><span>Ghi chú buổi tập</span>{session.notes}</p>}
+                        </div>}
+                      </div>
+                    </div>
+                    <aside className="trainer-session-card__actions" aria-label={`Thao tác buổi tập của ${session.horse_name}`}>
+                      <label><span>Groom phụ trách</span><select aria-label={`Phân công Groom cho ${session.horse_name}`} className="field-control" value={session.assigned_groom_id ?? ""} disabled={session.status !== "Scheduled" || busy} onChange={(event) => event.target.value && onAssign(session.training_schedule_id, Number(event.target.value))}><option value="">Chọn Groom</option>{grooms.map((groom) => <option key={groom.user_id} value={groom.user_id}>{groom.full_name}</option>)}</select></label>
+                      <button type="button" className="soft-button" disabled={session.status !== "Completed"} onClick={() => setShowMetricsFor(showMetricsFor === session.training_schedule_id ? null : session.training_schedule_id)}><HeartPulse size={14} /> Chỉ số</button>
+                      {canStart && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Play size={14} /> Bắt đầu tập</button>}
+                      {session.status === "Scheduled" && session.session_type !== "Rest" && <p className="trainer-session-card__hint">{afterTimeWindow ? "Đã qua giờ kết thúc" : !session.assigned_groom_id ? "Cần phân công Groom" : insideTimeWindow ? "Đang trong khung giờ tập" : `Bắt đầu lúc ${session.start_time?.slice(0, 5)}`}</p>}
+                      {session.status === "InProgress" && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Activity size={14} /> Mở lại giả lập</button>}
+                      {session.status === "InProgress" && <button type="button" className="soft-button" disabled={busy || !canComplete} title={!canComplete ? `Có thể hoàn tất sau ${session.end_time?.slice(0, 5) ?? "giờ kết thúc"}` : undefined} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất</button>}
+                      {session.status === "Scheduled" && session.session_type === "Rest" && canComplete && <button type="button" className="soft-button" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất nghỉ</button>}
+                      {isOpen && <button type="button" className="soft-button trainer-session-card__cancel" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Cancelled")}><X size={14} /> Hủy buổi tập</button>}
+                    </aside>
+                  </div>
+                {session.status === "Scheduled" && !afterTimeWindow && session.session_type !== "Rest" && <SessionTargetsEditor key={`${session.training_schedule_id}-${session.plan_target_distance_meters}-${session.plan_target_intensity}-${session.track_surface}`} session={session} onSaved={onTargetsSaved}/>}
+                {showMetricsFor === session.training_schedule_id && <SessionMetrics session={session} onMetrics={onMetrics} onVideo={onVideo} busy={busy} />}
+              </article>;
+              })}
+              {filteredSessions.length === 0 && <Notice>Không có buổi tập trong khoảng ngày này.</Notice>}
+            </div>
+          )}
+        </div>
+      )}
     </Section>
   </div>;
 }

@@ -12,6 +12,7 @@ export type StableBox = {
   id: string;
   box_code: string;
   section: string;
+  box_type?: "Normal" | "Quarantine" | "Injury";
 } | null;
 
 export type VetHorse = {
@@ -29,6 +30,15 @@ export type VetHorse = {
 export type HealthOverview = {
   counts: Record<string, number>;
   horses: VetHorse[];
+  stables?: {
+    id: string;
+    box_code: string;
+    section: string;
+    box_type: "Normal" | "Quarantine" | "Injury";
+    capacity: number;
+    status: string;
+    occupied: number;
+  }[];
 };
 
 export type HealthExam = {
@@ -294,7 +304,14 @@ export const veterinarianApi = {
     return call<InjuryMarker>(`/api/horses/${horse}/injury-markers`, "POST", input);
   },
   updateHealthStatus(horse: string, current_status: string, readiness_status: string, note?: string) {
-    return call<{ id: string; current_status: string; readiness_status: string; is_training_locked: boolean; upcoming_sessions: { training_schedule_id: string; event_date: string; start_time?: string; session_type: string }[] }>(`/api/horses/${horse}/health-status`, "PATCH", { current_status, readiness_status, note });
+    return call<{
+      id: string;
+      current_status: string;
+      readiness_status: string;
+      is_training_locked: boolean;
+      upcoming_sessions: { training_schedule_id: string; event_date: string; start_time?: string; session_type: string }[];
+      stable_relocation?: { from_box_code?: string; to_box_code?: string; box_type: string; message: string } | null;
+    }>(`/api/horses/${horse}/health-status`, "PATCH", { current_status, readiness_status, note });
   },
   lockTraining(horse: string, input: { lock_level: string; lock_reason: string }) {
     return call<{ id: string; is_training_locked: boolean; was_locked: boolean; upcoming_sessions: unknown[] }>(`/api/horses/${horse}/training-lock`, "PUT", input);

@@ -8,9 +8,9 @@ export const workspaceNavigation: Record<RoleName, readonly { id: string; label:
     { id: "horse-requests", label: "Yêu cầu hồ sơ" }, { id: "audit", label: "Nhật ký" },
   ],
   HEAD_TRAINER: [
-    { id: "overview", label: "Tổng quan" }, { id: "plans", label: "Giáo án" },
-    { id: "diet", label: "Khẩu phần" },
-    { id: "calendar", label: "Lịch tập" }, { id: "simulation", label: "Mô phỏng" },
+    { id: "overview", label: "Tổng quan" }, { id: "dispatch", label: "Điều phối" },
+    { id: "calendar", label: "Lịch tập" }, { id: "plans", label: "Giáo án" },
+    { id: "diet", label: "Khẩu phần" }, { id: "simulation", label: "Mô phỏng" },
     { id: "analysis", label: "Phân tích" }, { id: "races", label: "Thi đấu" }, { id: "incidents", label: "Sự cố" },
   ],
   VETERINARIAN: [
@@ -21,11 +21,11 @@ export const workspaceNavigation: Record<RoleName, readonly { id: string; label:
     { id: "incidents", label: "Sự cố" }, { id: "notifications", label: "Thông báo" },
   ],
   HEAD_VETERINARIAN: [
-    { id: "overview", label: "Sức khỏe" }, { id: "care", label: "Điều phối & Lịch" },
-    { id: "stables", label: "Chuồng trại" }, { id: "exams", label: "Khám bệnh" },
-    { id: "medical", label: "Điều trị" }, { id: "diet", label: "Dinh dưỡng" },
-    { id: "injuries", label: "Chấn thương" }, { id: "incidents", label: "Sự cố" },
-    { id: "notifications", label: "Thông báo" },
+    { id: "overview", label: "Sức khỏe" }, { id: "dispatch", label: "Điều phối" },
+    { id: "care", label: "Lịch chăm sóc" }, { id: "stables", label: "Chuồng trại" },
+    { id: "exams", label: "Khám bệnh" }, { id: "medical", label: "Điều trị" },
+    { id: "diet", label: "Dinh dưỡng" }, { id: "injuries", label: "Chấn thương" },
+    { id: "incidents", label: "Sự cố" }, { id: "notifications", label: "Thông báo" },
   ],
   GROOM: [
     { id: "overview", label: "Việc hôm nay" }, { id: "horses", label: "Ngựa phụ trách" },
