@@ -20,6 +20,13 @@ export const workspaceNavigation: Record<RoleName, readonly { id: string; label:
     { id: "injuries", label: "Chấn thương" }, { id: "care", label: "Lịch chăm sóc" },
     { id: "incidents", label: "Sự cố" }, { id: "notifications", label: "Thông báo" },
   ],
+  HEAD_VETERINARIAN: [
+    { id: "overview", label: "Sức khỏe" }, { id: "care", label: "Điều phối & Lịch" },
+    { id: "stables", label: "Chuồng trại" }, { id: "exams", label: "Khám bệnh" },
+    { id: "medical", label: "Điều trị" }, { id: "diet", label: "Dinh dưỡng" },
+    { id: "injuries", label: "Chấn thương" }, { id: "incidents", label: "Sự cố" },
+    { id: "notifications", label: "Thông báo" },
+  ],
   GROOM: [
     { id: "overview", label: "Việc hôm nay" }, { id: "horses", label: "Ngựa phụ trách" },
     { id: "diet", label: "Khẩu phần" }, { id: "inventory", label: "Vật tư" },

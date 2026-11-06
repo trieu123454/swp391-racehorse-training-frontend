@@ -24,6 +24,7 @@ import {
   Stethoscope,
   UnlockKeyhole,
   User,
+  Users,
   Utensils,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
@@ -233,8 +234,10 @@ function formatNotificationMessage(message: string, horses: VetHorse[]) {
   return { message, horseId: null };
 }
 
-export default function VeterinarianWorkspace() {
+export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boolean } = {}) {
   const showToast = useWorkspaceToast();
+  const currentUser = useMemo(() => getUser(), []);
+  const headVet = isHeadVet ?? (currentUser?.roleName === "HEAD_VETERINARIAN");
   const [overview, setOverview] = useState<HealthOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -446,6 +449,7 @@ export default function VeterinarianWorkspace() {
                   horses={horses}
                   selectedHorse={horse}
                   onChanged={changed}
+                  isHeadVet={headVet}
                   onSelectHorse={(id) => setSelectedId(id)}
                   onGoToExam={(horseId, scheduleId) => {
                     if (horseId) setSelectedId(horseId);
@@ -1488,19 +1492,24 @@ function CarePanel({
   onChanged,
   onGoToExam,
   onSelectHorse,
+  isHeadVet = false,
 }: {
   horses: VetHorse[];
   selectedHorse: VetHorse;
   onChanged: (message: string) => void;
   onGoToExam?: (horseId?: string, scheduleId?: string) => void;
   onSelectHorse?: (horseId: string) => void;
+  isHeadVet?: boolean;
 }) {
   const [schedules, setSchedules] = useState<CareSchedule[]>([]);
   const [events, setEvents] = useState<CareEvent[]>([]);
   const [contextEvents, setContextEvents] = useState<CareEvent[]>([]);
   const [doctors, setDoctors] = useState<{ id: number | string; name: string; email: string }[]>([]);
+  const [workloads, setWorkloads] = useState<{ id: number | string; name: string; email: string; role_name?: string; total_schedules: number; overdue_count: number; today_count: number }[]>([]);
+  const [reassignTarget, setReassignTarget] = useState<CareSchedule | null>(null);
+  const [reassignDoctorId, setReassignDoctorId] = useState<string>("");
   const [weekStart, setWeekStart] = useState(() => mondayOfWeek(today()));
-  const [scope, setScope] = useState<"mine" | "all">("mine");
+  const [scope, setScope] = useState<"mine" | "all">(isHeadVet ? "all" : "mine");
   const [horseFilter, setHorseFilter] = useState("all");
   const [includeContext, setIncludeContext] = useState(true);
   const [bookNow, setBookNow] = useState(true);
@@ -1670,6 +1679,39 @@ function CarePanel({
     };
   }, []);
 
+  const loadWorkloads = useCallback(async () => {
+    try {
+      const res = await veterinarianApi.workloads();
+      if (Array.isArray(res)) setWorkloads(res);
+    } catch {
+      // Workload loading is non-blocking
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isHeadVet) {
+      void loadWorkloads();
+    }
+  }, [isHeadVet, loadWorkloads]);
+
+  async function handleReassign(scheduleId: string, doctorId: string) {
+    if (!doctorId) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await veterinarianApi.reassignSchedule(scheduleId, Number(doctorId));
+      setReassignTarget(null);
+      await Promise.all([load(), loadWorkloads()]);
+      onChanged("Đã điều chuyển bác sĩ phụ trách ca chăm sóc.");
+      setNotice("Đã cập nhật bác sĩ phụ trách thành công.");
+    } catch (reason) {
+      setError(veterinarianError(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createSchedule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(""); setNotice("");
     const form = event.currentTarget;
@@ -1761,9 +1803,107 @@ function CarePanel({
     await act(() => veterinarianApi.cancelSchedule(id), "Đã hủy lịch. Quy tắc vẫn còn trong danh sách.");
   }
 
-  return <SectionCard title="Lịch chăm sóc" description="Lịch tuần gồm cả lịch hẹn và việc định kỳ đến hạn. Có thể xem theo ngựa, chốt giờ, dời lịch và xác nhận hoàn thành." icon={CalendarDays} action={<button type="button" className="gold-button h-10 px-3" aria-expanded={createOpen} onClick={() => setCreateOpen((value) => !value)}>{createOpen ? "Đóng biểu mẫu" : "+ Tạo lịch định kỳ"}</button>}>
+  return <SectionCard
+    title={isHeadVet ? "Điều phối & Lịch chăm sóc thú y" : "Lịch chăm sóc của tôi"}
+    description={isHeadVet ? "Bàn điều phối Trưởng ban thú y: Giám sát độ phủ chăm sóc, theo dõi tải công việc bác sĩ và chỉ định ca khám." : "Lịch tuần các ca khám và chăm sóc ngựa được phân công cho bạn. Vào khám trực tiếp hoặc ghi nhận kết quả."}
+    icon={CalendarDays}
+    action={<button type="button" className="gold-button h-10 px-3" aria-expanded={createOpen} onClick={() => setCreateOpen((value) => !value)}>{createOpen ? "Đóng biểu mẫu" : "+ Tạo lịch định kỳ"}</button>}
+  >
     <ErrorLine>{error}</ErrorLine>
     {notice && <div className="mb-3"><Notice>{notice}</Notice></div>}
+
+    {/* Head Vet - Doctor Workload Overview */}
+    {isHeadVet && workloads.length > 0 && (
+      <div className="mb-5 rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Users size={18} className="text-indigo-700" />
+            <h4 className="text-sm font-black text-indigo-950">Tải công việc Đội ngũ Bác sĩ Thú y</h4>
+          </div>
+          <span className="text-xs font-semibold text-indigo-800">
+            Tổng số bác sĩ: <strong className="text-indigo-950">{workloads.length}</strong>
+          </span>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {workloads.map((doc) => {
+            const isMe = currentUser?.id && String(doc.id) === String(currentUser.id);
+            const isHead = doc.role_name === "HEAD_VETERINARIAN";
+            return (
+              <div key={doc.id} className="rounded-lg border border-indigo-100 bg-white p-3 shadow-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-900">
+                    BS. {doc.name} {isMe ? <span className="text-indigo-600 font-normal">(Tôi)</span> : ""}
+                  </span>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${isHead ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}>
+                    {isHead ? "Trưởng ban" : "Bác sĩ"}
+                  </span>
+                </div>
+                <div className="mt-2.5 grid grid-cols-3 gap-1 text-center text-xs">
+                  <div className="rounded bg-slate-50 p-1">
+                    <div className="text-[10px] text-slate-500 font-medium">Đang nhận</div>
+                    <div className="font-bold text-slate-800">{doc.total_schedules}</div>
+                  </div>
+                  <div className="rounded bg-emerald-50 p-1">
+                    <div className="text-[10px] text-emerald-700 font-medium">Hôm nay</div>
+                    <div className="font-bold text-emerald-800">{doc.today_count}</div>
+                  </div>
+                  <div className={`rounded p-1 ${doc.overdue_count > 0 ? "bg-rose-50 text-rose-800 font-bold" : "bg-slate-50 text-slate-500"}`}>
+                    <div className="text-[10px] font-medium">Quá hạn</div>
+                    <div>{doc.overdue_count}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    )}
+
+    {/* Reassign Doctor Modal */}
+    {reassignTarget && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+          <h4 className="text-base font-bold text-slate-900">Điều chuyển Bác sĩ phụ trách</h4>
+          <p className="mt-1 text-xs text-slate-600">
+            Chỉ định lại bác sĩ cho việc chăm sóc: <strong className="text-slate-900">{careTypeLabels[reassignTarget.care_type] ?? reassignTarget.care_type}</strong> (Ngựa: {horses.find(h => h.id === reassignTarget.horse_id)?.horse_name ?? reassignTarget.horse_name})
+          </p>
+          <div className="mt-4 space-y-3">
+            <label className="block">
+              <span className="field-label text-xs font-bold text-slate-800">Chọn Bác sĩ mới:</span>
+              <select
+                value={reassignDoctorId}
+                onChange={(e) => setReassignDoctorId(e.target.value)}
+                className="field-control h-10 px-3 text-sm font-semibold"
+              >
+                <option value="">-- Chọn bác sĩ --</option>
+                {doctors.map((doc) => (
+                  <option key={doc.id} value={doc.id}>
+                    BS. {doc.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              className="soft-button px-4 py-2 text-xs"
+              onClick={() => setReassignTarget(null)}
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              disabled={busy || !reassignDoctorId}
+              className="gold-button px-4 py-2 text-xs"
+              onClick={() => void handleReassign(reassignTarget.id, reassignDoctorId)}
+            >
+              Xác nhận điều chuyển
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     {createOpen && <form onSubmit={(event) => void createSchedule(event)} className="mb-5 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-3">
       <div className="sm:col-span-2 lg:col-span-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2022,19 +2162,33 @@ function CarePanel({
                           + Lập lịch ngay
                         </button>
                       ) : (
-                        <button
-                          type="button"
-                          className="rounded bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-200 border border-slate-300"
-                          onClick={() => {
-                            onSelectHorse?.(item.horse.id);
-                            setHorseFilter(item.horse.id);
-                            if (item.nearestSchedule) {
-                              setWeekStart(mondayOfWeek(item.nearestSchedule.next_due_date));
-                            }
-                          }}
-                        >
-                          Xem lịch
-                        </button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            className="rounded bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-200 border border-slate-300"
+                            onClick={() => {
+                              onSelectHorse?.(item.horse.id);
+                              setHorseFilter(item.horse.id);
+                              if (item.nearestSchedule) {
+                                setWeekStart(mondayOfWeek(item.nearestSchedule.next_due_date));
+                              }
+                            }}
+                          >
+                            Xem lịch
+                          </button>
+                          {isHeadVet && item.nearestSchedule && (
+                            <button
+                              type="button"
+                              className="rounded bg-indigo-50 px-2 py-1 text-[11px] font-bold text-indigo-800 hover:bg-indigo-100 border border-indigo-200"
+                              onClick={() => {
+                                setReassignTarget(item.nearestSchedule ?? null);
+                                setReassignDoctorId(item.nearestSchedule?.assigned_doctor_id ? String(item.nearestSchedule.assigned_doctor_id) : "");
+                              }}
+                            >
+                              Đổi BS
+                            </button>
+                          )}
+                        </div>
                       )}
                     </td>
                   </tr>

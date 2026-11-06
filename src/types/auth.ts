@@ -1,7 +1,12 @@
 export type UserStatus = "PENDING" | "APPROVED" | "REJECTED" | "LOCKED";
 
 export type RoleName =
-  "HEAD_TRAINER" | "VETERINARIAN" | "GROOM" | "HORSE_OWNER" | "CLUB_MANAGER";
+  | "HEAD_TRAINER"
+  | "VETERINARIAN"
+  | "HEAD_VETERINARIAN"
+  | "GROOM"
+  | "HORSE_OWNER"
+  | "CLUB_MANAGER";
 
 export type AuthUser = {
   id: number;

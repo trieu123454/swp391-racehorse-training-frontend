@@ -157,7 +157,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
         router.replace(Routes.changePassword);
         return;
       }
-      if (current.status !== "APPROVED" || !["CLUB_MANAGER", "HEAD_TRAINER", "VETERINARIAN", "GROOM", "HORSE_OWNER"].includes(current.roleName)) {
+      if (current.status !== "APPROVED" || !["CLUB_MANAGER", "HEAD_TRAINER", "VETERINARIAN", "HEAD_VETERINARIAN", "GROOM", "HORSE_OWNER"].includes(current.roleName)) {
         setUser(null);
         setError("Tài khoản của bạn chưa có quyền truy cập quản lý ngựa.");
         return;

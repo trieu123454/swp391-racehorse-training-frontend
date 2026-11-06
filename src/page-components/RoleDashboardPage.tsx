@@ -78,7 +78,9 @@ function RoleDashboardContent() {
 
   return (
     <section className="dashboard-workspace">
-      {user.roleName === "VETERINARIAN" ? <VeterinarianWorkspace /> : user.roleName === "HORSE_OWNER" ? <HorseOwnerWorkspace /> : user.roleName === "HEAD_TRAINER" ? <HeadTrainerWorkspace /> : user.roleName === "GROOM" ? <GroomWorkspace /> : user.roleName === "CLUB_MANAGER" ? <ClubManagerWorkspace /> : (
+      {user.roleName === "VETERINARIAN" || user.roleName === "HEAD_VETERINARIAN" ? (
+        <VeterinarianWorkspace isHeadVet={user.roleName === "HEAD_VETERINARIAN"} />
+      ) : user.roleName === "HORSE_OWNER" ? <HorseOwnerWorkspace /> : user.roleName === "HEAD_TRAINER" ? <HeadTrainerWorkspace /> : user.roleName === "GROOM" ? <GroomWorkspace /> : user.roleName === "CLUB_MANAGER" ? <ClubManagerWorkspace /> : (
         <div className="mt-10 rounded-md border border-equine-gold/25 bg-white p-5 text-sm text-slate-600">
           Chức năng chuyên môn của vai trò này sẽ xuất hiện tại đây khi phân hệ tương ứng được triển khai.
         </div>

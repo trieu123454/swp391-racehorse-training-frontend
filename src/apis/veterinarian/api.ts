@@ -335,7 +335,23 @@ export const veterinarianApi = {
     return call<{ updated: number }>("/api/notifications/read-all", "POST");
   },
   veterinarians() {
-    return call<{ id: number | string; name: string; email: string }[]>("/api/veterinarians");
+    return call<{ id: number | string; name: string; email: string; role_name?: string }[]>("/api/veterinarians");
+  },
+  workloads() {
+    return call<{
+      id: number | string;
+      name: string;
+      email: string;
+      role_name?: string;
+      total_schedules: number;
+      overdue_count: number;
+      today_count: number;
+    }[]>("/api/veterinarian/workload");
+  },
+  reassignSchedule(id: string, assignedDoctorId: number | string | null) {
+    return call<CareSchedule>(`/api/periodic-care-schedules/${id}/reassign`, "PATCH", {
+      assigned_doctor_id: assignedDoctorId,
+    });
   },
 };
 
