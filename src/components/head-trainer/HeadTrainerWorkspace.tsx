@@ -1,7 +1,7 @@
 "use client";
 
 import { Activity, AlertTriangle, ArrowUpRight, CalendarDays, Check, ChevronDown, CircleHelp, ClipboardList, Flag, Gauge, HeartPulse, Medal, Pencil, Play, Plus, RefreshCw, Search, Trash2, Users, Utensils, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import SessionTargetsEditor from "./SessionTargetsEditor";
 import TrainingAnalysisPanel from "./TrainingAnalysisPanel";
@@ -64,6 +64,12 @@ function plusDays(date: string, days: number) {
   value.setDate(value.getDate() + days);
   return dateInputValue(value);
 }
+function mondayOfWeek(date: string) {
+  const value = new Date(`${date}T12:00:00`);
+  const day = value.getDay();
+  value.setDate(value.getDate() - (day === 0 ? 6 : day - 1));
+  return dateInputValue(value);
+}
 function metricDate(value?: string | null) {
   if (!value) return "Chưa có dữ liệu";
   return new Date(value).toLocaleString("vi-VN", { dateStyle: "medium", timeStyle: "short" });
@@ -100,8 +106,8 @@ export default function HeadTrainerWorkspace() {
   const [includeSimulated, setIncludeSimulated] = useState(true);
   const [from, setFrom] = useState(() => plusDays(today(), -30));
   const [to, setTo] = useState(() => today());
-  const [calendarFrom, setCalendarFrom] = useState(() => today());
-  const [calendarTo, setCalendarTo] = useState(() => plusDays(today(), 14));
+  const [calendarFrom, setCalendarFrom] = useState(() => mondayOfWeek(today()));
+  const [calendarTo, setCalendarTo] = useState(() => plusDays(mondayOfWeek(today()), 6));
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -123,7 +129,7 @@ export default function HeadTrainerWorkspace() {
   const selectedHorse = useMemo(() => horses.find((horse) => horse.id === horseId) ?? null, [horses, horseId]);
   const visibleHorseOptions = useMemo(() => {
     const query = normalizeHorseSearch(horseSearch.trim());
-    return horses.filter((horse) => normalizeHorseSearch(`${horse.horse_name} ${horse.id}`).includes(query));
+    return horses.filter((horse) => !horse.is_training_locked && normalizeHorseSearch(`${horse.horse_name} ${horse.id}`).includes(query));
   }, [horses, horseSearch]);
   const selectedOverview = useMemo(() => overview.find((horse) => horse.horse_id === horseId), [overview, horseId]);
   const featuredSimulation = activeSimulations.find((item) => item.status === "Running") ?? null;
@@ -151,8 +157,9 @@ export default function HeadTrainerWorkspace() {
     setRaces(racePage.data);
     setIncidents(incidentPage.data);
     setStandardDiets(dietPage.data);
-    setHorseId((current) => current || horsePage.items[0]?.id || "");
-    setCompareIds((current) => current.length ? current : horsePage.items.slice(0, 3).map((item) => item.id));
+    const availableHorses = horsePage.items.filter((item) => !item.is_training_locked);
+    setHorseId((current) => availableHorses.some((item) => item.id === current) ? current : availableHorses[0]?.id || "");
+    setCompareIds((current) => current.length ? current : availableHorses.slice(0, 3).map((item) => item.id));
   }, [includeSimulated]);
 
   async function submitIncidentResult(event: FormEvent<HTMLFormElement>, incidentId: string) {
@@ -561,7 +568,7 @@ export default function HeadTrainerWorkspace() {
               const value = event.target.value;
               const query = normalizeHorseSearch(value.trim());
               setHorseSearch(value);
-              const firstMatch = horses.find((horse) => normalizeHorseSearch(`${horse.horse_name} ${horse.id}`).includes(query));
+              const firstMatch = visibleHorseOptions.find((horse) => normalizeHorseSearch(`${horse.horse_name} ${horse.id}`).includes(query));
               if (query && firstMatch) setHorseId(firstMatch.id);
             }} placeholder="Tìm theo tên hoặc mã ngựa..." />
             {horseSearch && <span className="mt-1 block text-xs text-slate-500">{visibleHorseOptions.length} kết quả phù hợp</span>}
@@ -572,7 +579,7 @@ export default function HeadTrainerWorkspace() {
           </div>}
           </div>
           <label className="order-1 text-sm font-extrabold uppercase tracking-wider text-equine-navy" htmlFor="trainer-horse">Ngựa đang xem</label>
-          <select id="trainer-horse" className="hidden" value={horseId} onChange={(event) => setHorseId(event.target.value)}>{horses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}{horse.is_training_locked ? " · Đang khóa" : ""}</option>)}</select>
+          <select id="trainer-horse" className="hidden" value={horseId} onChange={(event) => setHorseId(event.target.value)}>{horses.filter((horse) => !horse.is_training_locked).map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}</option>)}</select>
           {selectedOverview?.is_training_locked && <span className="order-3 inline-flex items-center gap-1 rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700"><AlertTriangle size={14} /> Khóa huấn luyện · {selectedOverview.lock_reason}</span>}
         </div>}
         {tab === "overview" && <OverviewPanel horses={horses} overview={overview} selectedHorseId={horseId} metrics={metrics} compare={compare} compareIds={compareIds} setCompareIds={setCompareIds} from={from} setFrom={setFrom} to={to} setTo={setTo} includeSimulated={includeSimulated} setIncludeSimulated={setIncludeSimulated} />}
@@ -587,7 +594,7 @@ export default function HeadTrainerWorkspace() {
           onCancel={() => setEditingDietId(null)}
           onSave={saveStandardDiet}
         />}
-        {tab === "calendar" && <CalendarPanel selectedHorseId={horseId} onTargetsSaved={refresh} horses={horses} sessions={sessions} grooms={grooms} from={calendarFrom} setFrom={setCalendarFrom} to={calendarTo} setTo={setCalendarTo} scheduleDraft={scheduleDraft} onCreate={createSchedule} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} />}
+        {tab === "calendar" && <CalendarPanel selectedHorseId={horseId} onTargetsSaved={refresh} horses={horses} sessions={sessions} grooms={grooms} from={calendarFrom} to={calendarTo} onWeekChange={(value) => { const start = mondayOfWeek(value); setCalendarFrom(start); setCalendarTo(plusDays(start, 6)); }} scheduleDraft={scheduleDraft} onCreate={createSchedule} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} />}
         {tab === "races" && <RaceEntriesPanel selectedHorse={selectedHorse} horses={horses} races={races} entries={raceEntries} onRecordResult={async (entryId,input) => { const result=await run(()=>headTrainerApi.recordRaceResult(entryId,input),"Race result saved."); if(result) await refresh(); }} onRegister={async (raceId) => { if (!horseId) return; const result = await run(() => headTrainerApi.registerRace(horseId, raceId), "Đã đăng ký ngựa vào giải."); if (result) await refresh(); }} busy={busy} />}
         {tab === "simulation" && <SimulationPanel sessions={sessions} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} />}
       </>}
@@ -1019,9 +1026,35 @@ function scheduleStatusLabel(value: string) {
   return ({ Scheduled: "Đã lên lịch", Blocked: "Chờ xử lý y tế", InProgress: "Đang diễn ra", Completed: "Hoàn thành", Cancelled: "Đã hủy", Missed: "Bỏ lỡ" } as Record<string, string>)[value] ?? value;
 }
 
-function CalendarPanel({ selectedHorseId, horses, sessions, grooms, from, setFrom, to, setTo, scheduleDraft, onCreate, onAssign, onStatus, onVideo, showMetricsFor, setShowMetricsFor, busy, onOpenSimulation, onTargetsSaved }: {
-  selectedHorseId: string; horses: Horse[]; sessions: TrainingSession[]; grooms: Groom[]; from: string; setFrom: (value: string) => void;
-  to: string; setTo: (value: string) => void; onCreate: (event: FormEvent<HTMLFormElement>) => void;
+const TRAINING_TIMETABLE_SLOTS = [
+  { id: 1, timeRange: "07h00 - 08h30" },
+  { id: 2, timeRange: "08h45 - 10h15" },
+  { id: 3, timeRange: "10h30 - 12h00" },
+  { id: 4, timeRange: "12h30 - 14h00" },
+  { id: 5, timeRange: "14h15 - 15h45" },
+  { id: 6, timeRange: "16h15 - 17h45" },
+];
+
+function getTrainingSlot(session: TrainingSession) {
+  if (!session.start_time) return 1;
+  const [hours, minutes = "0"] = session.start_time.split(":");
+  const total = Number(hours) + Number(minutes) / 60;
+  if (total < 8.625) return 1;
+  if (total < 10.375) return 2;
+  if (total < 12.25) return 3;
+  if (total < 14.125) return 4;
+  if (total < 16) return 5;
+  return 6;
+}
+
+function trainingDayLabel(value: string) {
+  const day = new Date(`${value}T12:00:00`).getDay();
+  return day === 0 ? "Chủ nhật" : `Thứ ${day + 1}`;
+}
+
+function CalendarPanel({ selectedHorseId, horses, sessions, grooms, from, to, onWeekChange, scheduleDraft, onCreate, onAssign, onStatus, onVideo, showMetricsFor, setShowMetricsFor, busy, onOpenSimulation, onTargetsSaved }: {
+  selectedHorseId: string; horses: Horse[]; sessions: TrainingSession[]; grooms: Groom[]; from: string; to: string; onWeekChange: (value: string) => void;
+  onCreate: (event: FormEvent<HTMLFormElement>) => void;
   scheduleDraft: { horseId: string; planId: string; startDate: string | null } | null;
   onTargetsSaved: () => Promise<void>;
   onOpenSimulation: (session: TrainingSession) => void;
@@ -1037,6 +1070,7 @@ function CalendarPanel({ selectedHorseId, horses, sessions, grooms, from, setFro
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [sessionType, setSessionType] = useState("Training");
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [scheduleDefaults] = useState(() => suggestedTrainingWindow());
   const [scheduleDate, setScheduleDate] = useState(() => scheduleDraft?.startDate ?? scheduleDefaults.date);
   const createFormRef = useRef<HTMLFormElement>(null);
@@ -1094,6 +1128,9 @@ function CalendarPanel({ selectedHorseId, horses, sessions, grooms, from, setFro
     const interval = window.setInterval(() => setNowMs(Date.now()), 15000);
     return () => window.clearInterval(interval);
   }, []);
+  const calendarDays = Array.from({ length: 7 }, (_, index) => plusDays(from, index));
+  const calendarSessions = visibleSessions.filter((session) => calendarDays.includes(session.event_date));
+  const selectedSession = calendarSessions.find((session) => session.training_schedule_id === selectedSessionId) ?? null;
   return <div className="trainer-calendar space-y-5">
     <Section title="Tạo buổi tập" help="Ngựa không thể có lịch tập chồng thời gian." icon={Plus}>
       <form ref={createFormRef} onSubmit={onCreate} onChange={(event) => { if (event.target instanceof HTMLInputElement && event.target.name === "event_date") setScheduleDate(event.target.value); }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1117,23 +1154,59 @@ function CalendarPanel({ selectedHorseId, horses, sessions, grooms, from, setFro
       </form>
     </Section>
     <Section title="Lịch tập" help="Chỉ bắt đầu trong khung giờ đã đặt; chỉ ghi chỉ số sau khi buổi tập hoàn tất." icon={CalendarDays}>
-      <div className="trainer-calendar__filters"><Field label="Từ ngày" name="from" type="date" value={from} onChange={setFrom} /><Field label="Đến ngày" name="to" type="date" value={to} onChange={setTo} /></div>
-      <div className="trainer-calendar__list-heading"><div><h4>Danh sách buổi tập</h4><p className="mt-1 text-xs text-slate-500">Chỉ hiển thị lịch của ngựa đang được chọn.</p></div><span>{visibleSessions.length} buổi</span></div>
-       <div className="trainer-calendar__list">{visibleSessions.map((session) => {
+      <div className="flex flex-wrap items-end justify-between gap-3 rounded-lg border border-equine-line bg-slate-50 p-3">
+        <div className="flex items-end gap-2"><button type="button" className="soft-button h-10 px-3" onClick={() => onWeekChange(plusDays(from, -7))} aria-label="Tuần trước">‹</button><Field label="Chọn tuần (thứ 2)" name="week" type="date" value={from} onChange={onWeekChange} /><button type="button" className="soft-button h-10 px-3" onClick={() => onWeekChange(plusDays(from, 7))} aria-label="Tuần sau">›</button></div>
+        <button type="button" className="soft-button h-10" onClick={() => onWeekChange(today())}>Tuần này</button>
+      </div>
+      <div className="trainer-calendar__list-heading"><div><h4>Thời khóa biểu tuần</h4><p className="mt-1 text-xs text-slate-500">{from} đến {to} · Bấm vào buổi tập để xem chi tiết bên dưới.</p></div><span>{calendarSessions.length} buổi</span></div>
+      <div className="overflow-x-auto rounded-lg border border-slate-300">
+        <table className="w-full min-w-[1080px] border-collapse text-left text-xs">
+          <thead><tr className="border-b border-slate-300">
+            <th className="w-24 border-r border-slate-300 bg-slate-100 p-3 text-center font-black uppercase tracking-wide text-slate-900">Slot</th>
+            {calendarDays.map((day) => { const isToday = day === today(); return <th key={day} className={`border-r border-slate-300 p-3 text-center ${isToday ? "border-b-2 border-emerald-700 bg-[#C3E6CB] text-[#0A4125]" : "bg-slate-100 text-slate-900"}`}><div className="flex flex-col items-center"><span className="font-black">{trainingDayLabel(day)} ({day.slice(8, 10)}/{day.slice(5, 7)})</span>{isToday && <span className="mt-0.5 rounded bg-emerald-800 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-white">Hôm nay</span>}</div></th>; })}
+          </tr></thead>
+          <tbody className="divide-y divide-slate-300">{TRAINING_TIMETABLE_SLOTS.map((slot) => <tr key={slot.id} className="transition-colors hover:bg-slate-50/60">
+            <td className="border-r border-slate-300 bg-slate-100/90 p-3 text-center align-middle font-black text-slate-950"><span className="text-lg">{slot.id}</span><p className="mt-0.5 whitespace-nowrap text-[11px] font-bold text-slate-700">{slot.timeRange}</p></td>
+            {calendarDays.map((day) => { const cellSessions = calendarSessions.filter((session) => session.event_date === day && getTrainingSlot(session) === slot.id); return <td key={`${slot.id}-${day}`} className={`border-r border-slate-300 p-2.5 align-top ${day === today() ? "bg-[#F3FAF5]" : "bg-white"}`}>
+              {cellSessions.length === 0 ? <div className="flex min-h-[96px] items-center justify-center text-base font-bold text-slate-400 select-none">-</div> : <div className="space-y-2">{cellSessions.map((session) => {
         const window = sessionWindow(session);
         const insideTimeWindow = Boolean(window && nowMs >= window.start && nowMs < window.end);
         const afterTimeWindow = Boolean(window && nowMs >= window.end);
         const canStart = Boolean(session.assigned_groom_id) && session.status === "Scheduled" && session.session_type !== "Rest" && insideTimeWindow;
         const canComplete = afterTimeWindow && (session.status === "InProgress" || (session.status === "Scheduled" && session.session_type === "Rest"));
         const isOpen = ["Scheduled", "Blocked", "InProgress"].includes(session.status);
-        return <article key={session.training_schedule_id} className="trainer-session-card" data-status={session.status}>
-          <div className="trainer-session-card__layout">
-            <div className="trainer-session-card__identity">
+        const sessionCardStyle = session.status === "Completed"
+          ? "border-emerald-300 bg-emerald-50 hover:border-emerald-500"
+          : session.status === "InProgress"
+          ? "border-amber-300 bg-amber-50 hover:border-amber-500"
+          : session.status === "Blocked"
+          ? "border-rose-300 bg-rose-50 hover:border-rose-500"
+          : session.status === "Cancelled"
+          ? "border-slate-300 bg-slate-100 hover:border-slate-500"
+          : "border-blue-300 bg-blue-50/70 hover:border-blue-500";
+        const sessionBadgeStyle = session.status === "Completed"
+          ? "bg-emerald-100 text-emerald-900"
+          : session.status === "InProgress"
+          ? "bg-amber-100 text-amber-900"
+          : session.status === "Blocked"
+          ? "bg-rose-100 text-rose-900"
+          : session.status === "Cancelled"
+          ? "bg-slate-200 text-slate-700"
+          : "bg-blue-100 text-blue-900";
+        return <Fragment key={session.training_schedule_id}>
+          <button type="button" className={`w-full rounded-lg border p-2 text-left shadow-xs transition hover:shadow-md ${sessionCardStyle}`} onClick={() => setSelectedSessionId(session.training_schedule_id)} aria-label={`Xem chi tiết buổi tập của ${session.horse_name}`}>
+            <div className="flex items-start justify-between gap-1"><strong className="truncate text-xs font-black text-slate-950">{session.horse_name}</strong><span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${sessionBadgeStyle}`}>{scheduleStatusLabel(session.status)}</span></div>
+            <p className="mt-1 text-[11px] font-semibold text-slate-700">{session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? `–${session.end_time.slice(0, 5)}` : ""} · {sessionTypeLabel(session.session_type)}</p>
+            <p className="mt-1 truncate text-[10px] text-slate-500">{session.groom_name ?? "Chưa phân công Groom"} · {session.track_surface || "Chưa chọn mặt sân"}</p>
+          </button>
+          <article key={`${session.training_schedule_id}-detail`} className="hidden rounded-lg border border-blue-300 bg-white p-2 shadow-xs" data-status={session.status}>
+          <div className="trainer-session-card__layout space-y-2">
+            <div className="trainer-session-card__identity space-y-2">
               <HorsePhoto id={session.horse_id} name={session.horse_name} image={session.image_url} />
-              <div className="trainer-session-card__details">
-                <div className="trainer-session-card__title"><h3>{session.horse_name}</h3><span className="trainer-session-card__type">{sessionTypeLabel(session.session_type)}</span><span className="trainer-session-card__status" data-status={session.status}>{scheduleStatusLabel(session.status)}</span></div>
-                <p className="trainer-session-card__time"><strong>{new Date(`${session.event_date}T12:00:00`).toLocaleDateString("vi-VN", { day: "numeric", month: "long", year: "numeric" })}</strong><span>{session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? `–${session.end_time.slice(0, 5)}` : ""}</span><span>{session.track_surface || "Chưa chọn mặt sân"}</span></p>
-                <div className="trainer-session-card__meta">
+              <div className="trainer-session-card__details min-w-0">
+                <div className="trainer-session-card__title flex flex-wrap items-center gap-1"><h3 className="font-black text-slate-950">{session.horse_name}</h3><span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-700">{sessionTypeLabel(session.session_type)}</span><span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-900" data-status={session.status}>{scheduleStatusLabel(session.status)}</span></div>
+                <p className="trainer-session-card__time mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] font-semibold text-slate-700"><strong>{new Date(`${session.event_date}T12:00:00`).toLocaleDateString("vi-VN", { day: "numeric", month: "long", year: "numeric" })}</strong><span>{session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? `–${session.end_time.slice(0, 5)}` : ""}</span><span>{session.track_surface || "Chưa chọn mặt sân"}</span></p>
+                <div className="trainer-session-card__meta mt-2 space-y-1 text-[11px] text-slate-700">
                   <p><span>Giáo án</span><strong>{session.plan_stage_name ?? "Chưa gắn"}</strong></p>
                   <p><span>Groom</span><strong>{session.groom_name ?? "Chưa phân công"}</strong></p>
                   {(session.plan_target_distance_meters != null || session.plan_target_intensity) && <p><span>Chỉ tiêu giai đoạn</span><strong>{session.plan_target_distance_meters != null ? `${session.plan_target_distance_meters.toLocaleString("vi-VN")} m` : ""}{session.plan_target_distance_meters != null && session.plan_target_intensity ? " · " : ""}{session.plan_target_intensity ? `Cường độ ${{ Low: "thấp", Medium: "vừa", High: "cao" }[session.plan_target_intensity]}` : ""}</strong></p>}
@@ -1144,7 +1217,7 @@ function CalendarPanel({ selectedHorseId, horses, sessions, grooms, from, setFro
                 </div>}
               </div>
             </div>
-            <aside className="trainer-session-card__actions" aria-label={`Thao tác buổi tập của ${session.horse_name}`}>
+            <aside className="trainer-session-card__actions space-y-1.5 border-t border-slate-200 pt-2" aria-label={`Thao tác buổi tập của ${session.horse_name}`}>
               <label><span>Groom phụ trách</span><select aria-label={`Phân công Groom cho ${session.horse_name}`} className="field-control" value={session.assigned_groom_id ?? ""} disabled={session.status !== "Scheduled" || busy} onChange={(event) => event.target.value && onAssign(session.training_schedule_id, Number(event.target.value))}><option value="">Chọn Groom</option>{grooms.map((groom) => <option key={groom.user_id} value={groom.user_id}>{groom.full_name}</option>)}</select></label>
               <button type="button" className="soft-button" disabled={session.status !== "Completed"} onClick={() => setShowMetricsFor(showMetricsFor === session.training_schedule_id ? null : session.training_schedule_id)}><HeartPulse size={14} /> Chỉ số</button>
               {canStart && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Play size={14} /> Bắt đầu tập</button>}
@@ -1157,10 +1230,54 @@ function CalendarPanel({ selectedHorseId, horses, sessions, grooms, from, setFro
           </div>
         {session.status === "Scheduled" && !afterTimeWindow && session.session_type !== "Rest" && <SessionTargetsEditor key={`${session.training_schedule_id}-${session.plan_target_distance_meters}-${session.plan_target_intensity}-${session.track_surface}`} session={session} onSaved={onTargetsSaved}/>}
         {showMetricsFor === session.training_schedule_id && <SessionMetrics session={session} onVideo={onVideo} busy={busy} />}
-      </article>;
-      })}{visibleSessions.length === 0 && <Notice>Không có buổi tập của ngựa đang được chọn trong khoảng ngày này.</Notice>}</div>
+      </article></Fragment>;
+      })}</div>}
+            </td>; })}
+          </tr>)}
+          </tbody>
+        </table>
+      </div>
+      {calendarSessions.length === 0 && <Notice>Không có buổi tập của ngựa đang được chọn trong khoảng ngày này.</Notice>}
+      {selectedSession && <TrainingSessionDetail
+        session={selectedSession}
+        grooms={grooms}
+        busy={busy}
+        nowMs={nowMs}
+        showMetrics={showMetricsFor === selectedSession.training_schedule_id}
+        onAssign={onAssign}
+        onStatus={onStatus}
+        onVideo={onVideo}
+        onOpenSimulation={onOpenSimulation}
+        onToggleMetrics={() => setShowMetricsFor(showMetricsFor === selectedSession.training_schedule_id ? null : selectedSession.training_schedule_id)}
+        onTargetsSaved={onTargetsSaved}
+      />}
     </Section>
   </div>;
+}
+
+function TrainingSessionDetail({ session, grooms, busy, nowMs, showMetrics, onAssign, onStatus, onVideo, onOpenSimulation, onToggleMetrics, onTargetsSaved }: {
+  session: TrainingSession; grooms: Groom[]; busy: boolean; nowMs: number; showMetrics: boolean;
+  onAssign: (id: string, groomId: number) => void; onStatus: (id: string, status: string) => void;
+  onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; onOpenSimulation: (session: TrainingSession) => void;
+  onToggleMetrics: () => void; onTargetsSaved: () => Promise<void>;
+}) {
+  const window = sessionWindow(session);
+  const insideTimeWindow = Boolean(window && nowMs >= window.start && nowMs < window.end);
+  const afterTimeWindow = Boolean(window && nowMs >= window.end);
+  const canStart = Boolean(session.assigned_groom_id) && session.status === "Scheduled" && session.session_type !== "Rest" && insideTimeWindow;
+  const canComplete = afterTimeWindow && (session.status === "InProgress" || (session.status === "Scheduled" && session.session_type === "Rest"));
+  const isOpen = ["Scheduled", "Blocked", "InProgress"].includes(session.status);
+  return <article className="mt-4 rounded-xl border border-blue-300 bg-white p-4 shadow-sm" aria-label={`Chi tiết buổi tập của ${session.horse_name}`}>
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><div className="flex flex-wrap items-center gap-2"><h3 className="text-lg font-black text-slate-950">{session.horse_name}</h3><span className="rounded bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{sessionTypeLabel(session.session_type)}</span><span className="rounded bg-blue-50 px-2 py-1 text-xs font-bold text-blue-900">{scheduleStatusLabel(session.status)}</span></div><p className="mt-1 text-sm font-semibold text-slate-700">{new Date(`${session.event_date}T12:00:00`).toLocaleDateString("vi-VN", { dateStyle: "full" })} · {session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? `–${session.end_time.slice(0, 5)}` : ""} · {session.track_surface || "Chưa chọn mặt sân"}</p></div>
+      <button type="button" className="soft-button" onClick={onToggleMetrics} disabled={session.status !== "Completed"}><HeartPulse size={14} /> {showMetrics ? "Ẩn chỉ số" : "Xem chỉ số"}</button>
+    </div>
+    <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><p><span className="block text-xs text-slate-500">Giáo án</span><strong>{session.plan_stage_name ?? "Chưa gắn"}</strong></p><p><span className="block text-xs text-slate-500">Groom</span><strong>{session.groom_name ?? "Chưa phân công"}</strong></p><p><span className="block text-xs text-slate-500">Mục tiêu</span><strong>{session.plan_objective ?? "Chưa có mô tả"}</strong></p><p><span className="block text-xs text-slate-500">Chỉ tiêu</span><strong>{session.plan_target_distance_meters != null ? `${session.plan_target_distance_meters.toLocaleString("vi-VN")} m` : "—"}{session.plan_target_intensity ? ` · ${session.plan_target_intensity}` : ""}</strong></p></div>
+    {session.notes && <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700"><strong>Ghi chú:</strong> {session.notes}</p>}
+    <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-200 pt-3"><label className="min-w-52"><span className="mb-1 block text-xs font-semibold text-slate-600">Groom phụ trách</span><select aria-label={`Phân công Groom cho ${session.horse_name}`} className="field-control w-full" value={session.assigned_groom_id ?? ""} disabled={session.status !== "Scheduled" || busy} onChange={(event) => event.target.value && onAssign(session.training_schedule_id, Number(event.target.value))}><option value="">Chọn Groom</option>{grooms.map((groom) => <option key={groom.user_id} value={groom.user_id}>{groom.full_name}</option>)}</select></label>{canStart && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Play size={14} /> Bắt đầu tập</button>}{session.status === "InProgress" && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Activity size={14} /> Mở lại giả lập</button>}{session.status === "InProgress" && <button type="button" className="soft-button" disabled={busy || !canComplete} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất</button>}{session.status === "Scheduled" && session.session_type === "Rest" && canComplete && <button type="button" className="soft-button" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất nghỉ</button>}{isOpen && <button type="button" className="soft-button text-rose-700" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Cancelled")}><X size={14} /> Hủy buổi tập</button>}</div>
+    {session.status === "Scheduled" && !afterTimeWindow && session.session_type !== "Rest" && <SessionTargetsEditor key={`${session.training_schedule_id}-${session.plan_target_distance_meters}-${session.plan_target_intensity}-${session.track_surface}`} session={session} onSaved={onTargetsSaved} />}
+    {showMetrics && <SessionMetrics session={session} onVideo={onVideo} busy={busy} />}
+  </article>;
 }
 
 function SessionMetrics({ session, onVideo, busy }: { session: TrainingSession; onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; busy: boolean }) {
@@ -1232,6 +1349,8 @@ function racePreviewSpeed(horseId: string) {
   return 53 + (hash % 90) / 10;
 }
 
+const RACE_SPEED_OPTIONS = [1, 2, 4, 8] as const;
+
 function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, onRecordResult, busy }: {
   selectedHorse: Horse | null; horses: Horse[]; races: RaceOption[]; entries: Record<string, unknown>[];
   onRegister: (id: string) => void;
@@ -1242,6 +1361,7 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
   const [trackSurface, setTrackSurface] = useState("Turf");
   const [competitorIds, setCompetitorIds] = useState<string[]>(() => selectedHorse ? [selectedHorse.id] : []);
   const [runStartTime, setRunStartTime] = useState<number | null>(null);
+  const [raceSpeed, setRaceSpeed] = useState<number>(1);
   const selectedHorseId = selectedHorse?.id;
   useEffect(() => {
     if (!selectedHorseId) return;
@@ -1274,7 +1394,7 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
     <Section title="Mô phỏng thi đấu 3D" help="Dùng nguyên mô hình sân bạn gửi; chọn tối đa năm ngựa để chạy trong năm làn." icon={Flag}>
       <div className="race-competition-layout">
         <div className="min-w-0">
-          <RaceTrackScene3D surface={trackSurface} runners={raceRunners} targetDistanceMeters={targetDistance} isRunning={runStartTime != null} runStartTime={runStartTime} />
+          <RaceTrackScene3D surface={trackSurface} runners={raceRunners} targetDistanceMeters={targetDistance} isRunning={runStartTime != null} runStartTime={runStartTime} speedMultiplier={raceSpeed} />
           <div className="race-lane-legend">
             {raceRunners.map((runner) => <span key={runner.id}><b>{runner.lane}</b>{runner.name}</span>)}
             {!raceRunners.length && <span>Chọn ngựa để đưa vào các làn.</span>}
@@ -1299,6 +1419,13 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
               })}
               {!availableHorses.length && <p className="text-sm text-slate-500">Chưa có ngựa trong danh sách.</p>}
             </div>
+          </fieldset>
+          <fieldset className="rounded-lg border border-equine-line bg-slate-50 p-3">
+            <legend className="field-label px-1">Tốc độ mô phỏng</legend>
+            <div className="grid grid-cols-4 gap-2">
+              {RACE_SPEED_OPTIONS.map((multiplier) => <button key={multiplier} type="button" className={raceSpeed === multiplier ? "gold-button justify-center px-2 py-2 text-sm" : "soft-button justify-center px-2 py-2 text-sm"} onClick={() => setRaceSpeed(multiplier)} aria-pressed={raceSpeed === multiplier}>{multiplier}x</button>)}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Có thể đổi tốc độ ngay cả khi trận đua đang chạy.</p>
           </fieldset>
           <button type="button" className="gold-button w-full justify-center" disabled={!raceRunners.length} onClick={() => setRunStartTime(Date.now())}>
             <Play size={15} />{runStartTime == null ? "Chạy mô phỏng 3D" : "Chạy lại mô phỏng"}
