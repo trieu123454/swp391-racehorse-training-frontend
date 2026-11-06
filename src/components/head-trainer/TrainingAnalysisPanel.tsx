@@ -76,6 +76,7 @@ export default function TrainingAnalysisPanel({
   const [localRevision, setLocalRevision] = useState(0);
   const [saving, setSaving] = useState(false);
   const [detail, setDetail] = useState<Simulation | null>(null);
+  const [reviewPage, setReviewPage] = useState(1);
   const detailRequestRef = useRef(0);
 
   useEffect(() => {
@@ -113,6 +114,19 @@ export default function TrainingAnalysisPanel({
     };
   }, [horseId, from, to, revision, localRevision, includeSimulated]);
 
+  useEffect(() => {
+    setReviewPage(1);
+  }, [horseId, from, to, revision, localRevision]);
+
+  const reviewPageSize = 4;
+  const reviewSessions = (report?.sessions ?? []).slice().sort((left, right) => {
+    const leftTime = Date.parse(`${left.event_date}T${left.start_time?.slice(0, 5) || "00:00"}:00`);
+    const rightTime = Date.parse(`${right.event_date}T${right.start_time?.slice(0, 5) || "00:00"}:00`);
+    return rightTime - leftTime;
+  });
+  const reviewTotalPages = Math.max(1, Math.ceil(reviewSessions.length / reviewPageSize));
+  const visibleReviewSessions = reviewSessions.slice((reviewPage - 1) * reviewPageSize, reviewPage * reviewPageSize);
+
   async function review(event: FormEvent<HTMLFormElement>, id: string) {
     event.preventDefault();
     setSaving(true);
@@ -142,8 +156,8 @@ export default function TrainingAnalysisPanel({
 
   return (
     <div className="space-y-5">
-      <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
-        <h3 className="font-semibold text-equine-navy">Giáo án & khối lượng tuần</h3>
+      <section className="rounded-xl border border-blue-200 bg-blue-50/60 p-5 shadow-sm">
+        <h3 className="font-semibold text-blue-950">Giáo án & khối lượng tuần</h3>
         <p className="mt-2 text-sm text-slate-500">
           Khối lượng thực hiện gồm cả thời gian đã tập của phiên bị dừng. Mục tiêu tuần được phân bổ theo số ngày của giai đoạn trong khoảng báo cáo.
         </p>
@@ -157,7 +171,7 @@ export default function TrainingAnalysisPanel({
             <input type="date" className="field-control px-3" value={to} onChange={(event) => setTo(event.target.value)} />
           </label>
         </div>
-        {error && <p role="alert" className="mt-3 text-sm text-rose-700">{error}</p>}
+        {error && <p role="alert" className="mt-3 text-sm text-indigo-700">{error}</p>}
         {loading && <p className="mt-3 text-sm text-slate-500">Đang tải báo cáo…</p>}
         {!horseId && <p className="mt-4 text-sm text-slate-500">Chọn một ngựa để xem phân tích.</p>}
         {report && (
@@ -194,8 +208,8 @@ export default function TrainingAnalysisPanel({
         )}
       </section>
 
-      <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
-        <h3 className="font-semibold text-equine-navy">Lịch sử chạy thử</h3>
+      <section className="rounded-xl border border-violet-200 bg-violet-50/60 p-5 shadow-sm">
+        <h3 className="font-semibold text-violet-950">Lịch sử chạy thử</h3>
         <p className="mt-2 text-sm text-slate-500">
           So với lần trước có cùng cự ly mục tiêu, cường độ và mặt sân trong khoảng báo cáo. Thời lượng gồm khởi động và hồi phục; điểm hồi phục là ước tính của mô hình.
         </p>
@@ -233,28 +247,31 @@ export default function TrainingAnalysisPanel({
         loading={loading}
       />
 
-      <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
-        <h3 className="font-semibold text-equine-navy">Đánh giá từng buổi</h3>
+      <section className="rounded-xl border border-cyan-200 bg-cyan-50/60 p-5 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div><h3 className="font-semibold text-cyan-950">Đánh giá từng buổi</h3><p className="mt-1 text-sm text-cyan-900/80">Mỗi thẻ tập trung vào kết quả, cảnh báo và quyết định cho buổi kế tiếp.</p></div>
+          {reviewSessions.length > 0 && <span className="rounded-full bg-cyan-100 px-3 py-1 text-xs font-bold text-cyan-900">{reviewSessions.length} buổi</span>}
+        </div>
         <div className="mt-4 space-y-4">
-          {report?.sessions.map((session) => (
-            <article key={session.id} className="rounded-lg border border-equine-line p-4">
+          {visibleReviewSessions.map((session) => (
+            <article key={session.id} className={`rounded-xl border-l-4 bg-white p-4 shadow-sm ring-1 ring-slate-200/70 ${sessionStatusCardClass(session.effective_status)}`}>
               <div className="flex flex-wrap justify-between gap-2">
-                <strong>
+                <strong className="text-slate-950">
                   {session.event_date} · {session.start_time?.slice(0, 5)} · {session.session_type === "TrialRun" ? "Chạy thử" : session.session_type === "Rest" ? "Nghỉ" : "Huấn luyện"}
                 </strong>
-                <span>{statuses[session.effective_status] ?? session.effective_status}</span>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${sessionStatusBadgeClass(session.effective_status)}`}>{statuses[session.effective_status] ?? session.effective_status}</span>
               </div>
-              <p className="mt-2 text-sm text-slate-600">
+              <p className="mt-2 text-xs font-medium text-slate-600">
                 Giai đoạn: {session.snapshot_stage_name ?? "—"} · Groom: {session.groom_name ?? "Chưa phân công"} · Mặt sân: {session.track_surface ?? "—"}
               </p>
-              <p className="mt-1 text-sm">
-                Cự ly: {value(session.actual_distance_meters)} / {value(session.target_distance_meters)} m · Đạt {value(session.distance_achievement_percent, "%")}
-              </p>
-              <p className="mt-1 text-sm">
-                Nhịp tim tối đa: {value(session.max_heart_rate, " bpm")} · Điểm hồi phục ước tính: {value(session.estimated_stamina_score)} / 10
-              </p>
-              {session.stop_reason && <p className="mt-2 text-sm text-rose-700">Phiên bị dừng: {session.stop_reason}</p>}
-              <p className="mt-2 text-sm text-equine-navy">
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <ReviewMetric label="Cự ly thực hiện / mục tiêu" value={`${value(session.actual_distance_meters)} / ${value(session.target_distance_meters)} m`} />
+                <ReviewMetric label="Mức đạt mục tiêu" value={value(session.distance_achievement_percent, "%")} />
+                <ReviewMetric label="Nhịp tim tối đa" value={value(session.max_heart_rate, " bpm")} />
+                <ReviewMetric label="Điểm hồi phục" value={`${value(session.estimated_stamina_score)} / 10`} />
+              </div>
+              {session.stop_reason && <p className="mt-2 text-sm text-indigo-700">Phiên bị dừng: {session.stop_reason}</p>}
+              <p className="mt-3 rounded-lg bg-slate-100 p-3 text-sm font-medium text-slate-800">
                 {session.session_type === "Rest" ? "Buổi nghỉ không chạy bài vận động." : advice[session.recommendation]}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -265,7 +282,7 @@ export default function TrainingAnalysisPanel({
                 ))}
               </div>
               {["Completed", "Cancelled", "Missed", "Blocked"].includes(session.effective_status) && (
-                <form onSubmit={(event) => void review(event, session.id)} className="mt-3 flex flex-wrap gap-2">
+                <form onSubmit={(event) => void review(event, session.id)} className="mt-3 flex flex-wrap gap-2 rounded-lg border border-cyan-200 bg-cyan-50/80 p-3">
                   <textarea
                     name="trainer_review"
                     aria-label="Nhận xét Head Trainer"
@@ -280,6 +297,13 @@ export default function TrainingAnalysisPanel({
             </article>
           ))}
         </div>
+        {reviewTotalPages > 1 && <nav className="mt-5 flex flex-wrap items-center justify-center gap-2" aria-label="Phân trang đánh giá buổi tập">
+          <button type="button" className="soft-button min-w-9 justify-center px-3" onClick={() => setReviewPage(1)} disabled={reviewPage === 1} aria-label="Trang đầu">«</button>
+          <button type="button" className="soft-button min-w-9 justify-center px-3" onClick={() => setReviewPage((page) => Math.max(1, page - 1))} disabled={reviewPage === 1} aria-label="Trang trước">‹</button>
+          {Array.from({ length: reviewTotalPages }, (_, index) => index + 1).map((page) => <button key={page} type="button" className={page === reviewPage ? "gold-button min-w-9 justify-center px-3" : "soft-button min-w-9 justify-center px-3"} onClick={() => setReviewPage(page)} aria-current={page === reviewPage ? "page" : undefined}>{page}</button>)}
+          <button type="button" className="soft-button min-w-9 justify-center px-3" onClick={() => setReviewPage((page) => Math.min(reviewTotalPages, page + 1))} disabled={reviewPage === reviewTotalPages} aria-label="Trang sau">›</button>
+          <button type="button" className="soft-button min-w-9 justify-center px-3" onClick={() => setReviewPage(reviewTotalPages)} disabled={reviewPage === reviewTotalPages} aria-label="Trang cuối">»</button>
+        </nav>}
         {report && report.sessions.length === 0 && <p className="mt-3 text-sm text-slate-500">Chưa có buổi tập trong khoảng ngày này.</p>}
       </section>
 
@@ -294,6 +318,26 @@ export default function TrainingAnalysisPanel({
       )}
     </div>
   );
+}
+
+function sessionStatusCardClass(status: string) {
+  if (status === "Completed") return "border-emerald-300";
+  if (status === "InProgress") return "border-cyan-300";
+  if (status === "Blocked") return "border-indigo-300";
+  if (status === "Cancelled" || status === "Missed") return "border-slate-300";
+  return "border-blue-300";
+}
+
+function sessionStatusBadgeClass(status: string) {
+  if (status === "Completed") return "bg-emerald-50 text-emerald-700";
+  if (status === "InProgress") return "bg-cyan-50 text-cyan-700";
+  if (status === "Blocked") return "bg-indigo-50 text-indigo-700";
+  if (status === "Cancelled" || status === "Missed") return "bg-slate-100 text-slate-600";
+  return "bg-blue-50 text-blue-700";
+}
+
+function ReviewMetric({ label, value: amount }: { label: string; value: string }) {
+  return <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><span className="block text-[11px] font-medium text-slate-500">{label}</span><strong className="mt-1 block text-sm text-slate-900">{amount}</strong></div>;
 }
 
 function WorkloadSummary({ weeks }: { weeks: Week[] }) {
@@ -314,7 +358,7 @@ function WorkloadSummary({ weeks }: { weeks: Week[] }) {
   return (
     <div className="mt-4 grid gap-2 sm:grid-cols-3">
       {entries.map((entry) => (
-        <div key={entry.label} className="rounded-xl border border-equine-line bg-slate-50 px-3 py-2">
+        <div key={entry.label} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
           <p className="text-xs text-slate-500">{entry.label} · toàn kỳ</p>
           <p className="mt-1 text-lg font-semibold text-equine-navy">{numberLabel(entry.amount)} phút</p>
         </div>
@@ -567,7 +611,7 @@ const developmentMeasures: { key: DevelopmentKey; title: string; unit: string; c
   { key: "body_weight_kg", title: "Cân nặng", unit: "kg", color: "#1040C5" },
   { key: "avg_speed_kmh", title: "Tốc độ trung bình", unit: "km/h", color: "#0099CF" },
   { key: "stamina_score", title: "Điểm thể lực", unit: "/10", color: "#15803D" },
-  { key: "max_heart_rate", title: "Nhịp tim tối đa", unit: "bpm", color: "#B45309" },
+  { key: "max_heart_rate", title: "Nhịp tim tối đa", unit: "bpm", color: "#7C3AED" },
 ];
 
 function HorseDevelopment({
@@ -589,7 +633,7 @@ function HorseDevelopment({
   const latestReview = ordered.slice().reverse().find((metric) => metric.trainer_review?.trim())?.trainer_review;
 
   return (
-    <section className="rounded-lg border border-equine-line bg-white p-5 shadow-sm">
+    <section className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-semibold text-equine-navy">Sự phát triển của ngựa</h3>
@@ -658,7 +702,7 @@ function HorseDevelopment({
                     <td>{value(metric.max_heart_rate, " bpm")}</td>
                     <td>{metric.bp_systolic == null && metric.bp_diastolic == null ? "—" : String(metric.bp_systolic ?? "—") + "/" + String(metric.bp_diastolic ?? "—") + " mmHg"}</td>
                     <td>
-                      {metric.has_injury_alert ? <span className="text-rose-700">Cảnh báo sức khỏe</span> : "—"}
+                {metric.has_injury_alert ? <span className="text-indigo-700">Cảnh báo sức khỏe</span> : "—"}
                       {metric.trainer_review && <p className="mt-1 max-w-xs whitespace-normal text-xs text-slate-500">{metric.trainer_review}</p>}
                     </td>
                   </tr>
@@ -675,9 +719,9 @@ function HorseDevelopment({
 
 function DevelopmentStat({ label, value: amount, detail, warning = false }: { label: string; value: string; detail: string; warning?: boolean }) {
   return (
-    <article className={"rounded-lg border p-3 " + (warning ? "border-amber-200 bg-amber-50" : "border-equine-line bg-slate-50")}>
+    <article className={"rounded-lg border p-3 " + (warning ? "border-cyan-200 bg-cyan-50" : "border-teal-200 bg-teal-50/70")}>
       <p className="text-xs text-slate-500">{label}</p>
-      <p className={"mt-1 text-lg font-semibold " + (warning ? "text-amber-800" : "text-equine-navy")}>{amount}</p>
+      <p className={"mt-1 text-lg font-semibold " + (warning ? "text-cyan-800" : "text-teal-900")}>{amount}</p>
       <p className="mt-1 text-xs text-slate-500">{detail}</p>
     </article>
   );

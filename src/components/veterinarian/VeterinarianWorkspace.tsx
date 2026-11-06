@@ -1668,6 +1668,11 @@ function getEventSlot(event: CalendarCareItem): number {
   return 6;
 }
 
+function isTrainingCalendarEvent(event: CalendarCareItem) {
+  if (event.context) return true;
+  return [event.event_type, event.title].some((value) => /training|trialrun|race|rest|tập|đua/i.test(value ?? ""));
+}
+
 function formatTimeDisplay(start: string | null | undefined, end: string | null | undefined) {
   if (!start) return "07h00 - 08h30";
   const s = start.slice(0, 5).replace(":", "h");
@@ -2951,6 +2956,7 @@ function CarePanel({
                               const scheduleId = event.schedule_id ?? schedule?.id;
                               const isCompleted = event.status === "Completed";
                               const isCancelled = event.status === "Cancelled";
+                              const isTrainingEvent = isTrainingCalendarEvent(event);
                               const isOverdue = isEventOverdue(event, schedule);
                               const isMyCareEvent = scope === "mine" || isAssignedDoctor(event, schedule, currentUser);
                               const canManage = !event.context && Boolean(scheduleId) && isMyCareEvent;
@@ -2971,8 +2977,8 @@ function CarePanel({
                                 <article
                                   key={event.event_id ?? event.id ?? `${day.date}-${index}`}
                                   className={`rounded-lg p-2.5 shadow-xs transition hover:shadow-md ${
-                                    event.context
-                                      ? "border border-slate-300 bg-slate-50"
+                                    isTrainingEvent
+                                      ? "border-2 border-violet-500 bg-violet-50 shadow-md ring-2 ring-violet-200/70"
                                       : isCompleted
                                       ? "border border-emerald-300 bg-emerald-50/80"
                                       : isOverdue
@@ -2984,11 +2990,11 @@ function CarePanel({
                                 >
                                   {/* Title & Badge */}
                                   <div className="flex items-start justify-between gap-1.5">
-                                    <div className={`flex items-start gap-1 font-bold break-words leading-tight text-xs ${isOverdue ? "text-rose-950 font-black" : "text-[#0A389C]"}`}>
+                                    <div className={`flex items-start gap-1 font-bold break-words leading-tight text-xs ${isOverdue ? "text-rose-950 font-black" : isTrainingEvent ? "text-violet-950 font-black" : "text-[#0A389C]"}`}>
                                       {isOverdue ? (
                                         <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-rose-600 mt-0.5" />
                                       ) : (
-                                        <BookOpen className="h-3.5 w-3.5 shrink-0 text-[#0A389C] mt-0.5" />
+                                        <BookOpen className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${isTrainingEvent ? "text-violet-700" : "text-[#0A389C]"}`} />
                                       )}
                                       <span>{eventName} - {horseName}</span>
                                     </div>
@@ -3007,16 +3013,16 @@ function CarePanel({
                                         Đến hạn
                                       </span>
                                     )}
-                                    {event.context && (
-                                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold text-slate-800 bg-slate-200 border border-slate-300">
-                                        Tham khảo
+                                    {isTrainingEvent && (
+                                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-violet-600 px-1.5 py-0.5 text-[9px] font-black text-white shadow-sm">
+                                        Lịch tập/đua
                                       </span>
                                     )}
                                   </div>
 
                                   {/* Time */}
-                                  <div className={`mt-1.5 flex items-center gap-1.5 text-[11px] font-bold ${isOverdue ? "text-rose-900 font-extrabold" : "text-amber-900"}`}>
-                                    <Clock className={`h-3 w-3 shrink-0 ${isOverdue ? "text-rose-600" : "text-amber-700"}`} />
+                                  <div className={`mt-1.5 flex items-center gap-1.5 text-[11px] font-bold ${isOverdue ? "text-rose-900 font-extrabold" : isTrainingEvent ? "text-violet-900 font-extrabold" : "text-amber-900"}`}>
+                                    <Clock className={`h-3 w-3 shrink-0 ${isOverdue ? "text-rose-600" : isTrainingEvent ? "text-violet-700" : "text-amber-700"}`} />
                                     <span>{timeStr}</span>
                                     <span className="text-slate-400">·</span>
                                     <span className={isOverdue ? "text-rose-700 font-bold" : "text-slate-700 font-semibold"}>
