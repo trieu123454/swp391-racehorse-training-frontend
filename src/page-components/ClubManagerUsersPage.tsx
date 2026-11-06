@@ -34,10 +34,11 @@ import {
 } from "@/api/club-manager/api";
 import { roleLabels } from "@/lib/roles";
 
-const ROLE_FILTERS = ["HEAD_TRAINER", "VETERINARIAN", "GROOM", "HORSE_OWNER", "CLUB_MANAGER"] as const;
+const ROLE_FILTERS = ["HEAD_TRAINER", "HEAD_VETERINARIAN", "VETERINARIAN", "GROOM", "HORSE_OWNER", "CLUB_MANAGER"] as const;
 
 const EDITABLE_ROLES: Array<{ value: AssignableRoleName; label: string }> = [
   { value: "HEAD_TRAINER", label: roleLabels.HEAD_TRAINER },
+  { value: "HEAD_VETERINARIAN", label: roleLabels.HEAD_VETERINARIAN },
   { value: "VETERINARIAN", label: roleLabels.VETERINARIAN },
   { value: "GROOM", label: roleLabels.GROOM },
   { value: "HORSE_OWNER", label: roleLabels.HORSE_OWNER },
@@ -53,6 +54,11 @@ const ROLE_STYLES: Record<string, { label: string; badge: string; avatar: string
     label: "Huấn luyện viên trưởng",
     badge: "bg-amber-50 text-amber-800 border-amber-200",
     avatar: "bg-amber-100 text-amber-800 border-amber-200",
+  },
+  HEAD_VETERINARIAN: {
+    label: "Trưởng ban thú y",
+    badge: "bg-emerald-50 text-emerald-800 border-emerald-200",
+    avatar: "bg-emerald-100 text-emerald-800 border-emerald-200",
   },
   VETERINARIAN: {
     label: "Bác sĩ thú y",
@@ -390,6 +396,7 @@ function AccountManagement() {
                 >
                   <option value="GROOM">{roleLabels.GROOM}</option>
                   <option value="HEAD_TRAINER">{roleLabels.HEAD_TRAINER}</option>
+                  <option value="HEAD_VETERINARIAN">{roleLabels.HEAD_VETERINARIAN}</option>
                   <option value="VETERINARIAN">{roleLabels.VETERINARIAN}</option>
                   <option value="CLUB_MANAGER">{roleLabels.CLUB_MANAGER}</option>
                 </select>

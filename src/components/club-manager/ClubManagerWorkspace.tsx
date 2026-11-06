@@ -34,7 +34,7 @@ import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 
 type Option = { id: string | number; full_name?: string; horse_name?: string; breed?: string | null; birth_year?: number | null; microchip_number?: string | null; passport_number?: string | null; owner_id?: number | null; owner_name?: string | null };
 type ManagerTask = { id: string; horse_name: string; groom_name: string | null; task_type: string; task_date: string; status: string };
-type IncidentAssignee = { id: number; full_name: string; email: string; role_name: "HEAD_TRAINER" | "VETERINARIAN" | "GROOM" };
+type IncidentAssignee = { id: number; full_name: string; email: string; role_name: "HEAD_TRAINER" | "VETERINARIAN" | "HEAD_VETERINARIAN" | "GROOM" };
 type AssignmentRole = IncidentAssignee["role_name"] | "CLUB_MANAGER";
 type Incident = {
   id: string; horse_name: string; groom_name: string | null; issue_description: string; image_url: string | null;
@@ -67,6 +67,7 @@ const EMPTY_ERRORS: LoadErrors = {
 
 const assignmentRoles: { value: AssignmentRole; label: string }[] = [
   { value: "HEAD_TRAINER", label: "Huấn luyện viên trưởng" },
+  { value: "HEAD_VETERINARIAN", label: "Trưởng ban thú y" },
   { value: "VETERINARIAN", label: "Bác sĩ thú y" },
   { value: "GROOM", label: "Groom" },
   { value: "CLUB_MANAGER", label: "Tôi tự xử lý · Club Manager" },
@@ -74,6 +75,7 @@ const assignmentRoles: { value: AssignmentRole; label: string }[] = [
 
 const incidentRoleLabels: Record<string, string> = {
   HEAD_TRAINER: "Huấn luyện viên trưởng",
+  HEAD_VETERINARIAN: "Trưởng ban thú y",
   VETERINARIAN: "Bác sĩ thú y",
   GROOM: "Groom",
   CLUB_MANAGER: "Club Manager",
