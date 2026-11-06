@@ -18,6 +18,7 @@ export class ApiRequestError extends Error {
 
 export const SESSION_EXPIRED_EVENT = "racehorse:session-expired";
 export const APP_MUTATION_COMPLETED_EVENT = "racehorse:mutation-completed";
+export const NOTIFICATION_COUNT_CHANGED_EVENT = "racehorse:notification-count-changed";
 
 function announceMutationCompleted(path: string, method: string) {
   if (typeof window === "undefined") return;

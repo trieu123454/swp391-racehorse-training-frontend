@@ -3,7 +3,7 @@
 import { Bell, CheckCheck, ChevronDown, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Notice } from "@/components/horses/HorseUI";
-import { APP_MUTATION_COMPLETED_EVENT, authenticatedRequest } from "@/api/client";
+import { APP_MUTATION_COMPLETED_EVENT, authenticatedRequest, NOTIFICATION_COUNT_CHANGED_EVENT } from "@/api/client";
 
 type AppNotification = {
   id: string;
@@ -60,6 +60,7 @@ export default function NotificationCenter() {
     try {
       await authenticatedRequest(`/api/notifications/${encodeURIComponent(id)}/read`, { method: "PATCH" });
       await load();
+      window.dispatchEvent(new Event(NOTIFICATION_COUNT_CHANGED_EVENT));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Không thể cập nhật thông báo.");
     } finally { setBusy(false); }
@@ -70,13 +71,14 @@ export default function NotificationCenter() {
     try {
       await authenticatedRequest("/api/notifications/read-all", { method: "POST" });
       await load();
+      window.dispatchEvent(new Event(NOTIFICATION_COUNT_CHANGED_EVENT));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Không thể cập nhật thông báo.");
     } finally { setBusy(false); }
   }
 
   return (
-    <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5">
+    <section id="notification-center" className="scroll-mt-24 rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button
           type="button"
