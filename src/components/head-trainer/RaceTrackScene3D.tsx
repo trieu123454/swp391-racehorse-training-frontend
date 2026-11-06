@@ -116,12 +116,14 @@ export default function RaceTrackScene3D({
   targetDistanceMeters,
   isRunning,
   runStartTime = null,
+  speedMultiplier = 1,
 }: {
   surface?: string | null;
   runners: RaceTrackRunner[];
   targetDistanceMeters: number;
   isRunning: boolean;
   runStartTime?: number | null;
+  speedMultiplier?: number;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const runnersRef = useRef(runners);
@@ -130,6 +132,7 @@ export default function RaceTrackScene3D({
   const previousRunStartRef = useRef(runStartTime);
   const runningRef = useRef(isRunning);
   const runStartRef = useRef(runStartTime);
+  const speedMultiplierRef = useRef(speedMultiplier);
   const distanceRef = useRef(targetDistanceMeters);
   const drawRef = useRef<() => void>(() => {});
   const startLoopRef = useRef<() => void>(() => {});
@@ -140,6 +143,7 @@ export default function RaceTrackScene3D({
   runnersRef.current = runners;
   runningRef.current = isRunning;
   runStartRef.current = runStartTime;
+  speedMultiplierRef.current = Math.max(0.25, speedMultiplier);
   distanceRef.current = Math.max(1, targetDistanceMeters);
   const updateAt = Date.now();
   const nextIds = new Set(runners.map((runner) => runner.id));
@@ -235,7 +239,7 @@ export default function RaceTrackScene3D({
         let targetProgress = clampProgress(runner.progress);
         if (runningRef.current && runner.speedKmh > 0) {
           const startAt = runStartRef.current ?? snapshot?.at ?? now;
-          const elapsedSeconds = Math.max(0, (now - startAt) / 1000);
+          const elapsedSeconds = Math.max(0, (now - startAt) / 1000) * speedMultiplierRef.current;
           targetProgress = clampProgress(targetProgress + (runner.speedKmh / 3.6) * elapsedSeconds / distanceRef.current);
         }
         let progress = targetProgress;
