@@ -3,7 +3,7 @@ import { Routes } from "@/routes/Routes";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, Download, ExternalLink, FileText, MapPin, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarDays, Dna, Download, ExternalLink, FileText, GitFork, MapPin, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useHorseUser } from "@/components/horses/HorseShell";
 import { HorseImage, Modal, Notice, StatusBadge } from "@/components/horses/HorseUI";
@@ -34,6 +34,7 @@ export default function HorseDetailPage() {
   const [deleteWarnings, setDeleteWarnings] = useState<Warnings | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [pedigreeView, setPedigreeView] = useState<"tree" | "genetics" | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -137,7 +138,7 @@ export default function HorseDetailPage() {
             <ArrowLeft size={16} /> Quay lại danh sách
           </button>
           <div className="flex flex-wrap gap-2">
-            {user.roleName === "CLUB_MANAGER" && (
+            {(user.roleName === "CLUB_MANAGER" || user.roleName === "HEAD_TRAINER") && (
               <Link className="gold-button" href={Routes.horseEdit(horse.id)}>
                 <Pencil size={15} /> Chỉnh sửa hồ sơ
               </Link>
@@ -191,12 +192,98 @@ export default function HorseDetailPage() {
                 <InfoCard label="Trạng thái sức khỏe" value={horse.current_status} />
                 <InfoCard label="Khóa huấn luyện" value={horse.is_training_locked ? "Đang khóa (Tạm ngừng)" : "Bình thường (Đang hoạt động)"} />
               </div>
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  className={pedigreeView === "tree" ? "gold-button !min-h-[36px] !px-3.5 !text-xs" : "soft-button !min-h-[36px] !px-3.5 !text-xs"}
+                  aria-pressed={pedigreeView === "tree"}
+                  onClick={() => setPedigreeView((current) => current === "tree" ? null : "tree")}
+                >
+                  <GitFork size={14} /> Xem cây phả hệ đầy đủ
+                </button>
+                <button
+                  type="button"
+                  className={pedigreeView === "genetics" ? "gold-button !min-h-[36px] !px-3.5 !text-xs" : "soft-button !min-h-[36px] !px-3.5 !text-xs"}
+                  aria-pressed={pedigreeView === "genetics"}
+                  onClick={() => setPedigreeView((current) => current === "genetics" ? null : "genetics")}
+                >
+                  <Dna size={14} /> Phân tích di truyền
+                </button>
+              </div>
+              {pedigreeView === "tree" && (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/90 p-4" role="region" aria-label="Cây phả hệ đầy đủ">
+                  <h3 className="text-sm font-bold text-slate-900">Sơ đồ phả hệ 3 thế hệ · {horse.horse_name}</h3>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3 text-xs">
+                    <div className="flex flex-col justify-center rounded-lg border border-teal-200 bg-white p-3 shadow-sm">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-teal-700">Cá thể hiện tại (F0)</span>
+                      <strong className="mt-1 text-sm text-slate-900">{horse.horse_name}</strong>
+                      <span className="mt-0.5 text-slate-500">{horse.breed ?? "Thoroughbred"} · {horse.birth_year ?? "—"}</span>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="rounded-lg border border-slate-200 bg-white p-3">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400">Cha (Sire · F1)</span>
+                        <strong className="mt-0.5 block text-slate-800">{horse.pedigree_father ?? "Chưa ghi nhận"}</strong>
+                      </div>
+                      <div className="rounded-lg border border-slate-200 bg-white p-3">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400">Mẹ (Dam · F1)</span>
+                        <strong className="mt-0.5 block text-slate-800">{horse.pedigree_mother ?? "Chưa ghi nhận"}</strong>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="rounded-lg border border-dashed border-slate-200 bg-white/80 p-2.5">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400">Ông bà nội (Sire Line · F2)</span>
+                        <span className="mt-0.5 block font-medium text-slate-700">
+                          {horse.pedigree_father ? `Dòng ${horse.pedigree_father} (Sire) × Dam nội` : "Chưa cập nhật phả hệ F2"}
+                        </span>
+                      </div>
+                      <div className="rounded-lg border border-dashed border-slate-200 bg-white/80 p-2.5">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400">Ông bà ngoại (Dam Line · F2)</span>
+                        <span className="mt-0.5 block font-medium text-slate-700">
+                          {horse.pedigree_mother ? `Dòng ${horse.pedigree_mother} (Broodmare Sire)` : "Chưa cập nhật phả hệ F2"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {pedigreeView === "genetics" && (
+                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/90 p-4" role="region" aria-label="Phân tích di truyền">
+                  <h3 className="text-sm font-bold text-slate-900">Báo cáo phân tích di truyền & thể chất · {horse.horse_name}</h3>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3 text-xs">
+                    <div className="rounded-lg border border-slate-200 bg-white p-3">
+                      <span className="text-[10px] uppercase tracking-wider text-slate-400">Nhóm gen cự ly (MSTN)</span>
+                      <strong className="mt-1 block text-slate-800">
+                        {horse.height_cm && horse.height_cm >= 165 ? "C/T · Trung bình – Dài (1600m–2400m)" : "C/C · Tốc độ nước rút (1000m–1600m)"}
+                      </strong>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white p-3">
+                      <span className="text-[10px] uppercase tracking-wider text-slate-400">Chỉ số thể hình di truyền</span>
+                      <strong className="mt-1 block text-slate-800">
+                        {horse.height_cm ? `${horse.height_cm} cm` : "Chưa đo"} · {horse.current_weight_kg ? `${horse.current_weight_kg} kg` : "Chưa cân"}
+                      </strong>
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white p-3">
+                      <span className="text-[10px] uppercase tracking-wider text-slate-400">Độ thuần chủng & phả hệ</span>
+                      <strong className="mt-1 block text-slate-800">
+                        {horse.pedigree_father && horse.pedigree_mother ? "Đã xác thực đủ Sire & Dam" : "Cần bổ sung thông tin cha/mẹ"}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              )}
             </section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="flex items-center gap-2 text-slate-900">
-                <MapPin size={17} className="text-teal-700" />
-                <h2 className="font-sans text-lg font-bold">Chuồng trại & quản lý</h2>
+              <div className="flex flex-wrap items-center justify-between gap-2 text-slate-900">
+                <div className="flex items-center gap-2">
+                  <MapPin size={17} className="text-teal-700" />
+                  <h2 className="font-sans text-lg font-bold">Chuồng trại & quản lý</h2>
+                </div>
+                {(user.roleName === "CLUB_MANAGER" || user.roleName === "HEAD_TRAINER") && (
+                  <Link className="soft-button !min-h-[34px] !px-3 !text-xs" href={Routes.horseEdit(horse.id)}>
+                    <MapPin size={13} /> Cập nhật vị trí chuồng
+                  </Link>
+                )}
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <InfoCard label="Hộp chuồng" value={horse.box_code || horse.stable_box_id || "Chưa xếp chuồng"} />

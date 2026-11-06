@@ -146,6 +146,7 @@ export type CareEvent = {
   context?: boolean;
   horse?: { id: string; horse_name: string };
   schedule_id?: string;
+  assigned_doctor?: { id?: number | string | null; name?: string | null } | null;
 };
 
 export type CareSchedule = {
@@ -157,6 +158,8 @@ export type CareSchedule = {
   last_done_date: string | null;
   next_due_date: string;
   assigned_doctor_id: number | null;
+  doctor_name?: string | null;
+  assigned_doctor?: { id?: number | string | null; name?: string | null } | null;
   notes: string | null;
   calendar_event_id: string | null;
   is_overdue?: boolean;
@@ -330,6 +333,9 @@ export const veterinarianApi = {
   },
   readAllNotifications() {
     return call<{ updated: number }>("/api/notifications/read-all", "POST");
+  },
+  veterinarians() {
+    return call<{ id: number | string; name: string; email: string }[]>("/api/veterinarians");
   },
 };
 

@@ -103,8 +103,10 @@ export async function listHorses(params: {
   currentStatus?: string;
   stableBoxId?: string;
   isTrainingLocked?: boolean;
+  page?: number;
+  size?: number;
 } = {}) {
-  const query = new URLSearchParams({ page: "0", size: "100" });
+  const query = new URLSearchParams({ page: String(params.page ?? 1), size: String(params.size ?? 100) });
   if (params.search) query.set("search", params.search);
   if (params.breed) query.set("breed", params.breed);
   if (params.currentStatus) query.set("currentStatus", params.currentStatus);

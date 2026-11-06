@@ -4,6 +4,7 @@ export const Routes = {
   login: "/login",
   register: "/register",
   changePassword: "/change-password",
+  forgotPassword: "/forgot-password",
   dashboard: "/dashboard",
   dashboardRole: (slug: string) => `/dashboard/${slug}`,
   dashboardTab: (roleRoute: string, tab: string) =>

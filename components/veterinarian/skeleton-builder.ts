@@ -237,13 +237,19 @@ function flattenedCurveGeometry(
 
 function triangularPlateGeometry(points: [THREE.Vector3, THREE.Vector3, THREE.Vector3], normal: THREE.Vector3, thickness: number) {
   const vertices: number[] = [];
+  const uvs: number[] = [];
   const indices = [0, 1, 2, 5, 4, 3, 0, 3, 4, 0, 4, 1, 1, 4, 5, 1, 5, 2, 2, 5, 3, 2, 3, 0];
-  for (const sign of [1, -1]) for (const point of points) {
-    const vertex = point.clone().addScaledVector(normal, sign * thickness * 0.5);
-    vertices.push(vertex.x, vertex.y, vertex.z);
+  const triangleUvs: [number, number][] = [[0, 0], [1, 0], [0.5, 1]];
+  for (const sign of [1, -1]) {
+    for (const [index, point] of points.entries()) {
+      const vertex = point.clone().addScaledVector(normal, sign * thickness * 0.5);
+      vertices.push(vertex.x, vertex.y, vertex.z);
+      uvs.push(...triangleUvs[index]);
+    }
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   return geometry;

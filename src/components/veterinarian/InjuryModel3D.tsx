@@ -28,6 +28,7 @@ type Axis = "x" | "z";
 type ModelAxes = { longAxis: Axis; sideAxis: Axis; headDirection: 1 | -1; halfLength: number; halfHeight: number; halfWidth: number };
 type ViewerView = "left" | "right" | "top" | "front" | "back";
 type AnatomyLayer = "skin" | "muscle" | "skeleton" | "organs";
+type AnatomyInspectorTab = "muscle" | "organs" | "skeleton";
 type AnatomyVisibility = Record<AnatomyLayer, boolean>;
 const viewPresetLabels: Record<ViewerView, string> = {
   left: "Bên trái",
@@ -55,10 +56,11 @@ type InteractionState = {
   hoveredSkeletonId: string | null;
   muscleFilters: MuscleFilters;
   organSystems: OrganSystems;
+  inspectorTab: AnatomyInspectorTab;
   explodeView: boolean;
   showSkeletonLabels: boolean;
   jawOpen: boolean;
-  onSelectLocation?: (coordinates: Coordinates) => void;
+  onSelectLocation?: (coordinates: Coordinates, bodyPart?: string) => void;
 };
 type HoveredMuscle = string | null;
 type HoveredOrgan = string | null;
@@ -97,6 +99,10 @@ function markerColor(marker: InjuryMarker) {
   if (marker.severity === "Severe") return "#d94655";
   if (marker.severity === "Moderate") return "#d38a32";
   return "#3d83b6";
+}
+
+function injuryPartLabel(category: string, name: string) {
+  return `${category}: ${name}`.slice(0, 50);
 }
 
 function coordinatesToPoint(coordinates: CoordinateInput, axes: ModelAxes) {
@@ -166,13 +172,16 @@ export default function InjuryModel3D({
   placementMode = false,
   selectedCoordinates = null,
   onSelectLocation,
+  onSelectAnatomyPart,
 }: {
   markers: InjuryMarker[];
   placementMode?: boolean;
   selectedCoordinates?: Coordinates | null;
-  onSelectLocation?: (coordinates: Coordinates) => void;
+  onSelectLocation?: (coordinates: Coordinates, bodyPart?: string) => void;
+  onSelectAnatomyPart?: (bodyPart: string) => void;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
+  const renderRequestRef = useRef<() => void>(() => {});
   const actionsRef = useRef<ViewerActions>({ setView: () => {}, zoom: () => {}, reset: () => {}, focusMuscle: () => {}, focusOrgan: () => {}, focusSkeleton: () => {} });
   const interactionRef = useRef<InteractionState>({
     markers,
@@ -187,6 +196,7 @@ export default function InjuryModel3D({
     hoveredSkeletonId: null,
     muscleFilters: { group: "all", superficial: true, deep: true, search: "" },
     organSystems: { respiratory: true, circulatory: true, digestive: true, urinary: true, nervous: true },
+    inspectorTab: "skeleton",
     explodeView: false,
     showSkeletonLabels: false,
     jawOpen: false,
@@ -218,9 +228,17 @@ export default function InjuryModel3D({
     markers, placementMode, selectedCoordinates, selectedId, selectedMuscleId,
     hoveredMuscleId: hoveredMuscle, selectedOrganId, hoveredOrganId: hoveredOrgan,
     selectedSkeletonId, hoveredSkeletonId: hoveredSkeleton,
-    muscleFilters, organSystems, explodeView, showSkeletonLabels, jawOpen, onSelectLocation,
+    muscleFilters, organSystems, inspectorTab, explodeView, showSkeletonLabels, jawOpen, onSelectLocation,
   };
   anatomyVisibilityRef.current = anatomyVisibility;
+
+  useEffect(() => {
+    renderRequestRef.current();
+  }, [
+    markers, placementMode, selectedCoordinates, selectedId, selectedMuscleId, hoveredMuscle,
+    selectedOrganId, hoveredOrgan, selectedSkeletonId, hoveredSkeleton, muscleFilters,
+    organSystems, inspectorTab, explodeView, showSkeletonLabels, jawOpen, anatomyVisibility,
+  ]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -256,6 +274,8 @@ export default function InjuryModel3D({
     let lastMarkerSignature = "";
     let lastDraftSignature = "";
     let frameId = 0;
+    let inViewport = false;
+    let lastLabelScale = -1;
     let fittedDistance = 6.3;
     let modelRadius = 0;
     const modelCenter = new THREE.Vector3();
@@ -278,17 +298,18 @@ export default function InjuryModel3D({
       setLoading(false);
       return () => { disposed = true; };
     }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.enabled = false;
     renderer.domElement.className = "block h-full w-full touch-none";
     renderer.domElement.setAttribute("aria-label", "Mô hình ngựa 3D tương tác để xem và đánh dấu vị trí chấn thương");
     const handleContextLost = () => {
       disposed = true;
       window.cancelAnimationFrame(frameId);
+      frameId = 0;
+      renderRequestRef.current = () => {};
       actionsRef.current = { setView: () => {}, zoom: () => {}, reset: () => {}, focusMuscle: () => {}, focusOrgan: () => {}, focusSkeleton: () => {} };
       setLoadError("WebGL đã bị trình duyệt dừng. Hãy tải lại trang để mở lại mô hình 3D.");
       setLoading(false);
@@ -300,7 +321,7 @@ export default function InjuryModel3D({
     scene.add(new THREE.AmbientLight(0xffffff, 0.38));
     const keyLight = new THREE.DirectionalLight(0xfff4e4, 2.8);
     keyLight.position.set(-4, 7, 5);
-    keyLight.castShadow = true;
+    keyLight.castShadow = false;
     keyLight.shadow.mapSize.set(1024, 1024);
     keyLight.shadow.camera.left = -4;
     keyLight.shadow.camera.right = 4;
@@ -482,6 +503,52 @@ export default function InjuryModel3D({
 
     }
 
+    const stopRendering = () => {
+      if (!frameId) return;
+      window.cancelAnimationFrame(frameId);
+      frameId = 0;
+    };
+
+    const requestRender = () => {
+      if (disposed || document.hidden || !inViewport || frameId) return;
+      frameId = window.requestAnimationFrame(render);
+    };
+
+    function render() {
+      frameId = 0;
+      if (disposed || document.hidden || !inViewport) return;
+      syncAnatomyLayers();
+      syncMuscleDisplay();
+      syncOrganDisplay();
+      syncSkeletonDisplay();
+      syncPins();
+      const controlsMoving = controls.update();
+      if (skeletonLayer) {
+        const labelScale = clamp(camera.position.distanceTo(controls.target) / Math.max(fittedDistance, 0.1), 0.14, 1);
+        if (Math.abs(labelScale - lastLabelScale) > 0.005) {
+          skeletonLayer.traverse((object) => {
+            if (!(object instanceof THREE.Sprite) || !object.name.startsWith("label-")) return;
+            const baseScale = object.userData.baseLabelScale as [number, number] | undefined;
+            if (baseScale) object.scale.set(baseScale[0] * labelScale, baseScale[1] * labelScale, 1);
+          });
+          lastLabelScale = labelScale;
+        }
+      }
+      renderer.render(scene, camera);
+      if (controlsMoving) requestRender();
+    }
+
+    renderRequestRef.current = requestRender;
+    controls.addEventListener("change", requestRender);
+    const handleVisibilityChange = () => document.hidden ? stopRendering() : requestRender();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const visibilityObserver = new IntersectionObserver(([entry]) => {
+      inViewport = entry.isIntersecting;
+      if (inViewport) requestRender();
+      else stopRendering();
+    }, { rootMargin: "120px" });
+    visibilityObserver.observe(mount);
+
     function resize() {
       if (!mount || disposed) return;
       const width = Math.max(1, mount.clientWidth);
@@ -490,6 +557,7 @@ export default function InjuryModel3D({
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
       if (cameraReady) cameraForView(currentView);
+      requestRender();
     }
 
     const resizeObserver = new ResizeObserver(resize);
@@ -636,6 +704,7 @@ export default function InjuryModel3D({
     }
 
     function handlePointerDown(event: PointerEvent) {
+      requestRender();
       startPoint = { x: event.clientX, y: event.clientY };
     }
 
@@ -671,6 +740,7 @@ export default function InjuryModel3D({
     }
 
     function handlePointerMove(event: PointerEvent) {
+      requestRender();
       const current = interactionRef.current;
       if (current.placementMode) {
         if (current.hoveredMuscleId) setHoveredMuscle(null);
@@ -744,6 +814,7 @@ export default function InjuryModel3D({
     }
 
     function handlePointerUp(event: PointerEvent) {
+      requestRender();
       if (!startPoint || Math.hypot(event.clientX - startPoint.x, event.clientY - startPoint.y) > 6) {
         startPoint = null;
         return;
@@ -800,6 +871,53 @@ export default function InjuryModel3D({
         }
       }
       if (current.placementMode && current.onSelectLocation && modelAxes) {
+        const anatomyOrder: AnatomyInspectorTab[] = current.inspectorTab === "skeleton"
+          ? ["skeleton", "muscle", "organs"]
+          : current.inspectorTab === "muscle"
+            ? ["muscle", "organs", "skeleton"]
+            : ["organs", "muscle", "skeleton"];
+
+        for (const anatomy of anatomyOrder) {
+          if (anatomy === "organs") {
+            const organHit = organHitAt(event);
+            const organId = organHit?.object.userData.organId as string | undefined;
+            const record = organId ? builtOrganRecords.find((item) => item.id === organId) : undefined;
+            if (organHit && record) {
+              setSelectedOrganId(record.id);
+              setSelectedMuscleId(null);
+              setSelectedSkeletonId(null);
+              setInspectorTab("organs");
+              current.onSelectLocation(pointToCoordinates(organHit.point, modelAxes), injuryPartLabel("Nội tạng", record.name));
+              return;
+            }
+          } else if (anatomy === "skeleton") {
+            const boneHit = skeletonHitAt(event);
+            const boneId = boneHit?.object.userData.boneId as string | undefined;
+            const record = boneId ? builtSkeletonRecords.find((item) => item.id === boneId) : undefined;
+            if (boneHit && record) {
+              setSelectedSkeletonId(record.id);
+              setSelectedOrganId(null);
+              setSelectedMuscleId(null);
+              setInspectorTab("skeleton");
+              current.onSelectLocation(pointToCoordinates(boneHit.point, modelAxes), injuryPartLabel("Xương", record.name));
+              return;
+            }
+          } else {
+            const muscleHit = muscleHitAt(event);
+            const muscleId = muscleHit?.object.userData.muscleId as string | undefined;
+            const record = muscleId ? equineMuscles.find((item) => item.id === muscleId) : undefined;
+            if (muscleHit && record) {
+              const category = record.kind === "muscle" ? "Cơ" : record.kind === "tendon" ? "Gân" : record.kind === "ligament" ? "Dây chằng" : "Cân";
+              setSelectedMuscleId(record.id);
+              setSelectedOrganId(null);
+              setSelectedSkeletonId(null);
+              setInspectorTab("muscle");
+              current.onSelectLocation(pointToCoordinates(muscleHit.point, modelAxes), injuryPartLabel(category, record.vi));
+              return;
+            }
+          }
+        }
+
         const hit = raycaster.intersectObjects(modelMeshes, true)[0];
         if (hit) current.onSelectLocation(pointToCoordinates(hit.point, modelAxes));
         return;
@@ -848,27 +966,6 @@ export default function InjuryModel3D({
     renderer.domElement.addEventListener("pointermove", handlePointerMove);
     renderer.domElement.addEventListener("pointerleave", handlePointerLeave);
     renderer.domElement.addEventListener("dblclick", handleDoubleClick);
-
-    function render() {
-      if (disposed) return;
-      frameId = window.requestAnimationFrame(render);
-      syncAnatomyLayers();
-      syncMuscleDisplay();
-      syncOrganDisplay();
-      syncSkeletonDisplay();
-      syncPins();
-      controls.update();
-      if (skeletonLayer) {
-        const labelScale = clamp(camera.position.distanceTo(controls.target) / Math.max(fittedDistance, 0.1), 0.14, 1);
-        skeletonLayer.traverse((object) => {
-          if (!(object instanceof THREE.Sprite) || !object.name.startsWith("label-")) return;
-          const baseScale = object.userData.baseLabelScale as [number, number] | undefined;
-          if (baseScale) object.scale.set(baseScale[0] * labelScale, baseScale[1] * labelScale, 1);
-        });
-      }
-      renderer.render(scene, camera);
-    }
-    frameId = window.requestAnimationFrame(render);
 
     void loadHorseModel().then((horse) => {
       if (disposed) return;
@@ -1040,6 +1137,7 @@ export default function InjuryModel3D({
       syncSkeletonDisplay();
       syncPins();
       setLoading(false);
+      requestRender();
     }).catch((reason: unknown) => {
       if (disposed) return;
       setLoadError(reason instanceof Error ? reason.message : "Không thể tải mô hình ngựa 3D.");
@@ -1048,7 +1146,11 @@ export default function InjuryModel3D({
 
     return () => {
       disposed = true;
-      window.cancelAnimationFrame(frameId);
+      stopRendering();
+      renderRequestRef.current = () => {};
+      visibilityObserver.disconnect();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      controls.removeEventListener("change", requestRender);
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       renderer.domElement.removeEventListener("pointerup", handlePointerUp);
@@ -1213,7 +1315,7 @@ export default function InjuryModel3D({
           )}
           {loading && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-white/60 text-sm font-medium text-slate-600">Đang tải mô hình ngựa 3D…</div>}
           {loadError && <div role="alert" className="absolute inset-0 grid place-items-center bg-white/90 p-6 text-center text-sm text-rose-700">Không tải được mô hình 3D. {loadError}</div>}
-          {placementMode && <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full border border-primary/30 bg-blue-50 px-3 py-2 text-[11px] font-bold text-equine-navy"><span className="h-2 w-2 rounded-full bg-primary" /> Chọn vị trí trên ngựa</div>}
+          {placementMode && <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full border border-primary/30 bg-blue-50 px-3 py-2 text-[11px] font-bold text-equine-navy"><span className="h-2 w-2 rounded-full bg-primary" /> Chọn cơ, nội tạng hoặc xương</div>}
         </div>
         <div className="min-w-0">
           <div className="mb-1.5 flex gap-1 rounded-lg border border-equine-line bg-white p-1" role="tablist" aria-label="Bảng giải phẫu">
@@ -1231,6 +1333,8 @@ export default function InjuryModel3D({
                 setSelectedMuscleId(null);
                 setAnatomyVisibility((current) => ({ ...current, skeleton: true }));
                 actionsRef.current.focusSkeleton(id);
+                const record = skeletonRecords.find((item) => item.id === id);
+                if (placementMode && record) onSelectAnatomyPart?.(injuryPartLabel("Xương", record.name));
               }}
               explodeView={explodeView}
               setExplodeView={setExplodeView}
@@ -1245,7 +1349,11 @@ export default function InjuryModel3D({
               systems={organSystems}
               setSystems={setOrganSystems}
               selectedId={selectedOrganId}
-              onSelect={(id) => setSelectedOrganId(id)}
+              onSelect={(id) => {
+                setSelectedOrganId(id);
+                const record = organRecords.find((item) => item.id === id);
+                if (placementMode && record) onSelectAnatomyPart?.(injuryPartLabel("Nội tạng", record.name));
+              }}
             />
           ) : (
             <MuscleAnatomyPanel
@@ -1259,6 +1367,11 @@ export default function InjuryModel3D({
                 setSelectedOrganId(null);
                 setAnatomyVisibility((current) => ({ ...current, muscle: true }));
                 actionsRef.current.focusMuscle(id);
+                const record = equineMuscles.find((item) => item.id === id);
+                if (placementMode && record) {
+                  const category = record.kind === "muscle" ? "Cơ" : record.kind === "tendon" ? "Gân" : record.kind === "ligament" ? "Dây chằng" : "Cân";
+                  onSelectAnatomyPart?.(injuryPartLabel(category, record.vi));
+                }
               }}
             />
           )}

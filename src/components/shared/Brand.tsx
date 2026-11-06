@@ -21,6 +21,7 @@ export function Brand({
         height={compact ? 68 : 72}
         priority
         src="/assets/aistudio/image_f48a425a.png"
+        style={{ width: "auto" }}
         width={compact ? 180 : 196}
       />
     </div>

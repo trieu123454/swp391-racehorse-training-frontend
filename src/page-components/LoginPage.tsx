@@ -12,7 +12,7 @@ import {
   LockKeyhole,
   Mail,
 } from "lucide-react";
-import { useCallback, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { AuthVisual } from "@/components/auth/AuthVisual";
 import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 import { Brand } from "@/components/shared/Brand";
@@ -27,7 +27,13 @@ function loginErrorMessage(error: unknown) {
   }
   if (error instanceof ApiRequestError) {
     const message = error.message.toLowerCase();
-    if (message.includes("email or password is incorrect") || message.includes("user not found")) {
+    if (
+      message.includes("email or password is incorrect")
+      || message.includes("email or password")
+      || message.includes("invalid credentials")
+      || message.includes("invalid email or password")
+      || message.includes("user not found")
+    ) {
       return "Email hoặc mật khẩu không chính xác.";
     }
     if (message.includes("awaiting club manager approval")) {
@@ -35,6 +41,9 @@ function loginErrorMessage(error: unknown) {
     }
     if (message.includes("account is locked") || message.includes("account is deleted")) {
       return "Tài khoản hiện không thể đăng nhập. Vui lòng liên hệ Quản lý Câu lạc bộ.";
+    }
+    if (error.status === 401) {
+      return "Thông tin đăng nhập hoặc trạng thái tài khoản bị backend từ chối (401). Hãy kiểm tra tài khoản trong backend.";
     }
   }
   return error instanceof Error ? error.message : "Đăng nhập không thành công. Vui lòng thử lại.";
@@ -48,6 +57,12 @@ export default function LoginPage() {
   const [remember, setRemember] = useState(true);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const prefillEmail = new URLSearchParams(window.location.search).get("email");
+    if (prefillEmail) setEmail(prefillEmail);
+  }, []);
 
   const completeLogin = useCallback(
     (auth: AuthResponse) => {
@@ -78,12 +93,12 @@ export default function LoginPage() {
   return (
     <main className="auth-page auth-page--standard overflow-x-hidden">
       <div className="auth-topbar">
-        <Link
+        <a
           className="auth-back"
           href={Routes.home}
         >
           <ArrowLeft size={17} /> Về trang chủ
-        </Link>
+        </a>
       </div>
 
       <div className="auth-layout">
@@ -149,15 +164,23 @@ export default function LoginPage() {
                 </span>
               </label>
 
-              <label className="auth-checkbox-row cursor-pointer">
-                <input
-                  checked={remember}
-                  className="h-4 w-4"
-                  onChange={(event) => setRemember(event.target.checked)}
-                  type="checkbox"
-                />
-                Ghi nhớ đăng nhập
-              </label>
+              <div className="flex items-center justify-between text-sm">
+                <label className="auth-checkbox-row cursor-pointer">
+                  <input
+                    checked={remember}
+                    className="h-4 w-4"
+                    onChange={(event) => setRemember(event.target.checked)}
+                    type="checkbox"
+                  />
+                  Ghi nhớ đăng nhập
+                </label>
+                <Link
+                  className="font-medium text-equine-gold hover:underline"
+                  href={Routes.forgotPassword}
+                >
+                  Quên mật khẩu?
+                </Link>
+              </div>
 
               {error ? (
                 <p className="auth-feedback auth-feedback--error" role="alert">

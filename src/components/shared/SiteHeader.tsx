@@ -2,7 +2,10 @@
 import { Routes } from "@/routes/Routes";
 import Link from "next/link";
 import { ArrowRight, Menu, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { routeForRole } from "@/lib/roles";
+import { getUser } from "@/lib/session";
+import type { AuthUser } from "@/lib/types";
 import { Brand } from "./Brand";
 
 const links = [
@@ -15,6 +18,16 @@ const links = [
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+
+  useEffect(() => {
+    setCurrentUser(getUser());
+  }, []);
+
+  const systemHref = currentUser
+    ? routeForRole(currentUser.roleName)
+    : Routes.login;
+  const systemLabel = currentUser ? "Vào bảng điều khiển" : "Truy cập hệ thống";
 
   return (
     <header className="site-header fixed inset-x-0 top-0 z-50 border-b border-slate-200 bg-white/95 text-[#1F2125] backdrop-blur-md">
@@ -45,9 +58,9 @@ export function SiteHeader() {
         <div className="hidden shrink-0 items-center lg:flex">
           <Link
             className="vf-btn-primary whitespace-nowrap"
-            href={Routes.login}
+            href={systemHref}
           >
-            Truy cập hệ thống
+            {systemLabel}
             <ArrowRight size={16} />
           </Link>
         </div>
@@ -92,10 +105,10 @@ export function SiteHeader() {
             </Link>
             <Link
               className="vf-btn-primary w-full justify-center whitespace-nowrap"
-              href={Routes.login}
+              href={systemHref}
               onClick={() => setOpen(false)}
             >
-              Đăng nhập
+              {systemLabel}
             </Link>
           </div>
         </nav>

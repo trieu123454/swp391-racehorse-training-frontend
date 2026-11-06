@@ -18,6 +18,7 @@ export class ApiRequestError extends Error {
 
 export const SESSION_EXPIRED_EVENT = "racehorse:session-expired";
 export const APP_MUTATION_COMPLETED_EVENT = "racehorse:mutation-completed";
+export const NOTIFICATION_COUNT_CHANGED_EVENT = "racehorse:notification-count-changed";
 
 function announceMutationCompleted(path: string, method: string) {
   if (typeof window === "undefined") return;
@@ -38,7 +39,7 @@ function expiredSession(): ApiRequestError {
 }
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
+  (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080").replace(/\/+$/, "");
 
 type ApiError = {
   message?: string;
@@ -66,7 +67,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       error = { message: response.statusText };
     }
 
-    const message = error.error?.message || error.message || "Request failed";
+    const rawError = error.error;
+    const message = (typeof rawError === "string" ? rawError : rawError?.message) || error.message || response.statusText || "Request failed";
     let details = Array.isArray(error.error?.details)
       ? error.error.details
       ?.map((item) => [item.field, item.message].filter(Boolean).join(": "))
@@ -96,7 +98,7 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
   if (!accessToken) {
     throw expiredSession();
   }
-  if (accessTokenExpiresSoon(accessToken)) {
+  if (isRemembered() && accessTokenExpiresSoon(accessToken)) {
     try {
       await refreshSession(accessToken);
     } catch (refreshError) {
@@ -152,10 +154,23 @@ export function login(email: string, password: string) {
 }
 
 export function changePassword(currentPassword: string, newPassword: string) {
-  return request<AuthResponse>("/api/auth/change-password", {
+  return authenticatedRequest<AuthResponse>("/api/auth/change-password", {
     method: "POST",
-    headers: { Authorization: `Bearer ${getAccessToken()}` },
     body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export function forgotPassword(email: string) {
+  return request<{ message: string }>("/api/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function resetPassword(email: string, code: string, newPassword: string) {
+  return request<{ message: string }>("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ email, code, newPassword }),
   });
 }
 
