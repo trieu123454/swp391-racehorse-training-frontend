@@ -119,8 +119,18 @@ export type InjuryMarker = {
   description: string | null;
   marked_at: string;
   marked_by?: number | null;
+  injury_group?: "Muscle" | "Bone" | "Joint" | "SoftTissue";
   suggest_lock?: boolean;
   training_locked?: boolean;
+};
+
+export type InjuryTimelineStatus = "New" | "Treatment" | "Recovering" | "Recovered";
+export type InjuryTimelineEntry = {
+  id?: string;
+  date: string;
+  status: InjuryTimelineStatus;
+  note: string | null;
+  updated_by?: number | string | null;
 };
 
 export type VetStableIncident = {

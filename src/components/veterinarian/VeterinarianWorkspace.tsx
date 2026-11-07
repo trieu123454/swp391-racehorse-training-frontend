@@ -49,6 +49,8 @@ import {
   type HealthExamLog,
   type HealthOverview,
   type InjuryMarker,
+  type InjuryTimelineEntry,
+  type InjuryTimelineStatus,
   type MedicalRecord,
   type Prescription,
   type VetHorse,
@@ -94,18 +96,6 @@ const injuryStatusLabels: Record<InjuryMarker["recovery_status"], string> = {
   Active: "đang chấn thương",
   Recovering: "đang hồi phục",
   Recovered: "đã hồi phục",
-};
-
-const injuryStatusGroups: { status: InjuryMarker["recovery_status"]; label: string; accent: string }[] = [
-  { status: "Active", label: "Đang chấn thương", accent: "border-rose-200 bg-rose-50/50" },
-  { status: "Recovering", label: "Đang hồi phục", accent: "border-amber-200 bg-amber-50/50" },
-  { status: "Recovered", label: "Đã hồi phục", accent: "border-emerald-200 bg-emerald-50/50" },
-];
-
-const injurySeverityLabels: Record<InjuryMarker["severity"], string> = {
-  Mild: "nhẹ",
-  Moderate: "vừa",
-  Severe: "nặng",
 };
 
 const careTypeLabels: Record<string, string> = {
@@ -537,7 +527,7 @@ function HorseSummary({ horse }: { horse: VetHorse }) {
 }
 
 function SectionCard({ title, description, icon: Icon, children, action }: { title: string; description?: string; icon: typeof Activity; children: ReactNode; action?: ReactNode }) {
-  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{description && <details className="relative text-slate-500"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100" aria-label={`Giải thích ${title}`} title={`Giải thích ${title}`}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{description}</p></details>}</div></div></div>{action}</div>{children}</section>;
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 dark:border-slate-700 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-equine-mist text-equine-navy dark:bg-slate-800 dark:text-slate-100"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy dark:text-white">{title}</h3>{description && <details className="relative text-slate-500 dark:text-slate-300"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100 dark:hover:bg-slate-800" aria-label={`Giải thích ${title}`} title={`Giải thích ${title}`}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">{description}</p></details>}</div></div></div>{action}</div>{children}</section>;
 }
 
 function Field({ label, name, type = "text", required = false, defaultValue, maxLength, min, max, step, placeholder, disabled }: { label: string; name: string; type?: string; required?: boolean; defaultValue?: string | number | null; maxLength?: number; min?: number; max?: number; step?: string; placeholder?: string; disabled?: boolean }) {
@@ -1119,113 +1109,631 @@ function DietPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message:
   </SectionCard>;
 }
 
+type InjuryGroup = NonNullable<InjuryMarker["injury_group"]>;
+type InjuryCase = {
+  id: string;
+  markerIds: string[];
+  bodyPart: string;
+  group: InjuryGroup;
+  severity: InjuryMarker["severity"];
+  timeline: InjuryTimelineEntry[];
+  coordinates: { x: InjuryMarker["coordinate_x"]; y: InjuryMarker["coordinate_y"]; z: InjuryMarker["coordinate_z"] };
+};
+type InjuryTab = "all" | "active" | "recovering" | "recovered";
+type InjuryToast = { caseId: string; bodyPart: string; from: InjuryTimelineStatus; to: InjuryTimelineStatus };
+
+const injuryGroupLabels: Record<InjuryGroup, string> = {
+  Muscle: "Cơ",
+  Bone: "Xương",
+  Joint: "Khớp",
+  SoftTissue: "Mô mềm",
+};
+const injuryLifecycle: InjuryTimelineStatus[] = ["New", "Treatment", "Recovering", "Recovered"];
+const injuryLifecycleLabels: Record<InjuryTimelineStatus, string> = {
+  New: "Mới chấn thương",
+  Treatment: "Đang điều trị",
+  Recovering: "Đang hồi phục",
+  Recovered: "Đã hồi phục",
+};
+const injuryStatusClasses: Record<InjuryTimelineStatus, string> = {
+  New: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-200",
+  Treatment: "border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200",
+  Recovering: "border-orange-200 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-200",
+  Recovered: "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200",
+};
+const injurySeverityLabels: Record<InjuryMarker["severity"], string> = {
+  Mild: "Nhẹ",
+  Moderate: "Vừa",
+  Severe: "Nặng",
+};
+
+function normalizeDay(value: string) {
+  return value.slice(0, 10);
+}
+
+function displayInjuryDate(value: string) {
+  return displayDate(normalizeDay(value));
+}
+
+function dayCount(start: string, end: string) {
+  const startTime = Date.parse(`${normalizeDay(start)}T00:00:00Z`);
+  const endTime = Date.parse(`${normalizeDay(end)}T00:00:00Z`);
+  return Number.isNaN(startTime) || Number.isNaN(endTime) ? 0 : Math.max(0, Math.floor((endTime - startTime) / 86_400_000));
+}
+
+const injuryDescriptionMetadata = /^\[\[injury-status:(New|Treatment|Recovering|Recovered);group:(Muscle|Bone|Joint|SoftTissue)\]\]\s*/;
+
+function encodeInjuryNote(status: InjuryTimelineStatus, group: InjuryGroup, note: string | null) {
+  return `[[injury-status:${status};group:${group}]]${note ? ` ${note}` : ""}`;
+}
+
+function injuryMetadata(marker: InjuryMarker) {
+  const match = marker.description?.match(injuryDescriptionMetadata);
+  return match ? { status: match[1] as InjuryTimelineStatus, group: match[2] as InjuryGroup } : null;
+}
+
+function visibleInjuryNote(value: string | null) {
+  return value?.replace(injuryDescriptionMetadata, "").trim() || null;
+}
+
+function injuryCoordinatePayload(coordinates: InjuryCase["coordinates"]): Record<string, number> {
+  if (coordinates.x == null || coordinates.y == null) return {};
+  return {
+    coordinate_x: Number(coordinates.x),
+    coordinate_y: Number(coordinates.y),
+    ...(coordinates.z == null ? {} : { coordinate_z: Number(coordinates.z) }),
+  };
+}
+
+function statusFromLegacyMarker(marker: InjuryMarker, index: number): InjuryTimelineStatus {
+  const metadata = injuryMetadata(marker);
+  if (metadata) return metadata.status;
+  if (marker.recovery_status === "Recovering") return "Recovering";
+  if (marker.recovery_status === "Recovered") return "Recovered";
+  return index === 0 ? "New" : "Treatment";
+}
+
+function recoveryStatusFor(status: InjuryTimelineStatus): InjuryMarker["recovery_status"] {
+  if (status === "Recovering") return "Recovering";
+  if (status === "Recovered") return "Recovered";
+  return "Active";
+}
+
+function inferInjuryGroup(bodyPart: string): InjuryGroup {
+  const part = bodyPart.toLocaleLowerCase("vi");
+  if (/xương|bone|fractur|cốt/.test(part)) return "Bone";
+  if (/khớp|joint|ligament|dây chằng/.test(part)) return "Joint";
+  if (/cơ|muscle/.test(part)) return "Muscle";
+  if (/gân|tendon|da|skin|mô|tissue|soft/.test(part)) return "SoftTissue";
+  return "SoftTissue";
+}
+
+function buildInjuryCases(markers: InjuryMarker[]): InjuryCase[] {
+  const ordered = [...markers].sort((a, b) => Date.parse(a.marked_at) - Date.parse(b.marked_at));
+  const cases: InjuryCase[] = [];
+  const legacyByPart = new Map<string, InjuryMarker[]>();
+  for (const marker of ordered) {
+    const key = marker.body_part.trim().toLocaleLowerCase("vi");
+    const entries = legacyByPart.get(key) ?? [];
+    entries.push(marker);
+    legacyByPart.set(key, entries);
+  }
+  for (const [key, entries] of legacyByPart) {
+    const episodes: InjuryMarker[][] = [];
+    for (const marker of entries) {
+      const current = episodes.at(-1);
+      if (!current || (current.at(-1)?.recovery_status === "Recovered" && marker.recovery_status === "Active")) episodes.push([marker]);
+      else current.push(marker);
+    }
+    episodes.forEach((episode) => {
+      const [first, ...rest] = episode;
+      if (!first) return;
+      const timeline: InjuryTimelineEntry[] = episode.map((marker, index) => ({
+        id: marker.id,
+        date: marker.marked_at,
+        status: statusFromLegacyMarker(marker, index),
+        note: visibleInjuryNote(marker.description),
+        updated_by: marker.marked_by,
+      }));
+      const latest = rest.at(-1) ?? first;
+      cases.push({
+        id: first.id,
+        markerIds: episode.map((marker) => marker.id),
+        bodyPart: latest.body_part,
+        group: latest.injury_group ?? injuryMetadata(latest)?.group ?? inferInjuryGroup(key),
+        severity: latest.severity,
+        timeline,
+        coordinates: {
+          x: latest.coordinate_x ?? first.coordinate_x,
+          y: latest.coordinate_y ?? first.coordinate_y,
+          z: latest.coordinate_z ?? first.coordinate_z,
+        },
+      });
+    });
+  }
+  return cases;
+}
+
+function currentInjuryStatus(injury: InjuryCase): InjuryTimelineStatus {
+  return injury.timeline.at(-1)?.status ?? "New";
+}
+
+function nextInjuryStatus(status: InjuryTimelineStatus): InjuryTimelineStatus {
+  return injuryLifecycle[Math.min(injuryLifecycle.indexOf(status) + 1, injuryLifecycle.length - 1)] ?? "Recovered";
+}
+
+function injuryTabForStatus(status: InjuryTimelineStatus): InjuryTab {
+  if (status === "New" || status === "Treatment") return "active";
+  return status === "Recovering" ? "recovering" : "recovered";
+}
+
+const injuryTabLabels: Record<InjuryTab, string> = {
+  all: "Tất cả",
+  active: "Đang chấn thương",
+  recovering: "Đang hồi phục",
+  recovered: "Đã hồi phục",
+};
+
+function severityBars(severity: InjuryMarker["severity"]) {
+  const count = severity === "Severe" ? 3 : severity === "Moderate" ? 2 : 1;
+  return <span className="inline-flex items-center gap-1" aria-hidden="true">{[1, 2, 3].map((bar) => <i key={bar} className={`h-3 w-1.5 rounded-sm ${bar <= count ? "bg-amber-600 dark:bg-amber-400" : "bg-slate-200 dark:bg-slate-700"}`} />)}</span>;
+}
+
 function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message: string) => void }) {
   const [markers, setMarkers] = useState<InjuryMarker[]>([]);
-  const [records, setRecords] = useState<MedicalRecord[]>([]);
-  const [latestOnly, setLatestOnly] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [suggestLock, setSuggestLock] = useState(false);
-  const [assessmentFor, setAssessmentFor] = useState<InjuryMarker | null>(null);
+  const [tab, setTab] = useState<InjuryTab>("all");
+  const [dialogMode, setDialogMode] = useState<"update" | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [updateCaseId, setUpdateCaseId] = useState<string | null>(null);
+  const [detailsCaseId, setDetailsCaseId] = useState<string | null>(null);
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const [toast, setToast] = useState<InjuryToast | null>(null);
   const [draftCoordinates, setDraftCoordinates] = useState<InjuryCoordinateFields>({ coordinate_x: "", coordinate_y: "", coordinate_z: "" });
   const [draftBodyPart, setDraftBodyPart] = useState("");
+  const [draftGroup, setDraftGroup] = useState<InjuryGroup>("Muscle");
+  const [defaultNextStatus, setDefaultNextStatus] = useState<InjuryTimelineStatus>("Treatment");
   const selectedCoordinates = {
     coordinate_x: draftCoordinates.coordinate_x === "" ? null : Number(draftCoordinates.coordinate_x),
     coordinate_y: draftCoordinates.coordinate_y === "" ? null : Number(draftCoordinates.coordinate_y),
     coordinate_z: draftCoordinates.coordinate_z === "" ? null : Number(draftCoordinates.coordinate_z),
   };
-  const latestByBodyPart = useMemo(() => {
-    const latest = new Map<string, InjuryMarker>();
-    for (const marker of markers) {
-      const key = marker.body_part.trim().toLocaleLowerCase();
-      if (!latest.has(key)) latest.set(key, marker);
-    }
-    return Array.from(latest.values());
-  }, [markers]);
+  const displayMarkers = useMemo(() => markers.map((marker) => ({ ...marker, description: visibleInjuryNote(marker.description) })), [markers]);
+  const cases = useMemo(() => buildInjuryCases(markers), [markers]);
+  const activeCases = cases.filter((injury) => ["New", "Treatment"].includes(currentInjuryStatus(injury)));
+  const recoveringCases = cases.filter((injury) => currentInjuryStatus(injury) === "Recovering");
+  const recoveredCases = cases.filter((injury) => currentInjuryStatus(injury) === "Recovered");
+  const selectedCase = cases.find((injury) => injury.id === detailsCaseId) ?? null;
+  const editingCase = cases.find((injury) => injury.id === updateCaseId) ?? null;
+  const tabCounts: Record<InjuryTab, number> = {
+    all: cases.length,
+    active: activeCases.length,
+    recovering: recoveringCases.length,
+    recovered: recoveredCases.length,
+  };
+  const visibleCases = useMemo(() => {
+    const filtered = cases.filter((injury) => {
+      const status = currentInjuryStatus(injury);
+      if (tab === "active") return status === "New" || status === "Treatment";
+      if (tab === "recovering") return status === "Recovering";
+      if (tab === "recovered") return status === "Recovered";
+      return true;
+    });
+    return filtered.sort((a, b) => {
+      if (tab === "recovered") {
+        const dateA = a.timeline.findLast((entry) => entry.status === "Recovered")?.date ?? "";
+        const dateB = b.timeline.findLast((entry) => entry.status === "Recovered")?.date ?? "";
+        return Date.parse(dateB) - Date.parse(dateA);
+      }
+      const severityRank = { Severe: 3, Moderate: 2, Mild: 1 };
+      return severityRank[b.severity] - severityRank[a.severity]
+        || Date.parse(b.timeline[0]?.date ?? "") - Date.parse(a.timeline[0]?.date ?? "");
+    });
+  }, [cases, tab]);
 
   const load = useCallback(async () => {
-    setLoading(true); setError("");
-    const [injuriesResult, recordsResult] = await Promise.allSettled([
-      veterinarianApi.injuries(horse.id, latestOnly), veterinarianApi.records(horse.id),
-    ]);
-    const failures: string[] = [];
-    if (injuriesResult.status === "fulfilled") setMarkers(injuriesResult.value.data);
-    else { setMarkers([]); failures.push(`Điểm chấn thương: ${veterinarianError(injuriesResult.reason)}`); }
-    if (recordsResult.status === "fulfilled") setRecords(recordsResult.value.data);
-    else { setRecords([]); failures.push(`Chẩn đoán liên quan: ${veterinarianError(recordsResult.reason)}`); }
-    setError(failures.join(" · "));
-    setLoading(false);
-  }, [horse.id, latestOnly]);
-  useEffect(() => { void load(); }, [load]);
-
-  async function create(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(""); setSuggestLock(false);
+    setLoading(true);
+    setError("");
+    setLoadFailed(false);
     try {
-      const values = formValues(event.currentTarget, ["coordinate_x", "coordinate_y", "coordinate_z"], ["medical_record_id", "coordinate_x", "coordinate_y", "coordinate_z", "description"]);
-      if (("coordinate_x" in values) !== ("coordinate_y" in values)) {
-        setError("Cần nhập cả tọa độ X và Y để lưu vị trí trên mô hình.");
-        return;
-      }
-      await veterinarianApi.createInjury(horse.id, values);
-      setCreating(false); setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); setDraftBodyPart(""); await load();
-      if (values.recovery_status !== "Recovered") {
-        const lockReason = `Chấn thương ${String(values.body_part)}: ${String(values.description || values.severity)}`.slice(0, 255);
-        try {
-          const status = await veterinarianApi.updateHealthStatus(horse.id, "Injured", "NotReady", lockReason);
-          if (!status.is_training_locked) {
-            await veterinarianApi.lockTraining(horse.id, {
-              lock_level: values.severity === "Severe" ? "Critical" : "Warning",
-              lock_reason: lockReason,
-            });
-          }
-        } catch (reason) {
-          setError(`Đã lưu chấn thương nhưng không thể tự động cập nhật trạng thái và khóa huấn luyện: ${veterinarianError(reason)}`);
-          onChanged(`Đã ghi nhận chấn thương tại ${String(values.body_part)}; cần kiểm tra lại trạng thái sức khỏe và khóa huấn luyện.`);
-          return;
-        }
-        setSuggestLock(true);
-        onChanged(`Đã ghi nhận chấn thương tại ${String(values.body_part)}, mức ${injurySeverityLabels[String(values.severity) as InjuryMarker["severity"]] ?? String(values.severity)}. Ngựa đã chuyển sang Chấn thương, chưa sẵn sàng và khóa huấn luyện.`);
-      } else {
-        onChanged(`Đã cập nhật đánh giá chấn thương tại ${String(values.body_part)}: ${injuryStatusLabels[String(values.recovery_status) as InjuryMarker["recovery_status"]] ?? "đã ghi nhận"}. Xác nhận trạng thái sức khỏe trước khi cho ngựa hoạt động lại.`);
-      }
-    } catch (reason) { setError(veterinarianError(reason)); }
-    finally { setBusy(false); }
+      setMarkers((await veterinarianApi.injuries(horse.id, false)).data);
+    } catch (reason) {
+      setMarkers([]);
+      setLoadFailed(true);
+      setError(veterinarianError(reason));
+    } finally {
+      setLoading(false);
+    }
+  }, [horse.id]);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+  useEffect(() => {
+    if (!highlightId) return;
+    const timer = window.setTimeout(() => setHighlightId(null), 1500);
+    return () => window.clearTimeout(timer);
+  }, [highlightId]);
+  useEffect(() => {
+    if (!dialogMode && !selectedCase && !creating) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { setDialogMode(null); setDetailsCaseId(null); setCreating(false); }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [dialogMode, selectedCase, creating]);
+
+  function openCreate() {
+    setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" });
+    setDraftBodyPart("");
+    setDraftGroup("Muscle");
+    setCreating((value) => !value);
+    setError("");
   }
 
-  return <SectionCard title="Chấn thương & phục hồi" description="Đánh dấu trên mô hình 3D và lưu từng lần đánh giá để theo dõi tiến triển." icon={Activity} action={<button type="button" className="gold-button h-10 px-3" onClick={() => { setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); setDraftBodyPart(""); setCreating((value) => !value); setSuggestLock(false); }}>+ Đánh dấu</button>}>
+  function openUpdate(injury: InjuryCase) {
+    setUpdateCaseId(injury.id);
+    setDefaultNextStatus(nextInjuryStatus(currentInjuryStatus(injury)));
+    setCreating(false);
+    setDialogMode("update");
+    setError("");
+  }
+
+  function chooseAnatomyPart(label: string) {
+    const separator = label.indexOf(":");
+    const category = separator >= 0 ? label.slice(0, separator).trim() : "";
+    const bodyPart = separator >= 0 ? label.slice(separator + 1).trim() : label;
+    setDraftBodyPart(bodyPart);
+    if (category === "Xương") setDraftGroup("Bone");
+    else if (category === "Cơ") setDraftGroup("Muscle");
+    else if (category === "Khớp") setDraftGroup("Joint");
+    else if (category) setDraftGroup("SoftTissue");
+  }
+
+  function markerFromTimeline(injury: InjuryCase, entry: InjuryTimelineEntry, id = entry.id ?? `pending-${Date.now()}`): InjuryMarker {
+    return {
+      id,
+      horse_id: horse.id,
+      medical_record_id: null,
+      body_part: injury.bodyPart,
+      coordinate_x: injury.coordinates.x,
+      coordinate_y: injury.coordinates.y,
+      coordinate_z: injury.coordinates.z,
+      severity: injury.severity,
+      injury_group: injury.group,
+      recovery_status: recoveryStatusFor(entry.status),
+      description: encodeInjuryNote(entry.status, injury.group, entry.note),
+      marked_at: entry.date,
+    };
+  }
+
+  async function createInjury(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const values = formValues(event.currentTarget, ["coordinate_x", "coordinate_y", "coordinate_z"], ["coordinate_x", "coordinate_y", "coordinate_z", "note"]);
+    if (("coordinate_x" in values) !== ("coordinate_y" in values)) {
+      setError("Cần nhập cả tọa độ X và Y để lưu vị trí trên mô hình.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    const tempId = `pending-${Date.now()}`;
+    const date = String(values.date);
+    const status: InjuryTimelineStatus = "New";
+    const note = String(values.note ?? "").trim() || null;
+    const severity = String(values.severity) as InjuryMarker["severity"];
+    const group = String(values.injury_group) as InjuryGroup;
+    const draft: InjuryMarker = {
+      id: tempId,
+      horse_id: horse.id,
+      medical_record_id: null,
+      body_part: String(values.body_part).trim(),
+      coordinate_x: values.coordinate_x == null ? null : Number(values.coordinate_x),
+      coordinate_y: values.coordinate_y == null ? null : Number(values.coordinate_y),
+      coordinate_z: values.coordinate_z == null ? null : Number(values.coordinate_z),
+      severity,
+      injury_group: group,
+      recovery_status: "Active",
+      description: encodeInjuryNote(status, group, note),
+      marked_at: `${date}T12:00:00.000Z`,
+    };
+    setMarkers((current) => [...current, draft]);
+    setCreating(false);
+    setTab("active");
+    setHighlightId(tempId);
+    try {
+      const created = await veterinarianApi.createInjury(horse.id, {
+        body_part: draft.body_part,
+        severity,
+        recovery_status: "Active",
+        marked_at: draft.marked_at,
+        description: draft.description,
+        ...injuryCoordinatePayload({ x: draft.coordinate_x, y: draft.coordinate_y, z: draft.coordinate_z }),
+      });
+      const saved = { ...draft, ...created, injury_group: group };
+      setMarkers((current) => current.map((marker) => marker.id === tempId ? saved : marker));
+      setHighlightId(saved.id);
+      const reason = `Chấn thương ${draft.body_part}: ${note || injurySeverityLabels[severity]}`.slice(0, 255);
+      try {
+        const health = await veterinarianApi.updateHealthStatus(horse.id, "Injured", "NotReady", reason);
+        if (!health.is_training_locked) await veterinarianApi.lockTraining(horse.id, {
+          lock_level: severity === "Severe" ? "Critical" : "Warning",
+          lock_reason: reason,
+        });
+        onChanged(`Đã ghi nhận chấn thương tại ${draft.body_part}. Lịch tập đã khóa.`);
+      } catch (reasonError) {
+        setError(`Đã lưu ca chấn thương nhưng không thể khóa lịch tập: ${veterinarianError(reasonError)}`);
+        onChanged(`Đã ghi nhận chấn thương tại ${draft.body_part}; cần kiểm tra trạng thái khóa lịch tập.`);
+      }
+    } catch (reason) {
+      setMarkers((current) => current.filter((marker) => marker.id !== tempId));
+      setHighlightId(null);
+      setError(veterinarianError(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateStatus(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingCase) return;
+    const values = formValues(event.currentTarget, [], ["note"]);
+    const latestDate = normalizeDay(editingCase.timeline.at(-1)?.date ?? today());
+    const date = String(values.date);
+    if (date < latestDate) {
+      setError("Ngày cập nhật không được trước mốc gần nhất của ca này.");
+      return;
+    }
+    const status = String(values.status) as InjuryTimelineStatus;
+    const previousStatus = currentInjuryStatus(editingCase);
+    const entry: InjuryTimelineEntry = {
+      id: `event-${Date.now()}`,
+      date: `${date}T12:00:00.000Z`,
+      status,
+      note: String(values.note ?? "").trim() || null,
+    };
+    const tempId = `pending-${Date.now()}`;
+    const optimisticMarker = markerFromTimeline(editingCase, entry, tempId);
+    const previousMarkers = markers;
+    setMarkers((current) => [...current, optimisticMarker]);
+    setDialogMode(null);
+    setTab(injuryTabForStatus(status));
+    setHighlightId(editingCase.id);
+    setToast({ caseId: editingCase.id, bodyPart: editingCase.bodyPart, from: previousStatus, to: status });
+    setBusy(true);
+    setError("");
+    try {
+      const saved = await veterinarianApi.createInjury(horse.id, {
+        body_part: editingCase.bodyPart,
+        severity: editingCase.severity,
+        recovery_status: recoveryStatusFor(status),
+        marked_at: entry.date,
+        description: optimisticMarker.description,
+        ...injuryCoordinatePayload(editingCase.coordinates),
+      });
+      const savedMarker = { ...optimisticMarker, ...saved, injury_group: editingCase.group };
+      setMarkers((current) => current.map((marker) => marker.id === optimisticMarker.id ? savedMarker : marker));
+      setHighlightId(editingCase.id);
+      onChanged(`${editingCase.bodyPart} đã chuyển sang ${injuryLifecycleLabels[status]}.`);
+      const allResolved = status === "Recovered" && cases.every((item) => item.id === editingCase.id || currentInjuryStatus(item) === "Recovered");
+      if (status !== "Recovered" || allResolved) {
+        const reason = allResolved
+          ? `Đã hồi phục các ca chấn thương của ngựa ${horse.horse_name}.`
+          : `Cần hạn chế vận động do ca chấn thương tại ${editingCase.bodyPart}.`;
+        try {
+          if (allResolved) {
+            await veterinarianApi.updateHealthStatus(horse.id, "Healthy", "Ready", reason);
+            await veterinarianApi.unlockTraining(horse.id, reason);
+          } else {
+            const health = await veterinarianApi.updateHealthStatus(horse.id, "Injured", "NotReady", reason);
+            if (!health.is_training_locked) await veterinarianApi.lockTraining(horse.id, {
+              lock_level: editingCase.severity === "Severe" ? "Critical" : "Warning",
+              lock_reason: reason,
+            });
+          }
+        } catch (reasonError) {
+          setError(`Ca đã được cập nhật, nhưng không thể đồng bộ khóa lịch tập: ${veterinarianError(reasonError)}`);
+        }
+      }
+    } catch (reason) {
+      setMarkers(previousMarkers);
+      setToast(null);
+      setHighlightId(null);
+      setTab(injuryTabForStatus(previousStatus));
+      setError(`Không thể cập nhật ca chấn thương. Thay đổi đã được hoàn tác. ${veterinarianError(reason)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function undoLastUpdate() {
+    if (!toast) return;
+    const injury = cases.find((item) => item.id === toast.caseId);
+    if (!injury) { setToast(null); return; }
+    const previousMarkers = markers;
+    const undoEntry: InjuryTimelineEntry = {
+      id: `undo-${Date.now()}`,
+      date: `${today() < normalizeDay(injury.timeline.at(-1)?.date ?? today()) ? normalizeDay(injury.timeline.at(-1)?.date ?? today()) : today()}T12:00:00.000Z`,
+      status: toast.from,
+      note: `Hoàn tác: trở về trạng thái ${injuryLifecycleLabels[toast.from]}`,
+    };
+    const tempId = `pending-${Date.now()}`;
+    const optimisticMarker = markerFromTimeline(injury, undoEntry, tempId);
+    setMarkers((current) => [...current, optimisticMarker]);
+    setToast(null);
+    setHighlightId(injury.id);
+    try {
+      const saved = await veterinarianApi.createInjury(horse.id, {
+        body_part: injury.bodyPart,
+        severity: injury.severity,
+        recovery_status: recoveryStatusFor(toast.from),
+        marked_at: undoEntry.date,
+        description: optimisticMarker.description,
+        ...injuryCoordinatePayload(injury.coordinates),
+      });
+      setMarkers((current) => current.map((marker) => marker.id === optimisticMarker.id ? { ...optimisticMarker, ...saved, injury_group: injury.group } : marker));
+      setTab(injuryTabForStatus(toast.from));
+      onChanged(`Đã hoàn tác trạng thái của ${injury.bodyPart}.`);
+      const allResolved = toast.from === "Recovered" && cases.every((item) => item.id === injury.id || currentInjuryStatus(item) === "Recovered");
+      if (toast.from !== "Recovered" || allResolved) {
+        const reason = allResolved
+          ? `Đã hồi phục các ca chấn thương của ngựa ${horse.horse_name}.`
+          : `Cần hạn chế vận động do ca chấn thương tại ${injury.bodyPart}.`;
+        try {
+          if (allResolved) {
+            await veterinarianApi.updateHealthStatus(horse.id, "Healthy", "Ready", reason);
+            await veterinarianApi.unlockTraining(horse.id, reason);
+          } else {
+            const health = await veterinarianApi.updateHealthStatus(horse.id, "Injured", "NotReady", reason);
+            if (!health.is_training_locked) await veterinarianApi.lockTraining(horse.id, {
+              lock_level: injury.severity === "Severe" ? "Critical" : "Warning",
+              lock_reason: reason,
+            });
+          }
+        } catch (reasonError) {
+          setError(`Đã hoàn tác trạng thái, nhưng không thể đồng bộ khóa lịch tập: ${veterinarianError(reasonError)}`);
+        }
+      }
+    } catch (reason) {
+      setMarkers(previousMarkers);
+      setError(`Không thể hoàn tác thay đổi: ${veterinarianError(reason)}`);
+    }
+  }
+
+  const todayValue = today();
+  const activeBanner = activeCases.length > 0;
+  const severeActive = activeCases.filter((injury) => injury.severity === "Severe");
+  const bannerText = activeBanner
+    ? `Ngựa đang ở trạng thái Chấn thương (${severeActive.length} vị trí Nặng${severeActive.length ? `: ${severeActive.map((injury) => injury.bodyPart).join(", ")}` : ""}). Chưa sẵn sàng thi đấu, lịch tập đã khóa.`
+    : recoveringCases.length > 0
+      ? `Ngựa còn ${recoveringCases.length} vị trí chưa hồi phục hoàn toàn, lịch tập vẫn khóa.`
+      : "Ngựa sẵn sàng thi đấu, lịch tập đã mở khóa.";
+  const bannerClasses = activeBanner
+    ? "border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+    : recoveringCases.length > 0
+      ? "border-orange-300 bg-orange-50 text-orange-950 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-100"
+      : "border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100";
+  const tabs: { id: InjuryTab; label: string }[] = [
+    { id: "all", label: "Tất cả" },
+    { id: "active", label: "Đang chấn thương" },
+    { id: "recovering", label: "Đang hồi phục" },
+    { id: "recovered", label: "Đã hồi phục" },
+  ];
+
+  return <SectionCard title="Chấn thương & phục hồi" description="Mỗi ca có một hồ sơ với lịch sử cập nhật trạng thái theo thời gian." icon={Activity} action={<button type="button" className="gold-button min-h-11 px-4" onClick={openCreate}>{creating ? "Đóng ghi nhận" : "Ghi nhận chấn thương"}</button>}>
     <ErrorLine>{error}</ErrorLine>
-    {!creating && latestByBodyPart.some((marker) => marker.recovery_status !== "Recovered") && <div className="mb-4 flex flex-wrap gap-2">{latestByBodyPart.filter((marker) => marker.recovery_status !== "Recovered").map((marker) => <button key={marker.id} type="button" className="soft-button h-9 px-3 text-xs" onClick={() => { setAssessmentFor(marker); setCreating(false); setDraftCoordinates({ coordinate_x: marker.coordinate_x == null ? "" : String(marker.coordinate_x), coordinate_y: marker.coordinate_y == null ? "" : String(marker.coordinate_y), coordinate_z: marker.coordinate_z == null ? "" : String(marker.coordinate_z) }); }}>{marker.body_part}: đánh giá phục hồi</button>)}</div>}
-    {(!loading || creating || assessmentFor) && !error.includes("Điểm chấn thương:") && <InjuryModel3D markers={markers} placementMode={creating || Boolean(assessmentFor)} selectedCoordinates={selectedCoordinates} onSelectLocation={(coordinates, bodyPart) => { setDraftCoordinates({ coordinate_x: coordinates.coordinate_x == null ? "" : coordinates.coordinate_x.toFixed(3), coordinate_y: coordinates.coordinate_y == null ? "" : coordinates.coordinate_y.toFixed(3), coordinate_z: coordinates.coordinate_z == null ? "" : coordinates.coordinate_z.toFixed(3) }); if (creating) setDraftBodyPart(bodyPart ?? "Da"); }} onSelectAnatomyPart={(bodyPart) => { if (creating) { setDraftBodyPart(bodyPart); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); } }} />}
-    {assessmentFor && <form key={assessmentFor.id} onSubmit={(event) => void create(event)} className="mb-4 mt-4 grid gap-3 rounded-xl border border-amber-200 bg-amber-50/50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">Đánh giá phục hồi mới</h4><Field label="Vị trí cơ thể" name="body_part" required maxLength={50} defaultValue={assessmentFor.body_part} /><SelectField label="Mức độ" name="severity" required defaultValue={assessmentFor.severity} options={[{ value: "Mild", label: "Nhẹ · Mild" }, { value: "Moderate", label: "Vừa · Moderate" }, { value: "Severe", label: "Nặng · Severe" }]} /><SelectField label="Tình trạng phục hồi" name="recovery_status" defaultValue={assessmentFor.recovery_status === "Active" ? "Recovering" : "Recovered"} options={[{ value: "Active", label: "Đang chấn thương" }, { value: "Recovering", label: "Đang hồi phục" }, { value: "Recovered", label: "Đã hồi phục" }]} /><label className="block sm:col-span-2"><span className="field-label">Chẩn đoán liên quan</span><select name="medical_record_id" defaultValue={assessmentFor.medical_record_id ?? ""} className="field-control px-3"><option value="">Không gắn chẩn đoán</option>{records.map((record) => <option key={record.id} value={record.id}>{record.diagnosis}</option>)}</select></label><CoordinateFields value={draftCoordinates} onChange={setDraftCoordinates} /><div className="sm:col-span-2"><TextAreaField label="Mô tả" name="description" rows={3} defaultValue={assessmentFor.description} /></div><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>Lưu đánh giá phục hồi</button><button type="button" className="soft-button h-10 px-3" onClick={() => { setAssessmentFor(null); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); }}>Hủy</button></div></form>}
-    <label className="mb-4 inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={latestOnly} onChange={(event) => setLatestOnly(event.target.checked)} /> Chỉ điểm mới nhất của mỗi vị trí</label>
-    {creating && <form onSubmit={(event) => void create(event)} className="mb-4 mt-4 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">Đánh giá chấn thương mới</h4><label className="block"><span className="field-label">Vị trí cơ thể<span className="text-rose-600"> *</span></span><input name="body_part" required maxLength={50} placeholder="Chọn cơ, nội tạng, xương hoặc da" value={draftBodyPart} onChange={(event) => setDraftBodyPart(event.target.value)} className="field-control px-3" /></label><SelectField label="Mức độ" name="severity" required options={[{ value: "Mild", label: "Nhẹ · Mild" }, { value: "Moderate", label: "Vừa · Moderate" }, { value: "Severe", label: "Nặng · Severe" }]} /><SelectField label="Tình trạng phục hồi" name="recovery_status" options={[{ value: "Active", label: "Đang chấn thương" }, { value: "Recovering", label: "Đang hồi phục" }, { value: "Recovered", label: "Đã hồi phục" }]} /><label className="block sm:col-span-2"><span className="field-label">Chẩn đoán liên quan</span><select name="medical_record_id" defaultValue="" className="field-control px-3"><option value="">Không gắn chẩn đoán</option>{records.map((record) => <option key={record.id} value={record.id}>{record.diagnosis}</option>)}</select></label><CoordinateFields value={draftCoordinates} onChange={setDraftCoordinates} /><div className="sm:col-span-2"><TextAreaField label="Mô tả" name="description" rows={3} /></div><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>Lưu đánh giá</button><button type="button" className="soft-button h-10 px-3" onClick={() => { setCreating(false); setDraftCoordinates({ coordinate_x: "", coordinate_y: "", coordinate_z: "" }); setDraftBodyPart(""); }}>Hủy</button></div></form>}
-    {suggestLock && <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle size={15} className="mr-1 inline" />Ngựa đã chuyển sang trạng thái Chấn thương, sẵn sàng thi đấu bị đặt thành Chưa sẵn sàng và lịch tập đã khóa.</p>}
-    {loading ? <Notice>Đang tải điểm chấn thương...</Notice> : error.includes("Điểm chấn thương:") ? null : <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-3">
-      {injuryStatusGroups.map((group) => {
-        const groupMarkers = markers.filter((marker) => marker.recovery_status === group.status);
-        return <section key={group.status} className={`overflow-hidden rounded-xl border ${group.accent}`} aria-label={`Bảng ${group.label}`}>
-          <div className="flex items-center justify-between gap-3 px-4 py-3">
-            <h4 className="font-semibold text-equine-navy">{group.label}</h4>
-            <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">{groupMarkers.length}</span>
-          </div>
-          <div className="overflow-x-auto bg-white">
-            <table className="w-full min-w-[520px] text-left text-sm">
-              <thead><tr className="border-y border-equine-line bg-slate-50 text-xs uppercase text-slate-500"><th className="px-4 py-3">Vị trí</th><th className="px-4 py-3">Mức độ</th><th className="px-4 py-3">Ngày ghi nhận</th><th className="px-4 py-3">Tọa độ</th><th className="px-4 py-3">Mô tả</th></tr></thead>
-              <tbody>
-                {groupMarkers.length === 0 ? <tr><td colSpan={5} className="px-4 py-5 text-center text-sm text-slate-500">Chưa có chấn thương ở trạng thái này.</td></tr> : groupMarkers.map((marker) => <tr key={marker.id} className="border-b border-equine-line/70 last:border-0">
-                  <td className="px-4 py-3 font-semibold text-equine-navy">{marker.body_part}</td>
-                  <td className="px-4 py-3 capitalize">{injurySeverityLabels[marker.severity]}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-slate-600">{displayDate(marker.marked_at)}</td>
-                  <td className="px-4 py-3 text-slate-600">{marker.coordinate_x == null || marker.coordinate_y == null ? "Chưa đặt tọa độ" : `X ${marker.coordinate_x}, Y ${marker.coordinate_y}${marker.coordinate_z == null ? "" : `, Z ${marker.coordinate_z}`}`}</td>
-                  <td className="max-w-sm px-4 py-3 whitespace-pre-wrap text-slate-600">{marker.description || "—"}</td>
-                </tr>)}
-              </tbody>
-            </table>
-          </div>
-        </section>;
-      })}
+    {!loading && !loadFailed && <>
+      <div className={`mb-4 rounded-lg border px-4 py-3 text-sm font-medium leading-6 ${bannerClasses}`} role="status">{bannerText}</div>
+      <div className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {[
+          { label: "Tổng số", count: cases.length, subset: cases },
+          { label: "Đang chấn thương", count: activeCases.length, subset: activeCases },
+          { label: "Đang hồi phục", count: recoveringCases.length, subset: recoveringCases },
+          { label: "Đã hồi phục", count: recoveredCases.length, subset: recoveredCases },
+        ].map((metric) => <article key={metric.label} className="rounded-lg border border-equine-line bg-white p-3 dark:border-slate-700 dark:bg-slate-900 sm:p-4">
+          <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">{metric.label}</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums text-equine-navy dark:text-white">{metric.count}</p>
+          <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{metric.subset.filter((injury) => injury.severity === "Severe").length} ca Nặng</p>
+        </article>)}
+      </div>
+
+      <InjuryModel3D
+        markers={displayMarkers}
+        placementMode={creating}
+        selectedCoordinates={creating ? selectedCoordinates : null}
+        onSelectLocation={(coordinates, bodyPart) => {
+          if (!creating) return;
+          setDraftCoordinates({
+            coordinate_x: coordinates.coordinate_x == null ? "" : String(coordinates.coordinate_x),
+            coordinate_y: coordinates.coordinate_y == null ? "" : String(coordinates.coordinate_y),
+            coordinate_z: coordinates.coordinate_z == null ? "" : String(coordinates.coordinate_z),
+          });
+          if (bodyPart) chooseAnatomyPart(bodyPart);
+        }}
+        onSelectAnatomyPart={(bodyPart) => {
+          if (!creating) return;
+          chooseAnatomyPart(bodyPart);
+        }}
+      />
+
+      {creating && <form onSubmit={(event) => void createInjury(event)} className="mt-4 grid gap-4 rounded-lg border border-equine-line bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:grid-cols-2">
+        <h4 className="font-semibold text-equine-navy dark:text-white sm:col-span-2">Thông tin ca chấn thương mới</h4>
+        <label className="block"><span className="field-label">Vị trí cơ thể<span className="text-rose-600"> *</span></span><input name="body_part" required maxLength={100} placeholder="Chọn vị trí trên mô hình hoặc nhập tên" value={draftBodyPart} onChange={(event) => setDraftBodyPart(event.target.value)} className="field-control px-3" /></label>
+        <label className="block"><span className="field-label">Nhóm</span><select name="injury_group" required value={draftGroup} onChange={(event) => setDraftGroup(event.target.value as InjuryGroup)} className="field-control px-3">{Object.entries(injuryGroupLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <SelectField label="Mức độ" name="severity" required options={[{ value: "Mild", label: "Nhẹ" }, { value: "Moderate", label: "Vừa" }, { value: "Severe", label: "Nặng" }]} />
+        <label className="block"><span className="field-label">Ngày bắt đầu<span className="text-rose-600"> *</span></span><input name="date" type="date" required defaultValue={todayValue} max={todayValue} className="field-control px-3" /></label>
+        <label className="block sm:col-span-2"><span className="field-label">Ghi chú</span><textarea name="note" rows={3} maxLength={1000} className="field-control resize-y px-3 py-2" /></label>
+        <CoordinateFields value={draftCoordinates} onChange={setDraftCoordinates} />
+        <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className="soft-button min-h-11 px-4" onClick={() => setCreating(false)}>Hủy</button><button className="gold-button min-h-11 px-4" disabled={busy}>Lưu ca chấn thương</button></div>
+      </form>}
+
+      <div className="mb-3 flex gap-2 overflow-x-auto border-b border-equine-line dark:border-slate-700" role="tablist" aria-label="Lọc ca chấn thương">
+        {tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} className={`min-h-11 shrink-0 border-b-2 px-3 text-sm font-semibold ${tab === item.id ? "border-equine-blue text-equine-blue dark:text-sky-300" : "border-transparent text-slate-700 hover:text-equine-navy dark:text-slate-300 dark:hover:text-white"}`} onClick={() => setTab(item.id)}>
+          {item.label} <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-800 dark:bg-slate-800 dark:text-slate-200">{tabCounts[item.id]}</span>
+        </button>)}
+      </div>
+
+      <div className="max-w-full overflow-x-auto rounded-lg border border-equine-line dark:border-slate-700" tabIndex={0} aria-label="Bảng ca chấn thương; cuộn ngang để xem toàn bộ cột">
+        <table className="w-full min-w-[1050px] text-left text-sm">
+          <thead><tr className="border-b border-equine-line bg-slate-50 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+            <th scope="col" className="px-4 py-3">Vị trí</th><th scope="col" className="px-4 py-3">Trạng thái</th><th scope="col" className="px-4 py-3">Mức độ</th><th scope="col" className="px-4 py-3">Ngày bắt đầu</th><th scope="col" className="px-4 py-3">Ngày hồi phục</th><th scope="col" className="px-4 py-3">Số ngày</th><th scope="col" className="px-4 py-3">Tiến độ</th><th scope="col" className="px-4 py-3">Thao tác</th>
+          </tr></thead>
+          <tbody>
+            {visibleCases.length === 0 ? <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-700 dark:text-slate-300">{cases.length ? "Không có ca ở bộ lọc này." : "Chưa ghi nhận ca chấn thương nào."}</td></tr> : visibleCases.map((injury) => {
+              const status = currentInjuryStatus(injury);
+              const startDate = injury.timeline[0]?.date ?? "";
+              const recoveryDate = injury.timeline.findLast((entry) => entry.status === "Recovered")?.date ?? "";
+              const duration = dayCount(startDate, status === "Recovered" ? recoveryDate || startDate : todayValue);
+              const progress = status === "New" ? 10 : status === "Treatment" ? 35 : status === "Recovering" ? 70 : 100;
+              return <tr key={injury.id} className={`border-b border-equine-line last:border-0 dark:border-slate-700 ${status === "Recovered" ? "bg-slate-50/70 opacity-80 dark:bg-slate-900/50" : "bg-white dark:bg-slate-950"} ${highlightId === injury.id ? "animate-pulse ring-2 ring-inset ring-sky-500" : ""}`}>
+                <td className="px-4 py-3"><button type="button" className="min-h-11 text-left font-semibold text-equine-blue underline decoration-transparent underline-offset-2 hover:decoration-current focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 dark:text-sky-300" onClick={() => setDetailsCaseId(injury.id)} aria-label={`Xem lịch sử chấn thương tại ${injury.bodyPart}`}>{injury.bodyPart}</button><p className="text-xs text-slate-600 dark:text-slate-400">{injuryGroupLabels[injury.group]}</p></td>
+                <td className="px-4 py-3"><span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${injuryStatusClasses[status]}`}>{injuryLifecycleLabels[status]}</span></td>
+                <td className="px-4 py-3"><span className="inline-flex items-center gap-2"><span>{severityBars(injury.severity)}</span><span className="font-semibold text-slate-800 dark:text-slate-200">{injurySeverityLabels[injury.severity]}</span></span></td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700 dark:text-slate-300">{displayInjuryDate(startDate)}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700 dark:text-slate-300">{recoveryDate ? displayInjuryDate(recoveryDate) : "—"}</td>
+                <td className="px-4 py-3 tabular-nums text-slate-800 dark:text-slate-200">{duration} ngày</td>
+                <td className="px-4 py-3"><div className="flex min-w-32 items-center gap-2"><div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700" role="progressbar" aria-label={`Tiến độ hồi phục ${injury.bodyPart}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><div className="h-full rounded-full bg-sky-700 dark:bg-sky-400" style={{ width: `${progress}%` }} /></div><span className="w-9 text-right text-xs font-semibold tabular-nums text-slate-700 dark:text-slate-300">{progress}%</span></div></td>
+                <td className="px-4 py-3"><button type="button" className="soft-button min-h-11 whitespace-nowrap px-3 text-xs" onClick={() => openUpdate(injury)}>Cập nhật</button></td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>}
+    {loading && <Notice>Đang tải ca chấn thương...</Notice>}
+
+    {dialogMode === "update" && <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialogMode(null); }}>
+      <dialog open aria-modal="true" aria-labelledby="injury-dialog-title" className="my-auto max-h-[calc(100vh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100vh-3rem)]">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-equine-line bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900 sm:px-6">
+          <h3 id="injury-dialog-title" className="text-lg font-semibold">Cập nhật · {editingCase?.bodyPart ?? "ca chấn thương"}</h3>
+          <button type="button" className="min-h-11 min-w-11 rounded-md text-2xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800" aria-label="Đóng hộp thoại" onClick={() => setDialogMode(null)}>×</button>
+        </div>
+        {editingCase && <form key={editingCase.id} onSubmit={(event) => void updateStatus(event)} className="grid gap-4 p-4 sm:grid-cols-2 sm:p-6">
+          <label className="block"><span className="field-label">Trạng thái mới</span><select name="status" defaultValue={defaultNextStatus} className="field-control px-3">{injuryLifecycle.map((status) => <option key={status} value={status}>{injuryLifecycleLabels[status]}</option>)}</select></label>
+          <label className="block"><span className="field-label">Ngày cập nhật<span className="text-rose-600"> *</span></span><input name="date" type="date" required defaultValue={todayValue < normalizeDay(editingCase.timeline.at(-1)?.date ?? todayValue) ? normalizeDay(editingCase.timeline.at(-1)?.date ?? todayValue) : todayValue} min={normalizeDay(editingCase.timeline.at(-1)?.date ?? todayValue)} className="field-control px-3" /></label>
+          <label className="block sm:col-span-2"><span className="field-label">Ghi chú</span><textarea name="note" rows={3} maxLength={1000} className="field-control resize-y px-3 py-2" /></label>
+          <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className="soft-button min-h-11 px-4" onClick={() => setDialogMode(null)}>Hủy</button><button className="gold-button min-h-11 px-4" disabled={busy}>Lưu cập nhật</button></div>
+        </form>}
+      </dialog>
+    </div>}
+
+    {selectedCase && <div className="fixed inset-0 z-[80] bg-slate-950/35" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetailsCaseId(null); }}>
+      <aside role="dialog" aria-modal="true" aria-labelledby="injury-details-title" className="absolute inset-y-0 right-0 flex w-full max-w-lg flex-col border-l border-equine-line bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <header className="flex items-start justify-between border-b border-equine-line p-5 dark:border-slate-700"><div><h3 id="injury-details-title" className="text-lg font-bold text-equine-navy dark:text-white">{selectedCase.bodyPart}</h3><p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{injuryGroupLabels[selectedCase.group]} · Mức độ {injurySeverityLabels[selectedCase.severity]}</p></div><button type="button" className="min-h-11 min-w-11 rounded-md text-2xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800" aria-label="Đóng lịch sử" onClick={() => setDetailsCaseId(null)}>×</button></header>
+        <div className="flex-1 space-y-5 overflow-y-auto p-5">
+          <section><h4 className="font-semibold text-slate-900 dark:text-white">Lịch sử</h4><ol className="mt-3 space-y-3">{[...selectedCase.timeline].reverse().map((entry, index) => <li key={entry.id ?? `${entry.date}-${index}`} className="rounded-lg border border-equine-line p-3 dark:border-slate-700"><div className="flex flex-wrap items-center justify-between gap-2"><time className="text-sm font-semibold text-slate-800 dark:text-slate-200" dateTime={entry.date}>{displayInjuryDate(entry.date)}</time><span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${injuryStatusClasses[entry.status]}`}>{injuryLifecycleLabels[entry.status]}</span></div><p className="mt-2 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">{entry.note || "Không có ghi chú."}</p>{entry.updated_by != null && <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">Người cập nhật: {entry.updated_by}</p>}</li>)}</ol></section>
+          <section className="rounded-lg bg-slate-50 p-4 dark:bg-slate-800"><h4 className="font-semibold text-slate-900 dark:text-white">Tọa độ</h4><p className="mt-2 text-sm text-slate-700 dark:text-slate-300">{selectedCase.coordinates.x == null || selectedCase.coordinates.y == null ? "Chưa ghi tọa độ." : `X ${selectedCase.coordinates.x} · Y ${selectedCase.coordinates.y}${selectedCase.coordinates.z == null ? "" : ` · Z ${selectedCase.coordinates.z}`}`}</p></section>
+        </div>
+      </aside>
+    </div>}
+
+    {toast && <div className="fixed bottom-4 left-3 right-3 z-[100] mx-auto flex max-w-3xl flex-col gap-3 rounded-xl border border-sky-300 bg-slate-900 p-3 text-white shadow-2xl sm:flex-row sm:items-center sm:justify-between sm:px-4" role="status" aria-live="polite">
+      <p className="text-sm font-medium">{toast.bodyPart} đã chuyển sang {injuryLifecycleLabels[toast.to]}.</p>
+      <div className="flex flex-wrap gap-2"><button type="button" className="min-h-11 rounded-md bg-white/10 px-3 text-sm font-semibold hover:bg-white/20" onClick={() => void undoLastUpdate()}>Hoàn tác</button><button type="button" className="min-h-11 rounded-md bg-sky-300 px-3 text-sm font-semibold text-slate-950 hover:bg-sky-200" onClick={() => setTab(injuryTabForStatus(toast.to))}>Xem tab {injuryTabLabels[injuryTabForStatus(toast.to)]}</button></div>
     </div>}
   </SectionCard>;
 }
