@@ -2,28 +2,34 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, Shield, ShieldAlert, X } from "lucide-react";
-import { horseRequest, horseStatus, type Horse } from "@/api/horses/api";
+import { getHorseImageUrl, horseStatus, type Horse } from "@/api/horses/api";
 
 export function HorseImage({ horse, preview }: { horse?: Horse; preview?: string }) {
-  const [url, setUrl] = useState<string>();
-  const [loaded, setLoaded] = useState(false);
+  const directUrl = preview || horse?.image_signed_url || (horse?.image_url && (horse.image_url.startsWith("http://") || horse.image_url.startsWith("https://") || horse.image_url.startsWith("/") || horse.image_url.startsWith("blob:")) ? horse.image_url : undefined);
+  const [url, setUrl] = useState<string | undefined>(directUrl);
+  const [loaded, setLoaded] = useState(Boolean(directUrl));
   useEffect(() => {
+    if (directUrl) {
+      setUrl(directUrl);
+      return;
+    }
     setUrl(undefined);
     setLoaded(false);
-    if (!horse?.image_url || preview) return;
+    if (!horse?.image_url || !horse?.id) return;
     let active = true;
-    const refresh = () => horseRequest<{ hasImage: boolean; url?: string }>(`/${horse.id}/image`)
-      .then(data => { if (active) setUrl(data.url); }).catch(() => { if (active) setUrl(undefined); });
+    const refresh = () => getHorseImageUrl(horse.id, horse.image_url)
+      .then(signedUrl => { if (active) setUrl(signedUrl); }).catch(() => { if (active) setUrl(undefined); });
     void refresh();
     const timer = setInterval(refresh, 240000);
     return () => { active = false; clearInterval(timer); };
-  }, [horse?.id, horse?.image_url, preview]);
+  }, [horse?.id, horse?.image_url, directUrl]);
   const [broken, setBroken] = useState(false);
-  useEffect(() => setBroken(false), [preview, url]);
-  return (preview || url) && !broken
+  useEffect(() => setBroken(false), [preview, url, directUrl]);
+  const finalSrc = preview || directUrl || url;
+  return finalSrc && !broken
     // Signed URLs expire and are authorized per user; do not cache them in Next's image optimizer.
     // eslint-disable-next-line @next/next/no-img-element
-    ? <img className={`horse-photo ${loaded ? "is-loaded" : ""}`} src={preview || url} alt={horse?.horse_name || "Ảnh ngựa đã chọn"} onLoad={() => setLoaded(true)} onError={() => setBroken(true)} />
+    ? <img className={`horse-photo ${loaded ? "is-loaded" : ""}`} src={finalSrc} alt={horse?.horse_name || "Ảnh ngựa đã chọn"} onLoad={() => setLoaded(true)} onError={() => setBroken(true)} />
     : <div className="horse-placeholder"><Shield size={36} strokeWidth={1.4} /><span>EQUINE</span><small>Chưa có ảnh hồ sơ</small></div>;
 }
 

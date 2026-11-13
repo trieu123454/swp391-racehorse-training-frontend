@@ -4,6 +4,7 @@ import { Routes } from "@/routes/Routes";
 export const roleRoutes: Record<RoleName, string> = {
   HEAD_TRAINER: Routes.dashboardRole("head-trainer"),
   VETERINARIAN: Routes.dashboardRole("veterinarian"),
+  HEAD_VETERINARIAN: Routes.dashboardRole("head-veterinarian"),
   GROOM: Routes.dashboardRole("groom"),
   HORSE_OWNER: Routes.dashboardRole("horse-owner"),
   CLUB_MANAGER: Routes.dashboardRole("club-manager"),
@@ -12,6 +13,7 @@ export const roleRoutes: Record<RoleName, string> = {
 export const roleLabels: Record<RoleName, string> = {
   HEAD_TRAINER: "Huấn luyện viên trưởng",
   VETERINARIAN: "Bác sĩ thú y",
+  HEAD_VETERINARIAN: "Trưởng ban thú y",
   GROOM: "Nhân viên chăm sóc chuồng trại",
   HORSE_OWNER: "Chủ sở hữu ngựa",
   CLUB_MANAGER: "Quản lý câu lạc bộ",

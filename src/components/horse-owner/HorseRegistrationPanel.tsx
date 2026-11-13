@@ -48,6 +48,34 @@ const documentLabels: Record<string, string> = {
   OTHER: "Khác",
 };
 
+async function compressImageIfLarge(file: File): Promise<File> {
+  if (typeof window === "undefined" || typeof document === "undefined") return file;
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) return file;
+  if (file.size <= 350 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maxDim = 1500;
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width || 1, bitmap.height || 1));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close?.();
+    const outType = file.type === "image/png" ? "image/jpeg" : file.type;
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, outType, 0.82));
+    if (!blob || blob.size >= file.size) return file;
+    const ext = outType === "image/jpeg" ? ".jpg" : outType === "image/webp" ? ".webp" : ".png";
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+    return new File([blob], `${baseName}${ext}`, { type: outType, lastModified: Date.now() });
+  } catch {
+    return file;
+  }
+}
+
 export default function HorseRegistrationPanel() {
   const [requests, setRequests] = useState<HorseRegistrationRequest[]>([]);
   const [transferRequests, setTransferRequests] = useState<OwnershipTransferRequest[]>([]);
@@ -148,9 +176,13 @@ export default function HorseRegistrationPanel() {
     setError("");
     setNotice("");
     try {
+      const [compressedImage, compressedFiles] = await Promise.all([
+        image ? compressImageIfLarge(image) : Promise.resolve(null),
+        Promise.all(files.map((f) => compressImageIfLarge(f))),
+      ]);
       const submittedRequest = editingRequest
-        ? await resubmitHorseRegistrationRequest(editingRequest.id, input, image, files, documentTypes)
-        : await submitHorseRegistrationRequest(input, image, files, documentTypes);
+        ? await resubmitHorseRegistrationRequest(editingRequest.id, input, compressedImage, compressedFiles, documentTypes)
+        : await submitHorseRegistrationRequest(input, compressedImage, compressedFiles, documentTypes);
       setRequests((current) => [submittedRequest, ...current.filter((item) => item.id !== submittedRequest.id)]);
       form.reset();
       setHorseImage(null);

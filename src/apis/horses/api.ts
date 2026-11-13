@@ -1,7 +1,25 @@
-import { ApiRequestError, authenticatedRequest, validateSession } from "@/api/client";
+import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, authenticatedRequest, validateSession } from "@/api/client";
 import { getAccessToken } from "@/lib/session";
 
 const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
+
+const HORSE_CACHE_TTL_MS = 45_000;
+const horseListCache = new Map<string, { data: HorsePage; expiresAt: number }>();
+const horseDetailCache = new Map<string, { data: Horse; expiresAt: number }>();
+const horseStablesCache = new Map<string, { data: Stable[]; expiresAt: number }>();
+const horseImageUrlCache = new Map<string, { url?: string; expiresAt: number }>();
+
+export function invalidateHorseCaches() {
+  horseListCache.clear();
+  horseDetailCache.clear();
+  horseStablesCache.clear();
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener(APP_MUTATION_COMPLETED_EVENT, () => {
+    invalidateHorseCaches();
+  });
+}
 
 export type HorseStatus =
   | "Healthy"
@@ -36,6 +54,7 @@ export type Horse = {
   microchip_number: string | null;
   passport_number: string | null;
   image_url: string | null;
+  image_signed_url?: string | null;
   stable_box_id: string;
   box_code: string | null;
   section: string | null;
@@ -112,19 +131,65 @@ export async function listHorses(params: {
   if (params.currentStatus) query.set("currentStatus", params.currentStatus);
   if (params.stableBoxId) query.set("stableBoxId", params.stableBoxId);
   if (params.isTrainingLocked !== undefined) query.set("isTrainingLocked", String(params.isTrainingLocked));
-  return horseRequest<HorsePage>(`?${query.toString()}`);
+  const key = query.toString();
+  const cached = horseListCache.get(key);
+  const now = Date.now();
+  if (cached && now < cached.expiresAt) {
+    return cached.data;
+  }
+  const res = await horseRequest<HorsePage>(`?${key}`);
+  horseListCache.set(key, { data: res, expiresAt: now + HORSE_CACHE_TTL_MS });
+  res.items?.forEach((item) => {
+    if (item.image_signed_url) {
+      horseImageUrlCache.set(item.id, { url: item.image_signed_url, expiresAt: now + 240_000 });
+    }
+  });
+  return res;
 }
 
-export function getHorse(id: string) {
-  return horseRequest<Horse>(`/${id}`);
+export async function getHorse(id: string) {
+  const now = Date.now();
+  const cached = horseDetailCache.get(id);
+  if (cached && now < cached.expiresAt) {
+    return cached.data;
+  }
+  const res = await horseRequest<Horse>(`/${id}`);
+  horseDetailCache.set(id, { data: res, expiresAt: now + HORSE_CACHE_TTL_MS });
+  if (res.image_signed_url) {
+    horseImageUrlCache.set(id, { url: res.image_signed_url, expiresAt: now + 240_000 });
+  }
+  return res;
+}
+
+export async function getHorseImageUrl(id: string, imagePath?: string | null): Promise<string | undefined> {
+  if (!imagePath) return undefined;
+  if (imagePath.startsWith("http://") || imagePath.startsWith("https://") || imagePath.startsWith("/") || imagePath.startsWith("blob:")) {
+    return imagePath;
+  }
+  const cacheKey = `${id}|${imagePath}`;
+  const now = Date.now();
+  const cached = horseImageUrlCache.get(cacheKey) ?? horseImageUrlCache.get(id);
+  if (cached && now < cached.expiresAt) {
+    return cached.url;
+  }
+  const data = await horseRequest<{ hasImage: boolean; url?: string }>(`/${id}/image`);
+  horseImageUrlCache.set(cacheKey, { url: data.url, expiresAt: now + 240_000 });
+  return data.url;
 }
 
 export function getHorseOwnershipHistory(id: string) {
   return horseRequest<OwnershipHistoryEntry[]>(`/${id}/ownership-history`);
 }
 
-export function getHorseStables() {
-  return horseRequest<Stable[]>("/options/stables");
+export async function getHorseStables() {
+  const now = Date.now();
+  const cached = horseStablesCache.get("all");
+  if (cached && now < cached.expiresAt) {
+    return cached.data;
+  }
+  const res = await horseRequest<Stable[]>("/options/stables");
+  horseStablesCache.set("all", { data: res, expiresAt: now + HORSE_CACHE_TTL_MS });
+  return res;
 }
 
 export function getHorseOwners(query: string, page = 0, signal?: AbortSignal) {
@@ -132,19 +197,23 @@ export function getHorseOwners(query: string, page = 0, signal?: AbortSignal) {
   return horseRequest<OwnerPage>(`/options/owners?${params.toString()}`, { signal });
 }
 
-export function saveHorse(input: HorseInput, id?: string) {
-  return horseRequest<Horse>(id ? `/${id}` : "", {
+export async function saveHorse(input: HorseInput, id?: string) {
+  const res = await horseRequest<Horse>(id ? `/${id}` : "", {
     method: id ? "PUT" : "POST",
     body: JSON.stringify(input),
   });
+  invalidateHorseCaches();
+  return res;
 }
 
 export function getHorseDeletionWarnings(id: string) {
   return horseRequest<Warnings>(`/${id}/deletion-warnings`);
 }
 
-export function deleteHorse(id: string) {
-  return horseRequest<void>(`/${id}?confirmed=true`, { method: "DELETE" });
+export async function deleteHorse(id: string) {
+  const res = await horseRequest<void>(`/${id}?confirmed=true`, { method: "DELETE" });
+  invalidateHorseCaches();
+  return res;
 }
 
 export async function uploadHorseImage(
