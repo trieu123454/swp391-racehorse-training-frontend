@@ -8,9 +8,9 @@ export const workspaceNavigation: Record<RoleName, readonly { id: string; label:
     { id: "horse-requests", label: "Yêu cầu hồ sơ" }, { id: "audit", label: "Nhật ký" },
   ],
   HEAD_TRAINER: [
-    { id: "overview", label: "Tổng quan" }, { id: "dispatch", label: "Điều phối" },
-    { id: "calendar", label: "Lịch tập" }, { id: "plans", label: "Giáo án" },
-    { id: "diet", label: "Khẩu phần" }, { id: "simulation", label: "Mô phỏng" },
+    { id: "overview", label: "Tổng quan" }, { id: "plans", label: "Giáo án" },
+    { id: "diet", label: "Khẩu phần" },
+    { id: "calendar", label: "Lịch tập" }, { id: "simulation", label: "Mô phỏng" },
     { id: "analysis", label: "Phân tích" }, { id: "races", label: "Thi đấu" }, { id: "incidents", label: "Sự cố" },
   ],
   VETERINARIAN: [

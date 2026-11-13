@@ -3,6 +3,7 @@ import {
   clearSession,
   getAccessToken,
   getRefreshToken,
+  getUser,
   isRemembered,
   saveSession,
 } from "../stores/session";
@@ -203,7 +204,7 @@ export function logout(refreshToken: string) {
 
 let sessionCheck: Promise<AuthUser> | null = null;
 let refreshAfterUnauthorizedCheck: Promise<void> | null = null;
-const SESSION_CACHE_TTL_MS = 60_000;
+const SESSION_CACHE_TTL_MS = 300_000;
 let validatedSession: {
   accessToken: string | null;
   refreshToken: string | null;
@@ -223,6 +224,22 @@ export function validateSession(force = false): Promise<AuthUser> {
     validatedSession.refreshToken === refreshToken
   ) {
     return Promise.resolve(validatedSession.user);
+  }
+  if (!force && accessToken && !accessTokenExpiresSoon(accessToken)) {
+    try {
+      const cachedUser = getUser();
+      if (cachedUser && cachedUser.status === "APPROVED" && !cachedUser.mustChangePassword) {
+        validatedSession = {
+          accessToken,
+          refreshToken,
+          validatedAt: Date.now(),
+          user: cachedUser,
+        };
+        return Promise.resolve(cachedUser);
+      }
+    } catch {
+      // Fallback to network restoreSession
+    }
   }
   if (sessionCheck) return sessionCheck;
   sessionCheck = restoreSession()

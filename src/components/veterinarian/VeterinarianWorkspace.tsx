@@ -104,6 +104,10 @@ const careTypeLabels: Record<string, string> = {
   Deworming: "Tẩy giun",
   Vaccination: "Tiêm phòng",
   MedicalCheckup: "Khám định kỳ",
+  Training: "Huấn luyện",
+  TrialRun: "Chạy thử",
+  Rest: "Nghỉ dưỡng sức",
+  Race: "Giải đua",
 };
 
 function latestInjuriesByBodyPart(markers: InjuryMarker[]) {
@@ -836,7 +840,7 @@ function HorseSummary({ horse }: { horse: VetHorse }) {
 }
 
 function SectionCard({ title, description, icon: Icon, children, action }: { title: string; description?: string; icon: typeof Activity; children: ReactNode; action?: ReactNode }) {
-  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 dark:border-slate-700 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-equine-mist text-equine-navy dark:bg-slate-800 dark:text-slate-100"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy dark:text-white">{title}</h3>{description && <details className="relative text-slate-500 dark:text-slate-300"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100 dark:hover:bg-slate-800" aria-label={`Giải thích ${title}`} title={`Giải thích ${title}`}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">{description}</p></details>}</div></div></div>{action}</div>{children}</section>;
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{description && <details className="relative text-slate-500"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100" aria-label={`Giải thích ${title}`} title={`Giải thích ${title}`}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{description}</p></details>}</div></div></div>{action}</div>{children}</section>;
 }
 
 function Field({ label, name, type = "text", required = false, defaultValue, maxLength, min, max, step, placeholder, disabled }: { label: string; name: string; type?: string; required?: boolean; defaultValue?: string | number | null; maxLength?: number; min?: number; max?: number; step?: string; placeholder?: string; disabled?: boolean }) {
@@ -1446,10 +1450,10 @@ const injuryLifecycleLabels: Record<InjuryTimelineStatus, string> = {
   Recovered: "Đã hồi phục",
 };
 const injuryStatusClasses: Record<InjuryTimelineStatus, string> = {
-  New: "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-200",
-  Treatment: "border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200",
-  Recovering: "border-orange-200 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-200",
-  Recovered: "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200",
+  New: "border-rose-200 bg-rose-50 text-rose-900",
+  Treatment: "border-red-200 bg-red-50 text-red-900",
+  Recovering: "border-orange-200 bg-orange-50 text-orange-900",
+  Recovered: "border-emerald-200 bg-emerald-50 text-emerald-900",
 };
 const injurySeverityLabels: Record<InjuryMarker["severity"], string> = {
   Mild: "Nhẹ",
@@ -1586,7 +1590,7 @@ const injuryTabLabels: Record<InjuryTab, string> = {
 
 function severityBars(severity: InjuryMarker["severity"]) {
   const count = severity === "Severe" ? 3 : severity === "Moderate" ? 2 : 1;
-  return <span className="inline-flex items-center gap-1" aria-hidden="true">{[1, 2, 3].map((bar) => <i key={bar} className={`h-3 w-1.5 rounded-sm ${bar <= count ? "bg-amber-600 dark:bg-amber-400" : "bg-slate-200 dark:bg-slate-700"}`} />)}</span>;
+  return <span className="inline-flex items-center gap-1" aria-hidden="true">{[1, 2, 3].map((bar) => <i key={bar} className={`h-3 w-1.5 rounded-sm ${bar <= count ? "bg-amber-600" : "bg-slate-200"}`} />)}</span>;
 }
 
 function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message: string) => void }) {
@@ -1923,10 +1927,10 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
       ? `Ngựa còn ${recoveringCases.length} vị trí chưa hồi phục hoàn toàn, lịch tập vẫn khóa.`
       : "Ngựa sẵn sàng thi đấu, lịch tập đã mở khóa.";
   const bannerClasses = activeBanner
-    ? "border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+    ? "border-amber-300 bg-amber-50 text-amber-950"
     : recoveringCases.length > 0
-      ? "border-orange-300 bg-orange-50 text-orange-950 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-100"
-      : "border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100";
+      ? "border-orange-300 bg-orange-50 text-orange-950"
+      : "border-emerald-300 bg-emerald-50 text-emerald-950";
   const tabs: { id: InjuryTab; label: string }[] = [
     { id: "all", label: "Tất cả" },
     { id: "active", label: "Đang chấn thương" },
@@ -1944,10 +1948,10 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
           { label: "Đang chấn thương", count: activeCases.length, subset: activeCases },
           { label: "Đang hồi phục", count: recoveringCases.length, subset: recoveringCases },
           { label: "Đã hồi phục", count: recoveredCases.length, subset: recoveredCases },
-        ].map((metric) => <article key={metric.label} className="rounded-lg border border-equine-line bg-white p-3 dark:border-slate-700 dark:bg-slate-900 sm:p-4">
-          <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">{metric.label}</p>
-          <p className="mt-1 text-2xl font-bold tabular-nums text-equine-navy dark:text-white">{metric.count}</p>
-          <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">{metric.subset.filter((injury) => injury.severity === "Severe").length} ca Nặng</p>
+        ].map((metric) => <article key={metric.label} className="rounded-lg border border-equine-line bg-white p-3 sm:p-4">
+          <p className="text-xs font-semibold text-slate-700">{metric.label}</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums text-equine-navy">{metric.count}</p>
+          <p className="mt-1 text-xs text-slate-600">{metric.subset.filter((injury) => injury.severity === "Severe").length} ca Nặng</p>
         </article>)}
       </div>
 
@@ -1970,8 +1974,8 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
         }}
       />
 
-      {creating && <form onSubmit={(event) => void createInjury(event)} className="mt-4 grid gap-4 rounded-lg border border-equine-line bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60 sm:grid-cols-2">
-        <h4 className="font-semibold text-equine-navy dark:text-white sm:col-span-2">Thông tin ca chấn thương mới</h4>
+      {creating && <form onSubmit={(event) => void createInjury(event)} className="mt-4 grid gap-4 rounded-lg border border-equine-line bg-slate-50 p-4 sm:grid-cols-2">
+        <h4 className="font-semibold text-equine-navy sm:col-span-2">Thông tin ca chấn thương mới</h4>
         <label className="block"><span className="field-label">Vị trí cơ thể<span className="text-rose-600"> *</span></span><input name="body_part" required maxLength={100} placeholder="Chọn vị trí trên mô hình hoặc nhập tên" value={draftBodyPart} onChange={(event) => setDraftBodyPart(event.target.value)} className="field-control px-3" /></label>
         <label className="block"><span className="field-label">Nhóm</span><select name="injury_group" required value={draftGroup} onChange={(event) => setDraftGroup(event.target.value as InjuryGroup)} className="field-control px-3">{Object.entries(injuryGroupLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <SelectField label="Mức độ" name="severity" required options={[{ value: "Mild", label: "Nhẹ" }, { value: "Moderate", label: "Vừa" }, { value: "Severe", label: "Nặng" }]} />
@@ -1981,32 +1985,32 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
         <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className="soft-button min-h-11 px-4" onClick={() => setCreating(false)}>Hủy</button><button className="gold-button min-h-11 px-4" disabled={busy}>Lưu ca chấn thương</button></div>
       </form>}
 
-      <div className="mb-3 flex gap-2 overflow-x-auto border-b border-equine-line dark:border-slate-700" role="tablist" aria-label="Lọc ca chấn thương">
-        {tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} className={`min-h-11 shrink-0 border-b-2 px-3 text-sm font-semibold ${tab === item.id ? "border-equine-blue text-equine-blue dark:text-sky-300" : "border-transparent text-slate-700 hover:text-equine-navy dark:text-slate-300 dark:hover:text-white"}`} onClick={() => setTab(item.id)}>
-          {item.label} <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-800 dark:bg-slate-800 dark:text-slate-200">{tabCounts[item.id]}</span>
+      <div className="mb-3 flex gap-2 overflow-x-auto border-b border-equine-line" role="tablist" aria-label="Lọc ca chấn thương">
+        {tabs.map((item) => <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} className={`min-h-11 shrink-0 border-b-2 px-3 text-sm font-semibold ${tab === item.id ? "border-equine-blue text-equine-blue" : "border-transparent text-slate-700 hover:text-equine-navy:text-white"}`} onClick={() => setTab(item.id)}>
+          {item.label} <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-800">{tabCounts[item.id]}</span>
         </button>)}
       </div>
 
-      <div className="max-w-full overflow-x-auto rounded-lg border border-equine-line dark:border-slate-700" tabIndex={0} aria-label="Bảng ca chấn thương; cuộn ngang để xem toàn bộ cột">
+      <div className="max-w-full overflow-x-auto rounded-lg border border-equine-line" tabIndex={0} aria-label="Bảng ca chấn thương; cuộn ngang để xem toàn bộ cột">
         <table className="w-full min-w-[1050px] text-left text-sm">
-          <thead><tr className="border-b border-equine-line bg-slate-50 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+          <thead><tr className="border-b border-equine-line bg-slate-50 text-xs font-semibold text-slate-700">
             <th scope="col" className="px-4 py-3">Vị trí</th><th scope="col" className="px-4 py-3">Trạng thái</th><th scope="col" className="px-4 py-3">Mức độ</th><th scope="col" className="px-4 py-3">Ngày bắt đầu</th><th scope="col" className="px-4 py-3">Ngày hồi phục</th><th scope="col" className="px-4 py-3">Số ngày</th><th scope="col" className="px-4 py-3">Tiến độ</th><th scope="col" className="px-4 py-3">Thao tác</th>
           </tr></thead>
           <tbody>
-            {visibleCases.length === 0 ? <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-700 dark:text-slate-300">{cases.length ? "Không có ca ở bộ lọc này." : "Chưa ghi nhận ca chấn thương nào."}</td></tr> : visibleCases.map((injury) => {
+            {visibleCases.length === 0 ? <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-700">{cases.length ? "Không có ca ở bộ lọc này." : "Chưa ghi nhận ca chấn thương nào."}</td></tr> : visibleCases.map((injury) => {
               const status = currentInjuryStatus(injury);
               const startDate = injury.timeline[0]?.date ?? "";
               const recoveryDate = injury.timeline.findLast((entry) => entry.status === "Recovered")?.date ?? "";
               const duration = dayCount(startDate, status === "Recovered" ? recoveryDate || startDate : todayValue);
               const progress = status === "New" ? 10 : status === "Treatment" ? 35 : status === "Recovering" ? 70 : 100;
-              return <tr key={injury.id} className={`border-b border-equine-line last:border-0 dark:border-slate-700 ${status === "Recovered" ? "bg-slate-50/70 opacity-80 dark:bg-slate-900/50" : "bg-white dark:bg-slate-950"} ${highlightId === injury.id ? "animate-pulse ring-2 ring-inset ring-sky-500" : ""}`}>
-                <td className="px-4 py-3"><button type="button" className="min-h-11 text-left font-semibold text-equine-blue underline decoration-transparent underline-offset-2 hover:decoration-current focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 dark:text-sky-300" onClick={() => setDetailsCaseId(injury.id)} aria-label={`Xem lịch sử chấn thương tại ${injury.bodyPart}`}>{injury.bodyPart}</button><p className="text-xs text-slate-600 dark:text-slate-400">{injuryGroupLabels[injury.group]}</p></td>
+              return <tr key={injury.id} className={`border-b border-equine-line last:border-0 ${status === "Recovered" ? "bg-slate-50/70 opacity-80" : "bg-white"} ${highlightId === injury.id ? "animate-pulse ring-2 ring-inset ring-sky-500" : ""}`}>
+                <td className="px-4 py-3"><button type="button" className="min-h-11 text-left font-semibold text-equine-blue underline decoration-transparent underline-offset-2 hover:decoration-current focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600" onClick={() => setDetailsCaseId(injury.id)} aria-label={`Xem lịch sử chấn thương tại ${injury.bodyPart}`}>{injury.bodyPart}</button><p className="text-xs text-slate-600">{injuryGroupLabels[injury.group]}</p></td>
                 <td className="px-4 py-3"><span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${injuryStatusClasses[status]}`}>{injuryLifecycleLabels[status]}</span></td>
-                <td className="px-4 py-3"><span className="inline-flex items-center gap-2"><span>{severityBars(injury.severity)}</span><span className="font-semibold text-slate-800 dark:text-slate-200">{injurySeverityLabels[injury.severity]}</span></span></td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-700 dark:text-slate-300">{displayInjuryDate(startDate)}</td>
-                <td className="whitespace-nowrap px-4 py-3 text-slate-700 dark:text-slate-300">{recoveryDate ? displayInjuryDate(recoveryDate) : "—"}</td>
-                <td className="px-4 py-3 tabular-nums text-slate-800 dark:text-slate-200">{duration} ngày</td>
-                <td className="px-4 py-3"><div className="flex min-w-32 items-center gap-2"><div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700" role="progressbar" aria-label={`Tiến độ hồi phục ${injury.bodyPart}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><div className="h-full rounded-full bg-sky-700 dark:bg-sky-400" style={{ width: `${progress}%` }} /></div><span className="w-9 text-right text-xs font-semibold tabular-nums text-slate-700 dark:text-slate-300">{progress}%</span></div></td>
+                <td className="px-4 py-3"><span className="inline-flex items-center gap-2"><span>{severityBars(injury.severity)}</span><span className="font-semibold text-slate-800">{injurySeverityLabels[injury.severity]}</span></span></td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">{displayInjuryDate(startDate)}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">{recoveryDate ? displayInjuryDate(recoveryDate) : "—"}</td>
+                <td className="px-4 py-3 tabular-nums text-slate-800">{duration} ngày</td>
+                <td className="px-4 py-3"><div className="flex min-w-32 items-center gap-2"><div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label={`Tiến độ hồi phục ${injury.bodyPart}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><div className="h-full rounded-full bg-sky-700" style={{ width: `${progress}%` }} /></div><span className="w-9 text-right text-xs font-semibold tabular-nums text-slate-700">{progress}%</span></div></td>
                 <td className="px-4 py-3"><button type="button" className="soft-button min-h-11 whitespace-nowrap px-3 text-xs" onClick={() => openUpdate(injury)}>Cập nhật</button></td>
               </tr>;
             })}
@@ -2017,10 +2021,10 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     {loading && <Notice>Đang tải ca chấn thương...</Notice>}
 
     {dialogMode === "update" && <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialogMode(null); }}>
-      <dialog open aria-modal="true" aria-labelledby="injury-dialog-title" className="my-auto max-h-[calc(100vh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:max-h-[calc(100vh-3rem)]">
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-equine-line bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900 sm:px-6">
+      <dialog open aria-modal="true" aria-labelledby="injury-dialog-title" className="my-auto max-h-[calc(100vh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl sm:max-h-[calc(100vh-3rem)]">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-equine-line bg-white px-4 py-3 sm:px-6">
           <h3 id="injury-dialog-title" className="text-lg font-semibold">Cập nhật · {editingCase?.bodyPart ?? "ca chấn thương"}</h3>
-          <button type="button" className="min-h-11 min-w-11 rounded-md text-2xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800" aria-label="Đóng hộp thoại" onClick={() => setDialogMode(null)}>×</button>
+          <button type="button" className="min-h-11 min-w-11 rounded-md text-2xl text-slate-600 hover:bg-slate-100:bg-slate-800" aria-label="Đóng hộp thoại" onClick={() => setDialogMode(null)}>×</button>
         </div>
         {editingCase && <form key={editingCase.id} onSubmit={(event) => void updateStatus(event)} className="grid gap-4 p-4 sm:grid-cols-2 sm:p-6">
           <label className="block"><span className="field-label">Trạng thái mới</span><select name="status" defaultValue={defaultNextStatus} className="field-control px-3">{injuryLifecycle.map((status) => <option key={status} value={status}>{injuryLifecycleLabels[status]}</option>)}</select></label>
@@ -2032,11 +2036,11 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     </div>}
 
     {selectedCase && <div className="fixed inset-0 z-[80] bg-slate-950/35" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetailsCaseId(null); }}>
-      <aside role="dialog" aria-modal="true" aria-labelledby="injury-details-title" className="absolute inset-y-0 right-0 flex w-full max-w-lg flex-col border-l border-equine-line bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-        <header className="flex items-start justify-between border-b border-equine-line p-5 dark:border-slate-700"><div><h3 id="injury-details-title" className="text-lg font-bold text-equine-navy dark:text-white">{selectedCase.bodyPart}</h3><p className="mt-1 text-sm text-slate-700 dark:text-slate-300">{injuryGroupLabels[selectedCase.group]} · Mức độ {injurySeverityLabels[selectedCase.severity]}</p></div><button type="button" className="min-h-11 min-w-11 rounded-md text-2xl text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800" aria-label="Đóng lịch sử" onClick={() => setDetailsCaseId(null)}>×</button></header>
+      <aside role="dialog" aria-modal="true" aria-labelledby="injury-details-title" className="absolute inset-y-0 right-0 flex w-full max-w-lg flex-col border-l border-equine-line bg-white shadow-2xl">
+        <header className="flex items-start justify-between border-b border-equine-line p-5"><div><h3 id="injury-details-title" className="text-lg font-bold text-equine-navy">{selectedCase.bodyPart}</h3><p className="mt-1 text-sm text-slate-700">{injuryGroupLabels[selectedCase.group]} · Mức độ {injurySeverityLabels[selectedCase.severity]}</p></div><button type="button" className="min-h-11 min-w-11 rounded-md text-2xl text-slate-600 hover:bg-slate-100:bg-slate-800" aria-label="Đóng lịch sử" onClick={() => setDetailsCaseId(null)}>×</button></header>
         <div className="flex-1 space-y-5 overflow-y-auto p-5">
-          <section><h4 className="font-semibold text-slate-900 dark:text-white">Lịch sử</h4><ol className="mt-3 space-y-3">{[...selectedCase.timeline].reverse().map((entry, index) => <li key={entry.id ?? `${entry.date}-${index}`} className="rounded-lg border border-equine-line p-3 dark:border-slate-700"><div className="flex flex-wrap items-center justify-between gap-2"><time className="text-sm font-semibold text-slate-800 dark:text-slate-200" dateTime={entry.date}>{displayInjuryDate(entry.date)}</time><span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${injuryStatusClasses[entry.status]}`}>{injuryLifecycleLabels[entry.status]}</span></div><p className="mt-2 whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">{entry.note || "Không có ghi chú."}</p>{entry.updated_by != null && <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">Người cập nhật: {entry.updated_by}</p>}</li>)}</ol></section>
-          <section className="rounded-lg bg-slate-50 p-4 dark:bg-slate-800"><h4 className="font-semibold text-slate-900 dark:text-white">Tọa độ</h4><p className="mt-2 text-sm text-slate-700 dark:text-slate-300">{selectedCase.coordinates.x == null || selectedCase.coordinates.y == null ? "Chưa ghi tọa độ." : `X ${selectedCase.coordinates.x} · Y ${selectedCase.coordinates.y}${selectedCase.coordinates.z == null ? "" : ` · Z ${selectedCase.coordinates.z}`}`}</p></section>
+          <section><h4 className="font-semibold text-slate-900">Lịch sử</h4><ol className="mt-3 space-y-3">{[...selectedCase.timeline].reverse().map((entry, index) => <li key={entry.id ?? `${entry.date}-${index}`} className="rounded-lg border border-equine-line p-3"><div className="flex flex-wrap items-center justify-between gap-2"><time className="text-sm font-semibold text-slate-800" dateTime={entry.date}>{displayInjuryDate(entry.date)}</time><span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${injuryStatusClasses[entry.status]}`}>{injuryLifecycleLabels[entry.status]}</span></div><p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{entry.note || "Không có ghi chú."}</p>{entry.updated_by != null && <p className="mt-2 text-xs text-slate-600">Người cập nhật: {entry.updated_by}</p>}</li>)}</ol></section>
+          <section className="rounded-lg bg-slate-50 p-4"><h4 className="font-semibold text-slate-900">Tọa độ</h4><p className="mt-2 text-sm text-slate-700">{selectedCase.coordinates.x == null || selectedCase.coordinates.y == null ? "Chưa ghi tọa độ." : `X ${selectedCase.coordinates.x} · Y ${selectedCase.coordinates.y}${selectedCase.coordinates.z == null ? "" : ` · Z ${selectedCase.coordinates.z}`}`}</p></section>
         </div>
       </aside>
     </div>}
@@ -2341,7 +2345,7 @@ function CarePanel({
   const [createHorseId, setCreateHorseId] = useState<string>(selectedHorse.id);
   const [showRulesDrawer, setShowRulesDrawer] = useState(false);
   const [weekStart, setWeekStart] = useState(() => mondayOfWeek(today()));
-  const [scope, setScope] = useState<"mine" | "all">(isHeadVet ? "all" : "mine");
+  const [scope, setScope] = useState<"mine" | "all">("all");
   const [horseFilter, setHorseFilter] = useState("all");
   const [includeContext, setIncludeContext] = useState(true);
   const [bookNow, setBookNow] = useState(true);
@@ -2357,7 +2361,7 @@ function CarePanel({
   const from = weekStart;
   const to = addCalendarDays(weekStart, 6);
   const currentWeekStart = mondayOfWeek(today());
-  const [showAllSlots, setShowAllSlots] = useState(false);
+  const [showAllSlots, setShowAllSlots] = useState(true);
 
   const weekOptions = useMemo(() => {
     const options = [];
@@ -2409,14 +2413,102 @@ function CarePanel({
         assigned_doctor: schedule.assigned_doctor ?? (schedule.doctor_name ? { name: schedule.doctor_name } : null),
       }];
     });
-    const items: CalendarCareItem[] = [
+    const primaryCareItems: CalendarCareItem[] = [
       ...events.map((event) => ({ ...event, context: false })),
       ...dueItems,
-      ...(includeContext ? contextEvents.map((event) => ({ ...event, context: true })) : []),
+    ];
+    try {
+      const exportCareForTrainer = primaryCareItems
+        .filter((ev) => ev.status !== "Cancelled")
+        .map((ev) => {
+          const hId = ev.horse?.id ?? ev.horse_id ?? schedules.find((s) => s.id === ev.schedule_id)?.horse_id ?? "";
+          const hObj = horses.find((h) => h.id === hId);
+          return {
+            event_id: ev.event_id ?? ev.id ?? `care-${hId}-${ev.event_date}`,
+            event_type: ev.care_type ?? ev.event_type ?? "PeriodicCare",
+            care_type: ev.care_type ?? ev.event_type ?? "PeriodicCare",
+            title: ev.title ?? ev.care_type ?? "Chăm sóc định kỳ",
+            event_date: ev.event_date,
+            due_date: ev.due_date ?? ev.event_date,
+            start_time: ev.start_time ?? null,
+            end_time: ev.end_time ?? null,
+            status: ev.status,
+            source_table: "Periodic_Care_Schedules",
+            source_id: ev.schedule_id ?? ev.event_id ?? ev.id ?? "",
+            horse_id: String(hId),
+            horse_name: hObj?.horse_name ?? ev.horse?.horse_name ?? ev.horse_name ?? "Ngựa",
+            box_code: hObj?.stable_box?.box_code ?? ev.box_code ?? null,
+            section: hObj?.stable_box?.section ?? ev.section ?? null,
+            doctor_name: ev.assigned_doctor?.name ?? null,
+            is_periodic_due: Boolean(ev.is_periodic_due),
+          };
+        });
+      window.localStorage.setItem(
+        `racehorse:shared-calendar:vet:${from}`,
+        JSON.stringify(exportCareForTrainer),
+      );
+    } catch {
+      // ignore storage errors
+    }
+
+    const mergedContextEvents: CalendarCareItem[] = contextEvents.map((event) => ({ ...event, context: true }));
+    if (includeContext) {
+      try {
+        const cachedTrainRaw = window.localStorage.getItem(`racehorse:shared-calendar:training:${from}`);
+        if (cachedTrainRaw) {
+          const cachedTrain = JSON.parse(cachedTrainRaw) as Array<Record<string, unknown>>;
+          if (Array.isArray(cachedTrain)) {
+            const seenTrainKeys = new Set(
+              mergedContextEvents.map((ev) => {
+                const hId = ev.horse?.id ?? ev.horse_id ?? "";
+                return `${hId}|${ev.event_date}|${(ev.start_time ?? "").slice(0, 5)}`;
+              }),
+            );
+            for (const ts of cachedTrain) {
+              if (ts.status === "Cancelled") continue;
+              const hId = String(ts.horse_id ?? "");
+              const evDate = String(ts.event_date ?? "");
+              const sTime = ts.start_time ? String(ts.start_time) : null;
+              const key = `${hId}|${evDate}|${(sTime ?? "").slice(0, 5)}`;
+              if (!hId || !evDate || seenTrainKeys.has(key)) continue;
+              seenTrainKeys.add(key);
+              const hName = String(ts.horse_name ?? "Ngựa");
+              mergedContextEvents.push({
+                id: String(ts.event_id ?? ts.training_schedule_id ?? key),
+                event_id: String(ts.event_id ?? ts.training_schedule_id ?? key),
+                horse_id: hId,
+                horse_name: hName,
+                horse: { id: hId, horse_name: hName },
+                event_date: evDate,
+                start_time: sTime,
+                end_time: ts.end_time ? String(ts.end_time) : null,
+                status: String(ts.status ?? "Scheduled"),
+                event_type: String(ts.session_type ?? "Training"),
+                session_type: String(ts.session_type ?? "Training"),
+                title: String(ts.session_type ?? "Training"),
+                track_surface: ts.track_surface ? String(ts.track_surface) : null,
+                target_distance_meters: typeof ts.plan_target_distance_meters === "number" ? ts.plan_target_distance_meters : null,
+                target_intensity: ts.plan_target_intensity ? String(ts.plan_target_intensity) : null,
+                groom_name: ts.groom_name ? String(ts.groom_name) : null,
+                box_code: ts.box_code ? String(ts.box_code) : null,
+                section: ts.section ? String(ts.section) : null,
+                context: true,
+              });
+            }
+          }
+        }
+      } catch {
+        // ignore storage parse errors
+      }
+    }
+
+    const items: CalendarCareItem[] = [
+      ...primaryCareItems,
+      ...(includeContext ? mergedContextEvents : []),
     ];
     return items.filter((event) => {
       if (horseFilter === "all") return true;
-      const eventHorseId = event.horse?.id ?? schedules.find((schedule) => schedule.id === event.schedule_id)?.horse_id;
+      const eventHorseId = event.horse?.id ?? event.horse_id ?? schedules.find((schedule) => schedule.id === event.schedule_id)?.horse_id;
       return eventHorseId === horseFilter;
     });
   }, [contextEvents, currentWeekStart, events, from, horseFilter, horses, includeContext, schedules, to, weekStart]);
@@ -2434,6 +2526,7 @@ function CarePanel({
     [calendarItems, weekStart],
   );
   const weeklyCareEvents = weekDays.flatMap((day) => day.events).filter((event) => !event.context && event.status !== "Cancelled");
+  const weeklyTrainingEvents = weekDays.flatMap((day) => day.events).filter((event) => Boolean(event.context) && event.status !== "Cancelled");
   const weeklyCompletedCount = weeklyCareEvents.filter((event) => event.status === "Completed").length;
   const weeklyTodayCount = weeklyCareEvents.filter((event) => event.event_date === today() && event.status !== "Completed").length;
   const weeklyOverdueCount = weeklyCareEvents.filter((event) => {
@@ -3384,7 +3477,7 @@ function CarePanel({
               </h3>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
               <button
                 type="button"
                 onClick={() => setShowAllSlots(!showAllSlots)}
@@ -3393,8 +3486,13 @@ function CarePanel({
                 {showAllSlots ? "Thu gọn ca trống" : "Hiện đủ 6 ca"}
               </button>
               <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-900">
-                {weeklyCareEvents.length} việc trong tuần
+                🩺 {weeklyCareEvents.length} ca y tế
               </span>
+              {includeContext && (
+                <span className="inline-flex items-center rounded-full bg-violet-100 px-3 py-1 text-xs font-bold text-violet-900 border border-violet-200">
+                  🐎 {weeklyTrainingEvents.length} lịch tập/đua
+                </span>
+              )}
             </div>
           </div>
 
@@ -3471,13 +3569,26 @@ function CarePanel({
                               const canComplete = canManage && event.status === "Scheduled" && event.event_date <= today();
                               const canBook = canManage && (Boolean(event.is_periodic_due) || isCancelled || schedule?.event_status === "Cancelled");
                               const hasBookedEvent = !event.is_periodic_due && event.status === "Scheduled";
-                              const horse = horses.find((h) => h.id === event.horse?.id || h.id === schedule?.horse_id);
+                              const horse = horses.find((h) => h.id === (event.horse?.id ?? event.horse_id) || h.id === schedule?.horse_id);
                               const horseName = horse?.horse_name ?? event.horse?.horse_name ?? event.horse_name ?? "Ngựa";
-                              const rawName = event.care_type ?? event.event_type ?? event.title ?? "Chăm sóc";
+                              const rawName = event.care_type ?? event.session_type ?? event.event_type ?? event.title ?? "Chăm sóc";
                               const eventName = careTypeLabels[rawName] ?? rawName;
-                              const horseLocation = horse?.stable_box ? `Khu ${horse.stable_box.section ?? "A"} · Chuồng ${horse.stable_box.box_code}` : "Khu chuồng trại · Ô khám";
+                              const stallSection = horse?.stable_box?.section ?? event.section;
+                              const stallBoxCode = horse?.stable_box?.box_code ?? event.box_code;
+                              const horseLocation = stallBoxCode
+                                ? `Khu ${stallSection ?? "A"} · Chuồng ${stallBoxCode}`
+                                : isTrainingEvent
+                                ? "Sân tập CLB"
+                                : "Khu chuồng trại · Ô khám";
                               const timeStr = formatTimeDisplay(event.start_time, event.end_time);
-                              const doctorName = formatDoctorName(event, schedule, currentUser);
+                              const doctorName = isTrainingEvent
+                                ? (event.groom_name ? `Groom: ${event.groom_name}` : "Ban huấn luyện")
+                                : formatDoctorName(event, schedule, currentUser);
+                              const surfaceVi = event.track_surface === "Turf" ? "Sân cỏ" : event.track_surface === "Synthetic" ? "Sân nhân tạo" : event.track_surface === "Dirt" ? "Sân đất" : null;
+                              const trainingSubLabel = [
+                                surfaceVi,
+                                event.target_distance_meters ? `${Number(event.target_distance_meters).toLocaleString("vi-VN")}m` : null,
+                              ].filter(Boolean).join(" · ") || "Sân tập";
                               const currentSlotObj = TIMETABLE_SLOTS.find((s) => s.id === getEventSlot(event)) ?? TIMETABLE_SLOTS[0];
                               const defaultSlotValue = `${currentSlotObj.startTime}|${currentSlotObj.endTime}`;
 
@@ -3486,7 +3597,7 @@ function CarePanel({
                                   key={event.event_id ?? event.id ?? `${day.date}-${index}`}
                                   className={`rounded-lg p-2.5 shadow-xs transition hover:shadow-md ${
                                     isTrainingEvent
-                                      ? "border-2 border-violet-500 bg-violet-50 shadow-md ring-2 ring-violet-200/70"
+                                      ? "border border-violet-300 bg-violet-50/90"
                                       : isCompleted
                                       ? "border border-emerald-300 bg-emerald-50/80"
                                       : isOverdue
@@ -3504,9 +3615,9 @@ function CarePanel({
                                       ) : (
                                         <BookOpen className={`h-3.5 w-3.5 shrink-0 mt-0.5 ${isTrainingEvent ? "text-violet-700" : "text-[#0A389C]"}`} />
                                       )}
-                                      <span>{eventName} - {horseName}</span>
+                                      <span>{isTrainingEvent ? `🐎 ${eventName} - ${horseName}` : `${eventName} - ${horseName}`}</span>
                                     </div>
-                                    {isCompleted && (
+                                    {isCompleted && !isTrainingEvent && (
                                       <span className="inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-black text-emerald-900 bg-emerald-100 border border-emerald-400">
                                         <Check size={10} /> Có mặt
                                       </span>
@@ -3522,8 +3633,10 @@ function CarePanel({
                                       </span>
                                     )}
                                     {isTrainingEvent && (
-                                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-violet-600 px-1.5 py-0.5 text-[9px] font-black text-white shadow-sm">
-                                        Lịch tập/đua
+                                      <span className={`inline-flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-black shadow-2xs ${
+                                        isCompleted ? "bg-emerald-600 text-white" : "bg-violet-600 text-white"
+                                      }`}>
+                                        {isCompleted ? "Tập · Đã xong" : "Lịch tập"}
                                       </span>
                                     )}
                                   </div>
@@ -3534,7 +3647,7 @@ function CarePanel({
                                     <span>{timeStr}</span>
                                     <span className="text-slate-400">·</span>
                                     <span className={isOverdue ? "text-rose-700 font-bold" : "text-slate-700 font-semibold"}>
-                                      {event.context ? "Offline" : isOverdue ? "Đã quá ca" : "Trực tiếp"}
+                                      {isTrainingEvent ? trainingSubLabel : isOverdue ? "Đã quá ca" : "Trực tiếp"}
                                     </span>
                                   </div>
 

@@ -155,14 +155,23 @@ export type VetStableIncident = {
 export type CareEvent = {
   id?: string;
   event_id?: string;
+  horse_id?: string;
   event_date: string;
   start_time: string | null;
   end_time: string | null;
-  status: "Scheduled" | "Completed" | "Cancelled";
+  status: "Scheduled" | "Completed" | "Cancelled" | string;
   event_type?: string;
   care_type?: string;
   title?: string;
   horse_name?: string;
+  box_code?: string | null;
+  section?: string | null;
+  session_type?: string | null;
+  track_surface?: string | null;
+  plan_stage_name?: string | null;
+  target_distance_meters?: number | null;
+  target_intensity?: string | null;
+  groom_name?: string | null;
   context?: boolean;
   horse?: { id: string; horse_name: string };
   schedule_id?: string;

@@ -21,6 +21,7 @@ export function useWorkspaceToast() { return useContext(WorkspaceToastContext); 
 
 export default function HorseShell({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [checkedCache, setCheckedCache] = useState(false);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [open, setOpen] = useState(false);
@@ -142,13 +143,20 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     try {
       cachedUser = getUser();
       if (cachedUser?.mustChangePassword) {
+        setCheckedCache(true);
         router.replace(Routes.changePassword);
         return () => { active = false; };
       }
-      if (cachedUser?.status === "APPROVED") setUser(cachedUser);
+      if (
+        cachedUser?.status === "APPROVED" &&
+        ["CLUB_MANAGER", "HEAD_TRAINER", "VETERINARIAN", "HEAD_VETERINARIAN", "GROOM", "HORSE_OWNER"].includes(cachedUser.roleName)
+      ) {
+        setUser(cachedUser);
+      }
     } catch {
       cachedUser = null;
     }
+    setCheckedCache(true);
     setError("");
     validateSession().then(current => {
       if (!active) return;
@@ -184,7 +192,21 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     if (token) void logout(token).catch(() => {});
   }
 
-  if (!user) return <main className="horse-access">{error ? <><Notice error>{error}</Notice><button className="navy-button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button><Link href={Routes.dashboard}>Về bảng điều khiển</Link></> : <p role="status">Đang xác thực quyền truy cập…</p>}</main>;
+  if (!user) {
+    return (
+      <main className="horse-access" aria-busy={!error}>
+        {error ? (
+          <>
+            <Notice error>{error}</Notice>
+            <button className="navy-button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button>
+            <Link href={Routes.dashboard}>Về bảng điều khiển</Link>
+          </>
+        ) : checkedCache ? (
+          <p role="status">Đang xác thực quyền truy cập…</p>
+        ) : null}
+      </main>
+    );
+  }
 
   const icons: Record<string, typeof Activity> = { overview: LayoutDashboard, stables: Warehouse, plans: BookOpen, calendar: CalendarDays, simulation: Activity, analysis: Activity, races: Trophy, incidents: Shield, care: ClipboardList, inventory: Boxes, finance: Wallet, audit: History, exams: Stethoscope, medical: HeartPulse, diet: Utensils, injuries: HeartPulse, notifications: Bell, horses: BookOpen, health: HeartPulse, training: CalendarDays };
   const dashboardRoute = routeForRole(user.roleName);
