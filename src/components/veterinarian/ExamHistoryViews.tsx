@@ -64,27 +64,27 @@ export default function ExamHistoryViews({ exams, diagnosesByExam, onOpen, injur
               <td className="max-w-md whitespace-pre-wrap px-4 py-3">{conclusion(exam)}{linkedInjuries(exam).length > 0 && <button type="button" className="mt-2 block text-xs font-medium text-rose-800 underline" onClick={onOpenInjuries}>Chấn thương: {linkedInjuries(exam).map((injury) => injury.body_part).join(", ")}</button>}</td>
             </tr>)}</tbody>
           </table>
-        </div> : <ol className="ml-2 border-l border-equine-line pl-6">{events.map((event) => {
+        </div> : <ol className="ml-1 border-l border-equine-line pl-4">{events.map((event) => {
           if (event.kind === "injury") {
             const injury = event.injury;
             const record = [...diagnosesByExam.values()].flat().find((item) => item.id === injury.medical_record_id);
-            return <li key={`injury-${injury.id}`} className="relative pb-6 last:pb-0">
-              <span aria-hidden="true" className="absolute -left-[29px] top-1.5 h-2.5 w-2.5 rounded-full bg-rose-500 ring-4 ring-white" />
+            return <li key={`injury-${injury.id}`} className="relative pb-3 last:pb-0">
+              <span aria-hidden="true" className="absolute -left-[20px] top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-4 ring-white" />
               <time dateTime={injury.marked_at} className="text-xs text-slate-500">{date(injury.marked_at)}</time>
-              <div className="mt-2 rounded-lg border border-rose-100 bg-rose-50/30 p-4"><h4 className="font-semibold text-rose-900">Chấn thương · {injury.body_part}</h4><p className="mt-1 text-sm">{injuryStatus[injury.recovery_status]} · {({ Mild: "Nhẹ", Moderate: "Trung bình", Severe: "Nặng" })[injury.severity]}</p>
-                {record && <p className="mt-2 text-sm text-slate-700">{record.diagnosis}</p>}
-                <div className="mt-3 flex flex-wrap gap-3">{record?.health_exam_id && <button type="button" className="text-sm font-medium text-equine-navy underline" onClick={() => onOpen(record.health_exam_id!)}>Mở lần khám liên quan</button>}<button type="button" className="text-sm font-medium text-rose-800 underline" onClick={onOpenInjuries}>Xem hồ sơ chấn thương</button></div>
+              <div className="mt-1 rounded-lg border border-rose-100 bg-rose-50/30 px-3 py-2"><h4 className="text-sm font-semibold leading-snug text-rose-900">Chấn thương · {injury.body_part}</h4><p className="mt-1 text-xs">{injuryStatus[injury.recovery_status]} · {({ Mild: "Nhẹ", Moderate: "Trung bình", Severe: "Nặng" })[injury.severity]}</p>
+                {record && <p className="mt-1 text-xs text-slate-700">{record.diagnosis}</p>}
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">{record?.health_exam_id && <button type="button" className="min-h-8 text-xs font-medium text-equine-navy underline" onClick={() => onOpen(record.health_exam_id!)}>Mở lần khám liên quan</button>}<button type="button" className="min-h-8 text-xs font-medium text-rose-800 underline" onClick={onOpenInjuries}>Xem hồ sơ chấn thương</button></div>
               </div>
             </li>;
           }
           const exam = event.exam;
-          return <li key={`exam-${exam.id}`} className="relative pb-6 last:pb-0">
-          <span aria-hidden="true" className="absolute -left-[29px] top-1.5 h-2.5 w-2.5 rounded-full bg-equine-teal ring-4 ring-white" />
+          return <li key={`exam-${exam.id}`} className="relative pb-3 last:pb-0">
+          <span aria-hidden="true" className="absolute -left-[20px] top-1.5 h-2 w-2 rounded-full bg-equine-teal ring-4 ring-white" />
           <time dateTime={exam.exam_date} className="text-xs text-slate-500">{date(exam.exam_date)}</time>
-          <div className="mt-2 rounded-lg border border-equine-line p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-semibold text-equine-navy">{exam.exam_type || "Lần khám"}</h4><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => onOpen(exam.id)}>Mở chi tiết</button></div>
+          <div className="mt-1 rounded-lg border border-equine-line px-3 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-semibold leading-snug text-equine-navy">{exam.exam_type || "Lần khám"}</h4><button type="button" className="soft-button !h-8 !min-h-8 !px-2 !py-1 !text-xs" onClick={() => onOpen(exam.id)}>Mở chi tiết</button></div>
             <p className="mt-1 text-xs text-slate-500">Bác sĩ: {exam.doctor?.name || "Chưa ghi nhận"}</p>
-            <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{conclusion(exam)}</p>
+            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{conclusion(exam)}</p>
           </div>
         </li>; })}</ol>}
     </div>

@@ -123,7 +123,7 @@ export default function HorseStableYard({ horses, onSelectHorse }: { horses: Vet
         </div>
         <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-800">Tự do di chuyển</span>
       </div>
-      <div className="grid grid-cols-1 gap-3 p-3 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
         {groups.map((group) => <section key={group.id} className="stable-yard-stall" aria-label={`${group.name}, ${group.horses.length} ngựa`}>
           <div className="stable-yard-stall__header">
             <div className="min-w-0">

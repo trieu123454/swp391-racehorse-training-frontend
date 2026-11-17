@@ -18,7 +18,6 @@ import {
   LockKeyhole,
   MapPin,
   Pill,
-  RefreshCw,
   Search,
   ShieldAlert,
   Stethoscope,
@@ -33,7 +32,7 @@ import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import ExamHorsePicker from "./ExamHorsePicker";
 import ExamHistoryViews from "./ExamHistoryViews";
 import InjuryModel3D from "@/components/veterinarian/InjuryModel3D";
-import HorseStableYard from "@/components/veterinarian/HorseStableYard";
+import StableWorkspace from "./StableWorkspace";
 import { CompactId } from "@/components/shared/CompactId";
 import type { Horse } from "@/api/horses/api";
 import { APP_MUTATION_COMPLETED_EVENT, NOTIFICATION_COUNT_CHANGED_EVENT } from "@/api/client";
@@ -236,12 +235,11 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
-  const [unread, setUnread] = useState(0);
-  const [actionCount, setActionCount] = useState(0);
+  const [, setUnread] = useState(0);
+  const [, setActionCount] = useState(0);
   const [actionItems, setActionItems] = useState<VetActionItem[]>([]);
   const [actionItemsLoading, setActionItemsLoading] = useState(true);
   const [actionItemsError, setActionItemsError] = useState("");
-  const [openIncidentCount, setOpenIncidentCount] = useState(0);
   const [recentActivities, setRecentActivities] = useState<VetActivity[]>([]);
   const [activityHistoryReady, setActivityHistoryReady] = useState(false);
   const [autoOpenExam, setAutoOpenExam] = useState(false);
@@ -251,12 +249,8 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
     setLoading(true);
     setError("");
     try {
-      const [result, incidents] = await Promise.all([
-        veterinarianApi.overview(),
-        veterinarianApi.incidents("Open").catch(() => null),
-      ]);
+      const result = await veterinarianApi.overview();
       setOverview(result);
-      if (incidents) setOpenIncidentCount(incidents.data.length);
       setSelectedId((current) => result.horses.some((horse) => horse.id === current)
         ? current
         : result.horses[0]?.id ?? "");
@@ -354,14 +348,6 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
       window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
     };
   }, [horses, loadActionItems, loadOverview, loadUnread]);
-  const stableGroups = useMemo(() => {
-    const groups = new Map<string, VetHorse[]>();
-    for (const item of horses) {
-      const location = item.stable_box ? `Khu ${item.stable_box.section} · Chuồng ${item.stable_box.box_code}` : "Chưa xếp chuồng";
-      groups.set(location, [...(groups.get(location) ?? []), item]);
-    }
-    return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right, "vi"));
-  }, [horses]);
   const visibleHorses = horses.filter((item) => {
     const query = search.trim().toLocaleLowerCase("vi");
     return item.horse_name.toLocaleLowerCase("vi").includes(query)
@@ -399,21 +385,7 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
       </div>}
 
       {tab === "stables" ? (
-        <div className="mt-5 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(280px,430px)_minmax(0,1fr)]">
-          <StableMapPanel
-            horses={horses}
-            stableGroups={stableGroups}
-            selectedId={selectedId}
-            openIncidentCount={openIncidentCount}
-            unread={unread}
-            actionCount={actionCount}
-            onIncident={() => { selectTab("incidents"); }}
-            onNotifications={() => { selectTab("notifications"); }}
-            onRefresh={() => { void loadOverview(); void loadUnread(); }}
-            onSelectHorse={(id) => { setSelectedId(id); selectTab("overview"); }}
-          />
-          <HorseStableYard horses={horses} onSelectHorse={setSelectedId} />
-        </div>
+        <StableWorkspace onSelectHorse={setSelectedId} horses={horses} loading={loading} onRefresh={() => { void loadOverview(); }} onOpen={(id) => { setSelectedId(id); selectTab("overview"); }} />
       ) : (
       <div className="mt-4 min-w-0">
           {horse && <>
@@ -465,54 +437,6 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
       )}
     </section>
   );
-}
-
-function StableMapPanel({
-  horses,
-  stableGroups,
-  selectedId,
-  openIncidentCount,
-  unread,
-  actionCount,
-  onIncident,
-  onNotifications,
-  onRefresh,
-  onSelectHorse,
-}: {
-  horses: VetHorse[];
-  stableGroups: [string, VetHorse[]][];
-  selectedId: string | null;
-  openIncidentCount: number;
-  unread: number;
-  actionCount: number;
-  onIncident: () => void;
-  onNotifications: () => void;
-  onRefresh: () => void;
-  onSelectHorse: (id: string) => void;
-}) {
-  return <section className="overflow-hidden rounded-lg border border-equine-line bg-white shadow-sm" aria-label="Sơ đồ chuồng trại">
-    <div className="flex items-center justify-between gap-2 border-b border-equine-line px-3 py-2.5">
-      <div className="min-w-0">
-        <h2 className="font-sans text-sm font-semibold text-equine-navy">Sơ đồ chuồng trại</h2>
-        <p className="mt-0.5 text-[11px] text-slate-500">{horses.length} ngựa · {stableGroups.length} vị trí</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <button type="button" title="Sự cố" aria-label={`Sự cố cần xử lý: ${openIncidentCount}`} onClick={onIncident} className="relative grid h-8 w-8 place-items-center rounded-md text-rose-700 hover:bg-rose-50"><AlertTriangle size={15} /><span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-rose-100 px-1 text-[9px] font-bold">{openIncidentCount}</span></button>
-        <button type="button" title="Thông báo" aria-label={`Thông báo: ${unread} chưa đọc, ${actionCount} việc cần xử lý`} onClick={onNotifications} className="relative grid h-8 w-8 place-items-center rounded-md text-equine-navy hover:bg-equine-mist"><Bell size={15} /><span className={`absolute -right-1 -top-1 min-w-4 rounded-full px-1 text-[9px] font-bold ${unread ? "bg-rose-100 text-rose-700" : "bg-equine-mist text-slate-600"}`}>{unread}</span>{actionCount > 0 && <span className="absolute -bottom-0.5 -right-1 h-2 w-2 rounded-full bg-amber-500" />}</button>
-        <button type="button" title="Làm mới" aria-label="Làm mới dữ liệu" className="grid h-8 w-8 place-items-center rounded-md text-equine-navy hover:bg-equine-mist" onClick={onRefresh}><RefreshCw size={14} /></button>
-      </div>
-    </div>
-    <div className="max-h-[min(70vh,560px)] space-y-2 overflow-y-auto p-2.5">
-      {stableGroups.map(([location, occupants]) => <div key={location} className="rounded-md border border-equine-line bg-[#f8fafc] p-2">
-        <p className="mb-1.5 truncate text-[10px] font-bold uppercase tracking-wide text-slate-500">{location}</p>
-        <div className="space-y-1.5">{occupants.map((item) => <button type="button" key={item.id} onClick={() => onSelectHorse(item.id)} aria-pressed={item.id === selectedId} className={`flex w-full items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-left transition ${item.id === selectedId ? "border-equine-navy bg-slate-100 font-semibold text-equine-navy shadow-sm" : "border-equine-line bg-white hover:bg-slate-50"}`}>
-          <span className="truncate text-xs font-semibold text-equine-navy">{item.horse_name}{item.is_training_locked ? " · Khóa" : ""}</span>
-          <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold ${item.current_status === "Injured" || item.current_status === "Quarantine" ? "bg-rose-100 text-rose-800" : item.current_status === "Monitoring" ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"}`}>{statusLabels[item.current_status] ?? item.current_status}</span>
-        </button>)}</div>
-      </div>)}
-      {!stableGroups.length && <p className="rounded-md bg-equine-mist px-3 py-4 text-center text-xs text-slate-500">Chưa có vị trí chuồng.</p>}
-    </div>
-  </section>;
 }
 
 function HorseChoice({ horse, selected, onClick }: { horse: VetHorse; selected: boolean; onClick: () => void }) {
