@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, Shield, ShieldAlert, X } from "lucide-react";
 import { horseRequest, horseStatus, type Horse } from "@/api/horses/api";
+import { APP_MUTATION_COMPLETED_EVENT } from "@/api/client";
 
 export function HorseImage({ horse, preview }: { horse?: Horse; preview?: string }) {
   const [url, setUrl] = useState<string>();
@@ -10,16 +11,42 @@ export function HorseImage({ horse, preview }: { horse?: Horse; preview?: string
   useEffect(() => {
     setUrl(undefined);
     setLoaded(false);
-    if (!horse?.image_url || preview) return;
+    // Role-specific lists may omit image_url. The horse ID is the shared source
+    // of truth for resolving the current, authorized image URL.
+    if (!horse?.id || preview) return;
     let active = true;
-    const refresh = () => horseRequest<{ hasImage: boolean; url?: string }>(`/${horse.id}/image`)
-      .then(data => { if (active) setUrl(data.url); }).catch(() => { if (active) setUrl(undefined); });
+    let refreshing = false;
+    const refresh = async () => {
+      if (refreshing || document.visibilityState === "hidden") return;
+      refreshing = true;
+      try {
+        const data = await horseRequest<{ hasImage: boolean; url?: string }>(`/${encodeURIComponent(horse.id)}/image`, { cache: "no-store" });
+        if (active) setUrl(data.hasImage ? data.url : undefined);
+      } catch {
+        // Keep a working image during transient API failures; retry on refresh.
+      } finally {
+        refreshing = false;
+      }
+    };
+    const onMutation = (event: Event) => {
+      const path = (event as CustomEvent<{ path?: string }>).detail?.path;
+      if (path?.startsWith("/api/horses") || path?.startsWith("/api/horse-owner/horse-registration-requests")) void refresh();
+    };
     void refresh();
-    const timer = setInterval(refresh, 240000);
-    return () => { active = false; clearInterval(timer); };
+    const timer = setInterval(() => void refresh(), 30000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener(APP_MUTATION_COMPLETED_EVENT, onMutation);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, onMutation);
+    };
   }, [horse?.id, horse?.image_url, preview]);
   const [broken, setBroken] = useState(false);
-  useEffect(() => setBroken(false), [preview, url]);
+  useEffect(() => { setBroken(false); setLoaded(false); }, [preview, url]);
   return (preview || url) && !broken
     // Signed URLs expire and are authorized per user; do not cache them in Next's image optimizer.
     // eslint-disable-next-line @next/next/no-img-element

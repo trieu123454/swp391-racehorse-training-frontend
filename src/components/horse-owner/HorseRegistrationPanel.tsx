@@ -114,10 +114,6 @@ export default function HorseRegistrationPanel() {
       const selected = values.getAll(field).filter((value): value is File => value instanceof File && value.size > 0);
       selected.forEach((file) => { files.push(file); documentTypes.push(type); });
     }
-    if (!editingRequest && files.length === 0) {
-      setError("Đính kèm ít nhất một giấy tờ hỗ trợ hồ sơ.");
-      return;
-    }
     if (files.length > 5) {
       setError("Mỗi lần gửi tối đa 5 giấy tờ xác minh.");
       return;
@@ -274,7 +270,7 @@ export default function HorseRegistrationPanel() {
                 <h3 className="font-sans text-base font-semibold text-equine-navy">Ảnh & giấy tờ</h3>
               </div>
               {editingRequest && <p className="mb-3 text-xs text-slate-500">Giấy tờ các lần gửi trước được giữ trong lịch sử; mỗi lần bổ sung có thể tải lên tối đa 5 tệp mới.</p>}
-              <div className="grid gap-3.5 sm:grid-cols-2">
+              <fieldset className="grid gap-3.5 sm:grid-cols-2">
                 <div className="rounded-lg bg-slate-50/80 p-3.5">
                   <label className="block">
                     <span className="flex items-center gap-2 text-sm font-semibold text-equine-navy">
@@ -330,7 +326,7 @@ export default function HorseRegistrationPanel() {
                     <input className="mt-2.5 block w-full cursor-pointer text-xs text-slate-600 file:mr-2.5 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-50" type="file" name="otherDocuments" accept="application/pdf,image/jpeg,image/png,image/webp" multiple />
                   </label>
                 </div>
-              </div>
+              </fieldset>
               <label className="mt-4 block"><span className="field-label">Ghi chú thêm</span><textarea className="field-control min-h-24 px-3 py-2" name="ownerNote" maxLength={1000} placeholder="Thông tin bổ sung (nếu có)." defaultValue={editingRequest?.owner_note ?? ""} /></label>
             </section>
 

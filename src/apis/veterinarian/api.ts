@@ -35,6 +35,8 @@ export type HealthExam = {
   id: string;
   horse_id: string;
   exam_date: string;
+  exam_type?: string | null;
+  conclusion?: string | null;
   doctor_id?: number;
   doctor?: VetPerson | null;
   temperature_c: number | string | null;

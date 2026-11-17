@@ -404,6 +404,7 @@ export default function ClubManagerWorkspace() {
       </Panel>}
 
       {tab === "horse-requests" && <HorseRegistrationReviewPanel
+        loadFailed={loadErrors["horse-requests"].some((item) => item.section === "Yêu cầu hồ sơ ngựa")}
         requests={horseRequests}
         horses={horses}
         stables={stables}
@@ -550,7 +551,8 @@ function Panel({ title, icon: Icon, children }: { title: string; icon: typeof Ac
   return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h2 className="mb-4 flex items-center gap-2 font-sans text-lg font-normal text-equine-navy"><Icon size={18} />{title}</h2>{children}</section>;
 }
 
-function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onReview }: {
+function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onReview, loadFailed }: {
+  loadFailed: boolean;
   requests: ManagerHorseRegistrationRequest[];
   horses: Option[];
   stables: Stable[];
@@ -558,7 +560,7 @@ function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onRevie
   onReview: (id: string, action: "APPROVE" | "REQUEST_INFORMATION" | "REJECT", form: HTMLFormElement) => void;
 }) {
   return (
-    <Panel title={`Yêu cầu hồ sơ ngựa · ${requests.length} chờ duyệt`} icon={FileText}>
+    <Panel title={loadFailed ? "Yêu cầu hồ sơ ngựa · Không tải được dữ liệu" : `Yêu cầu hồ sơ ngựa · ${requests.length} chờ duyệt`} icon={FileText}>
       <div className="space-y-5">
         {requests.map((request) => {
           const candidateHorses = horses;
@@ -795,7 +797,7 @@ function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onRevie
             </article>
           );
         })}
-        {!requests.length && (
+        {!loadFailed && !requests.length && (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-8 text-center text-sm text-slate-500">
             <CheckCircle2 size={24} className="mx-auto text-emerald-500 mb-2" />
             <p className="font-semibold text-slate-700">Tất cả yêu cầu đã được xử lý</p>
