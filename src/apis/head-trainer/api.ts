@@ -128,6 +128,8 @@ export type RaceScheduleConflict = {
   event_date: string;
   start_time?: string | null;
   end_time?: string | null;
+  source_table?: string | null;
+  source_id?: string | null;
   horse_name?: string | null;
 };
 

@@ -17,6 +17,7 @@ import {
   type CareCalendarEvent,
   type RaceEligibility,
   type RaceOption,
+  type RaceScheduleConflict,
   type Simulation,
   type SensorReading,
   type TrainingMetric,
@@ -1079,6 +1080,41 @@ export default function HeadTrainerWorkspace() {
     setFinishFailed(false); finishStartedRef.current = false; setSimulation(next);
   }
 
+  async function cancelTrainingConflict(conflict: RaceScheduleConflict): Promise<boolean> {
+    let scheduleId = conflict.source_table === "training_schedules" && conflict.source_id
+      ? conflict.source_id
+      : null;
+    const matchesSession = (session: TrainingSession) =>
+      session.horse_id === horseId
+      && session.event_date === conflict.event_date
+      && session.status !== "Cancelled"
+      && (session.calendar_event_id === conflict.event_id
+        || session.event_id === conflict.event_id
+        || (Boolean(conflict.start_time) && session.start_time?.slice(0, 5) === conflict.start_time?.slice(0, 5)));
+    if (!scheduleId) {
+      scheduleId = sessions.find(matchesSession)?.training_schedule_id ?? null;
+    }
+    if (!scheduleId) {
+      try {
+        const dayCalendar = await headTrainerApi.calendar(conflict.event_date, conflict.event_date);
+        scheduleId = (dayCalendar.data ?? []).find(matchesSession)?.training_schedule_id ?? null;
+      } catch {
+        // Fallback error is shown below when scheduleId remains null.
+      }
+    }
+    if (!scheduleId) {
+      setError("Không tìm thấy mã buổi tập để hủy tự động. Vui lòng mở Lịch tập để xử lý.");
+      return false;
+    }
+    const updated = await run(
+      () => headTrainerApi.updateSchedule(scheduleId, { status: "Cancelled" }),
+      "Đã hủy buổi tập trùng lịch ngày đua.",
+    );
+    if (!updated) return false;
+    await refresh();
+    return true;
+  }
+
   if (loading) return <div className="mt-10 rounded-lg border border-equine-line bg-white p-6 shadow-sm"><Notice>Đang tải dữ liệu huấn luyện…</Notice></div>;
 
   return <section className="head-trainer-workspace mt-5" aria-label="Điều phối huấn luyện">
@@ -1117,7 +1153,7 @@ export default function HeadTrainerWorkspace() {
     <div className="mt-5 space-y-4">
       {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} />
         : !horses.length ? <Notice>Chưa có hồ sơ ngựa đang hoạt động.</Notice> : <>
-        {tab !== "simulation" && <div className="relative flex flex-wrap items-center gap-4 rounded-xl border border-blue-200 bg-gradient-to-r from-equine-mist via-white to-slate-50 p-4 shadow-sm ring-1 ring-blue-100/70">
+        {tab !== "simulation" && tab !== "races" && <div className="relative flex flex-wrap items-center gap-4 rounded-xl border border-blue-200 bg-gradient-to-r from-equine-mist via-white to-slate-50 p-4 shadow-sm ring-1 ring-blue-100/70">
           <div className="relative order-2 flex w-full max-w-sm items-center gap-2">
             <label className="sr-only" htmlFor="trainer-horse-search">Tìm ngựa đang xem</label>
             <button type="button" aria-label="Mở danh sách ngựa" className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-slate-500 hover:text-equine-navy" onMouseDown={(event) => event.preventDefault()} onClick={() => setHorseSelectorOpen((open) => !open)}><ChevronDown size={20} aria-hidden="true" /></button>
@@ -1157,6 +1193,15 @@ export default function HeadTrainerWorkspace() {
           horses={horses}
           races={races}
           entries={raceEntries}
+          refreshRevision={analysisRevision}
+          onSelectHorse={setHorseId}
+          onCancelTrainingConflict={cancelTrainingConflict}
+          onOpenCalendarOnDate={(date) => {
+            const start = mondayOfWeek(date);
+            setCalendarFrom(start);
+            setCalendarTo(plusDays(start, 6));
+            selectTab("calendar");
+          }}
           onRecordResult={async (entryId, input) => {
             const result = await run(() => headTrainerApi.recordRaceResult(entryId, input), "Đã lưu kết quả thi đấu chính thức và cập nhật tài chính.");
             if (result) await refresh();
@@ -3983,10 +4028,62 @@ function formatIsoDateVi(value?: string | null) {
     : new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(parsed);
 }
 
+function conflictTypeLabel(eventType: string) {
+  return ({
+    Training: "Buổi tập",
+    TrialRun: "Chạy thử",
+    Race: "Giải đấu",
+    HoofCheck: "Kiểm tra móng",
+    Deworming: "Tẩy giun",
+    Vaccination: "Tiêm phòng",
+    MedicalCheckup: "Khám định kỳ",
+  } as Record<string, string>)[eventType] ?? eventType;
+}
+
+function isTrainingConflict(conflict: RaceScheduleConflict) {
+  return conflict.source_table === "training_schedules"
+    || conflict.event_type === "Training"
+    || conflict.event_type === "TrialRun";
+}
+
+function horseRaceTier(horse: Horse) {
+  if (horse.is_training_locked || horse.current_status !== "Healthy") return 2;
+  if (horse.readiness_status !== "Ready") return 1;
+  return 0;
+}
+
+function horseRaceBadge(horse: Horse) {
+  if (horse.is_training_locked) return { label: "Đang khóa", cls: "bg-rose-100 text-rose-800" };
+  if (horse.current_status !== "Healthy") return { label: trainerHorseHealthLabel(horse.current_status), cls: "bg-rose-100 text-rose-800" };
+  if (horse.readiness_status !== "Ready") return { label: "Chờ BS duyệt", cls: "bg-amber-100 text-amber-800" };
+  return { label: "Đủ chuẩn", cls: "bg-emerald-100 text-emerald-800" };
+}
+
 type TrainerEntryFilter = "ALL" | "PENDING_RESULT" | "UPCOMING" | "COMPLETED" | "INACTIVE";
 
-function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, onRecordResult, onCancelEntry, onRestoreEntry, busy }: {
-  selectedHorse: Horse | null; horses: Horse[]; races: RaceOption[]; entries: Record<string, unknown>[];
+function RaceEntriesPanel({
+  selectedHorse,
+  horses,
+  races,
+  entries,
+  refreshRevision,
+  onSelectHorse,
+  onCancelTrainingConflict,
+  onOpenCalendarOnDate,
+  onRegister,
+  onRecordResult,
+  onCancelEntry,
+  onRestoreEntry,
+  busy,
+}: {
+  selectedHorse: Horse | null;
+  horses: Horse[];
+  races: RaceOption[];
+  entries: Record<string, unknown>[];
+  refreshRevision: number;
+  onSelectHorse: (horseId: string) => void;
+  onCancelTrainingConflict: (conflict: RaceScheduleConflict) => Promise<boolean>;
+  onOpenCalendarOnDate: (date: string) => void;
   onRegister: (id: string) => void;
   onRecordResult: (id: string, input: { result_position: number; prize_amount: number }) => void;
   onCancelEntry: (entryId: string, reason: string) => Promise<void>;
@@ -3995,12 +4092,16 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
 }) {
   const [viewMode, setViewMode] = useState<"official" | "preview3d">("official");
   const [raceId, setRaceId] = useState("");
+  const [horseSearchQuery, setHorseSearchQuery] = useState("");
+  const [onlyReadyHorses, setOnlyReadyHorses] = useState(false);
   const [entryFilter, setEntryFilter] = useState<TrainerEntryFilter>("ALL");
   const [trackSurface, setTrackSurface] = useState("Turf");
   const [competitorIds, setCompetitorIds] = useState<string[]>(() => selectedHorse ? [selectedHorse.id] : []);
   const [runStartTime, setRunStartTime] = useState<number | null>(null);
   const [raceSpeed, setRaceSpeed] = useState<number>(1);
   const [eligibilityState, setEligibilityState] = useState<{ key: string; data?: RaceEligibility; error?: string } | null>(null);
+  const [eligibilityCheckSeq, setEligibilityCheckSeq] = useState(0);
+  const [resolvingConflictId, setResolvingConflictId] = useState<string | null>(null);
   const [cancellingEntry, setCancellingEntry] = useState<{ id: string; raceName: string } | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [confirmingResult, setConfirmingResult] = useState<{ entryId: string; raceName: string; position: number; prize: number } | null>(null);
@@ -4011,17 +4112,48 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
     setCompetitorIds((current) => current.includes(selectedHorseId) || current.length >= 5 ? current : [selectedHorseId, ...current]);
   }, [selectedHorseId]);
 
-  const effectiveRaceId = races.some((race) => race.id === raceId) ? raceId : "";
-  const eligibilityKey = selectedHorseId && effectiveRaceId ? `${selectedHorseId}|${effectiveRaceId}|${entries.length}` : "";
+  const activeRegisteredRaceIds = useMemo(() => {
+    const set = new Set<string>();
+    for (const entry of entries) {
+      if (String(entry.status ?? "") !== "Cancelled" && entry.race_id) {
+        set.add(String(entry.race_id));
+      }
+    }
+    return set;
+  }, [entries]);
+
+  const effectiveRaceId = useMemo(() => {
+    if (races.some((race) => race.id === raceId)) return raceId;
+    return races.find((race) => !activeRegisteredRaceIds.has(race.id))?.id ?? races[0]?.id ?? "";
+  }, [races, raceId, activeRegisteredRaceIds]);
+
+  const entriesSignature = useMemo(
+    () => entries.map((entry) => `${String(entry.id ?? "")}:${String(entry.status ?? "")}`).join(","),
+    [entries],
+  );
+
+  const eligibilityKey = selectedHorseId && effectiveRaceId
+    ? [
+      selectedHorseId,
+      effectiveRaceId,
+      selectedHorse?.current_status ?? "",
+      selectedHorse?.readiness_status ?? "",
+      String(Boolean(selectedHorse?.is_training_locked)),
+      entriesSignature,
+      String(refreshRevision),
+      String(eligibilityCheckSeq),
+    ].join("|")
+    : "";
+
   useEffect(() => {
-    if (!selectedHorseId || !effectiveRaceId) return;
+    if (!selectedHorseId || !effectiveRaceId || !eligibilityKey) return;
     let active = true;
-    const key = `${selectedHorseId}|${effectiveRaceId}|${entries.length}`;
+    const key = eligibilityKey;
     headTrainerApi.raceEligibility(selectedHorseId, effectiveRaceId)
       .then((data) => { if (active) setEligibilityState({ key, data }); })
       .catch((reason) => { if (active) setEligibilityState({ key, error: headTrainerError(reason) }); });
     return () => { active = false; };
-  }, [selectedHorseId, effectiveRaceId, entries.length]);
+  }, [selectedHorseId, effectiveRaceId, eligibilityKey]);
 
   const checkingEligibility = Boolean(eligibilityKey && eligibilityState?.key !== eligibilityKey);
   const eligibility = eligibilityKey && eligibilityState?.key === eligibilityKey ? eligibilityState.data ?? null : null;
@@ -4029,6 +4161,22 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
 
   const horsePool = selectedHorse && !horses.some((horse) => horse.id === selectedHorse.id) ? [selectedHorse, ...horses] : horses;
   const availableHorses = horsePool.filter((horse) => !horse.deleted_at);
+  const sortedHorses = useMemo(() => {
+    return [...availableHorses].sort((left, right) => {
+      const tierDiff = horseRaceTier(left) - horseRaceTier(right);
+      return tierDiff !== 0 ? tierDiff : left.horse_name.localeCompare(right.horse_name, "vi");
+    });
+  }, [availableHorses]);
+  const readyHorseCount = useMemo(() => sortedHorses.filter((horse) => horseRaceTier(horse) === 0).length, [sortedHorses]);
+  const filteredQuickHorses = useMemo(() => {
+    const query = normalizeHorseSearch(horseSearchQuery.trim());
+    return sortedHorses.filter((horse) => {
+      if (onlyReadyHorses && horseRaceTier(horse) !== 0) return false;
+      if (!query) return true;
+      return normalizeHorseSearch(`${horse.horse_name} ${horse.id}`).includes(query);
+    });
+  }, [sortedHorses, horseSearchQuery, onlyReadyHorses]);
+
   const competitors = competitorIds.map((id) => availableHorses.find((horse) => horse.id === id)).filter((horse): horse is Horse => Boolean(horse));
   const raceRunners: RaceTrackRunner[] = competitors.slice(0, 5).map((horse, index) => ({
     id: horse.id,
@@ -4041,15 +4189,6 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
   const targetDistance = selectedRace?.distance_meters ?? 1600;
 
   const todayStr = today();
-  const activeRegisteredRaceIds = useMemo(() => {
-    const set = new Set<string>();
-    for (const entry of entries) {
-      if (String(entry.status ?? "") !== "Cancelled" && entry.race_id) {
-        set.add(String(entry.race_id));
-      }
-    }
-    return set;
-  }, [entries]);
 
   const entryStats = useMemo(() => {
     let upcoming = 0;
@@ -4107,9 +4246,53 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
     });
   }
 
+  async function handleCancelConflict(conflict: RaceScheduleConflict) {
+    setResolvingConflictId(conflict.event_id);
+    try {
+      const ok = await onCancelTrainingConflict(conflict);
+      if (ok) setEligibilityCheckSeq((value) => value + 1);
+    } finally {
+      setResolvingConflictId(null);
+    }
+  }
+
+  async function handleCancelAllTrainingConflicts(items: RaceScheduleConflict[]) {
+    if (!items.length) return;
+    setResolvingConflictId("ALL");
+    try {
+      let changed = false;
+      for (const item of items) {
+        const ok = await onCancelTrainingConflict(item);
+        if (ok) changed = true;
+      }
+      if (changed) setEligibilityCheckSeq((value) => value + 1);
+    } finally {
+      setResolvingConflictId(null);
+    }
+  }
+
   const isHealthy = selectedHorse?.current_status === "Healthy";
   const isReady = selectedHorse?.readiness_status === "Ready";
   const isLocked = Boolean(selectedHorse?.is_training_locked);
+  const lockCheckFailed = isLocked || Boolean(eligibility?.has_unresolved_injury);
+  const conflicts = eligibility?.conflicts ?? [];
+  const trainingConflicts = conflicts.filter(isTrainingConflict);
+  const extraBlockingReasons = (eligibility?.blocking_reasons ?? []).filter((reason) =>
+    !reason.startsWith("Ngựa đang bị khóa huấn luyện")
+    && !reason.startsWith("Trạng thái sức khỏe hiện tại")
+    && !reason.startsWith("Bác sĩ thú y chưa đánh giá Sẵn sàng")
+    && !reason.startsWith("Ngựa vẫn còn chấn thương")
+    && !(eligibility?.already_registered && reason.startsWith("Ngựa đã có đăng ký đang hiệu lực")),
+  );
+  const scheduleCheckPassed = Boolean(
+    effectiveRaceId
+    && !checkingEligibility
+    && !eligibilityError
+    && eligibility
+    && !eligibility.already_registered
+    && conflicts.length === 0
+    && extraBlockingReasons.length === 0,
+  );
   const canSubmitRegister = Boolean(
     effectiveRaceId
     && selectedHorse
@@ -4121,50 +4304,35 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
     && eligibility?.eligible,
   );
 
-  const lockCheckFailed = isLocked || Boolean(eligibility?.has_unresolved_injury);
-  const medicalEligible = isHealthy && isReady && !lockCheckFailed;
+  const registerButtonLabel = canSubmitRegister
+    ? `+ Đăng ký ${selectedHorse?.horse_name ?? "ngựa"} vào giải này`
+    : !effectiveRaceId
+      ? "Chọn giải đấu ở Bước 1 để đăng ký"
+      : checkingEligibility
+        ? "Đang kiểm tra điều kiện tham dự..."
+        : eligibility?.already_registered
+          ? "Ngựa đã đăng ký giải đấu này"
+          : lockCheckFailed
+            ? "Đang bị khóa / chấn thương — chưa thể đăng ký"
+            : !isHealthy
+              ? "Ngựa chưa Khỏe mạnh (Healthy) — chưa thể đăng ký"
+              : !isReady
+                ? "Cần Bác sĩ thú y duyệt “Sẵn sàng” trước khi đăng ký"
+                : trainingConflicts.length > 0
+                  ? `Hủy ${trainingConflicts.length} buổi tập trùng ở trên để đăng ký`
+                  : conflicts.length > 0
+                    ? `Xử lý ${conflicts.length} lịch trùng ở trên để đăng ký`
+                    : extraBlockingReasons[0] ?? "+ Đăng ký ngựa vào giải chính thức";
 
-  return <div className="space-y-5">
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <article className={`rounded-xl border p-4 ${medicalEligible ? "border-emerald-200 bg-emerald-50/60" : "border-rose-200 bg-rose-50/60"}`}>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-bold uppercase tracking-wide text-slate-600">Điều kiện y tế & Thể lực</span>
-          <HeartPulse size={17} className={medicalEligible ? "text-emerald-700" : "text-rose-700"} />
-        </div>
-        <p className="mt-2 text-base font-bold text-equine-navy">
-          {medicalEligible ? "Đủ chuẩn thi đấu" : "Chưa đủ điều kiện"}
-        </p>
-        <p className="mt-1 text-xs text-slate-600">
-          {trainerHorseHealthLabel(selectedHorse?.current_status)} · {trainerHorseReadinessLabel(selectedHorse?.readiness_status)}
-          {isLocked ? " · Đang khóa HL" : " · Không khóa"}
-        </p>
-      </article>
-
-      <StatCard icon={Flag} label="Sắp thi đấu" value={`${entryStats.upcoming} giải`} />
-      <StatCard
-        icon={Clock}
-        label="Chờ ghi kết quả"
-        value={`${entryStats.pendingResult} giải`}
-        warning={entryStats.pendingResult > 0}
-      />
-      <article className="rounded-lg border border-equine-line bg-white p-4">
-        <div className="flex items-center justify-between gap-2">
-          <Medal className="text-equine-teal" size={18} />
-          <span className="text-xs font-semibold text-amber-800">{entryStats.wins > 0 ? `${entryStats.wins} vô địch` : "Thành tích"}</span>
-        </div>
-        <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">Hoàn thành & Thưởng</p>
-        <p className="mt-1 text-lg font-semibold text-equine-navy">{entryStats.completed} giải · {formatPrizeVnd(entryStats.totalPrize)}</p>
-      </article>
-    </div>
-
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-equine-line bg-white p-2 shadow-sm">
+  return <div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-equine-line bg-white p-2.5 shadow-sm">
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => setViewMode("official")}
           className={viewMode === "official" ? "gold-button !min-h-[38px] !px-4 !text-sm" : "soft-button !min-h-[38px] !px-4 !text-sm"}
         >
-          <Flag size={15} /> Đăng ký & Kết quả giải chính thức
+          <Flag size={15} /> Đăng ký &amp; Kết quả giải chính thức
         </button>
         <button
           type="button"
@@ -4174,49 +4342,101 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
           <Play size={15} /> Mô phỏng đường đua 3D (Thử sân)
         </button>
       </div>
-      {selectedHorse && (
-        <span className="px-2 text-xs text-slate-500">
-          Ngựa đang thao tác: <strong className="text-equine-navy">{selectedHorse.horse_name}</strong>
-        </span>
+      {viewMode === "official" && selectedHorse && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-full bg-sky-50 px-2.5 py-1 font-semibold text-sky-800">
+            Sắp thi đấu: {entryStats.upcoming}
+          </span>
+          <span className={`rounded-full px-2.5 py-1 font-semibold ${entryStats.pendingResult > 0 ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-600"}`}>
+            Chờ ghi KQ: {entryStats.pendingResult}
+          </span>
+          <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-800">
+            Hoàn thành: {entryStats.completed}{entryStats.totalPrize > 0 ? ` · ${formatPrizeVnd(entryStats.totalPrize)}` : ""}
+          </span>
+        </div>
       )}
     </div>
 
+    {viewMode === "official" && (
+      <section className="rounded-xl border border-equine-line bg-white p-3.5 shadow-sm space-y-3" aria-label="Chọn nhanh ngựa thi đấu">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-extrabold uppercase tracking-wide text-equine-navy">Chọn ngựa thi đấu</span>
+            <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${readyHorseCount > 0 ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+              {readyHorseCount}/{availableHorses.length} ngựa đủ chuẩn y tế
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="relative">
+              <span className="sr-only">Tìm nhanh tên ngựa</span>
+              <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={horseSearchQuery}
+                onChange={(event) => setHorseSearchQuery(event.target.value)}
+                placeholder="Tìm tên ngựa..."
+                className="field-control !min-h-[34px] w-44 pl-8 pr-2.5 text-xs"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => setOnlyReadyHorses((value) => !value)}
+              className={onlyReadyHorses ? "gold-button !min-h-[34px] !px-3 !text-xs" : "soft-button !min-h-[34px] !px-3 !text-xs"}
+            >
+              Chỉ hiện đủ chuẩn ({readyHorseCount})
+            </button>
+          </div>
+        </div>
+        <div className="flex max-h-32 flex-wrap gap-2 overflow-y-auto pr-1" role="listbox" aria-label="Danh sách chọn ngựa nhanh">
+          {filteredQuickHorses.map((horse) => {
+            const picked = horse.id === selectedHorseId;
+            const badge = horseRaceBadge(horse);
+            return (
+              <button
+                key={horse.id}
+                type="button"
+                role="option"
+                aria-selected={picked}
+                onClick={() => onSelectHorse(horse.id)}
+                className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs transition ${
+                  picked
+                    ? "border-equine-navy bg-equine-navy text-white shadow-sm"
+                    : "border-slate-200 bg-slate-50/70 text-slate-800 hover:border-equine-navy/50 hover:bg-white"
+                }`}
+              >
+                <span className="font-semibold">{horse.horse_name}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${picked ? "bg-white/20 text-white" : badge.cls}`}>
+                  {badge.label}
+                </span>
+              </button>
+            );
+          })}
+          {!filteredQuickHorses.length && (
+            <p className="text-xs text-slate-500 py-1">
+              {onlyReadyHorses ? "Hiện chưa có ngựa nào đạt đủ chuẩn Healthy + Ready." : "Không tìm thấy ngựa phù hợp."}
+            </p>
+          )}
+        </div>
+      </section>
+    )}
+
     {viewMode === "official" ? (
-      <div className="grid gap-5 xl:grid-cols-[1.02fr_1.18fr]">
+      <div className="grid gap-5 xl:grid-cols-[1.04fr_1.16fr]">
         <Section
           title="Đăng ký giải đấu chính thức"
-          description={selectedHorse ? `Thực hiện từng bước cho ngựa ${selectedHorse.horse_name}` : "Chọn ngựa phía trên"}
-          help="Kiểm tra 4 điều kiện bắt buộc (Sức khỏe, Đánh giá Vet, Khóa HL, Trùng lịch) và cảnh báo hồi phục trước khi chốt đăng ký."
+          description={selectedHorse ? `Ngựa đang chọn: ${selectedHorse.horse_name}` : "Chọn ngựa phía trên"}
+          help="Chọn giải mở, xem nhanh 4 điều kiện và bấm hủy ngay buổi tập trùng nếu có để hoàn tất đăng ký."
           icon={Flag}
         >
           <div className="space-y-4">
-            <div className="rounded-xl border border-equine-line bg-slate-50/80 p-3.5 space-y-3">
+            <div className="rounded-xl border border-equine-line bg-slate-50/80 p-3 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-extrabold uppercase tracking-wide text-equine-navy">Bước 1 · Chọn giải đấu đang mở</span>
                 <span className="text-xs text-slate-500">{races.length} giải sắp tới</span>
               </div>
 
-              <label className="block">
-                <span className="sr-only">Chọn giải đấu chính thức</span>
-                <select
-                  className="field-control bg-white px-3"
-                  value={effectiveRaceId}
-                  onChange={(event) => { setRaceId(event.target.value); setRunStartTime(null); }}
-                >
-                  <option value="">-- Chọn giải đấu chính thức --</option>
-                  {races.map((race) => (
-                    <option key={race.id} value={race.id}>
-                      {race.race_name} · {race.race_date}
-                      {race.distance_meters ? ` · ${race.distance_meters.toLocaleString("vi-VN")} m` : ""}
-                      {race.grade ? ` · Hạng ${race.grade}` : ""}
-                      {activeRegisteredRaceIds.has(race.id) ? " (Đã ĐK)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
               {races.length > 0 ? (
-                <div className="max-h-56 space-y-2 overflow-y-auto pr-1" role="listbox" aria-label="Danh sách giải đấu chính thức">
+                <div className="max-h-60 space-y-2 overflow-y-auto pr-1" role="listbox" aria-label="Danh sách giải đấu chính thức">
                   {races.map((race) => {
                     const isPicked = effectiveRaceId === race.id;
                     const alreadyIn = activeRegisteredRaceIds.has(race.id);
@@ -4229,8 +4449,8 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
                         onClick={() => { setRaceId(race.id); setRunStartTime(null); }}
                         className={`w-full rounded-lg border p-2.5 text-left transition ${
                           isPicked
-                            ? "border-equine-navy bg-white ring-2 ring-equine-navy/15 shadow-sm"
-                            : "border-slate-200 bg-white/80 hover:border-equine-teal/60 hover:bg-white"
+                            ? "border-equine-navy bg-sky-50/40 ring-2 ring-equine-navy/15 shadow-sm"
+                            : "border-slate-200 bg-white hover:border-equine-teal/60"
                         }`}
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4252,114 +4472,152 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
               ) : (
                 <Notice>Hiện chưa có giải đấu chính thức nào đang mở từ hôm nay trở đi. Club Manager cần tạo giải mới trước.</Notice>
               )}
-
-              {selectedRace && (
-                <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-3 text-xs">
-                  <p className="font-bold text-equine-navy">{selectedRace.race_name}</p>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2 text-slate-700">
-                    <div><span className="text-slate-500">Ngày thi đấu:</span> <strong>{formatIsoDateVi(selectedRace.race_date)}</strong></div>
-                    <div><span className="text-slate-500">Địa điểm:</span> <strong>{selectedRace.location || "Chưa cập nhật"}</strong></div>
-                    <div><span className="text-slate-500">Cự ly:</span> <strong>{selectedRace.distance_meters ? `${selectedRace.distance_meters.toLocaleString("vi-VN")} m` : "—"}</strong>{selectedRace.distance_category ? ` (${selectedRace.distance_category})` : ""}</div>
-                    <div><span className="text-slate-500">Hạng giải:</span> <strong>{selectedRace.grade || "Chưa phân hạng"}</strong></div>
-                  </div>
-                </div>
-              )}
             </div>
 
-            <div className="rounded-xl border border-equine-line bg-white p-3.5 space-y-2.5">
+            <div className="rounded-xl border border-equine-line bg-white p-3.5 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-extrabold uppercase tracking-wide text-equine-navy">Bước 2 · Kiểm tra 4 điều kiện tham dự</span>
-                {checkingEligibility && <span className="text-xs text-slate-500">Đang đồng bộ...</span>}
+                <button
+                  type="button"
+                  disabled={busy || checkingEligibility || !effectiveRaceId}
+                  onClick={() => setEligibilityCheckSeq((value) => value + 1)}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <RefreshCw size={11} className={checkingEligibility ? "animate-spin" : ""} />
+                  {checkingEligibility ? "Đang kiểm tra..." : "Kiểm tra lại"}
+                </button>
               </div>
 
-              <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 text-xs">
-                <div className="flex items-start justify-between gap-3 p-2.5">
-                  <div>
-                    <p className="font-semibold text-slate-800">1. Trạng thái sức khỏe (Healthy)</p>
-                    <p className="text-slate-500">Hiện tại: {trainerHorseHealthLabel(selectedHorse?.current_status)}</p>
+              <div className="grid gap-2 sm:grid-cols-2 text-xs">
+                <div className={`rounded-lg border p-2.5 ${isHealthy ? "border-emerald-200 bg-emerald-50/40" : "border-rose-200 bg-rose-50/40"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-800">1. Sức khỏe</span>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${isHealthy ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+                      {isHealthy ? <><Check size={11} /> Đạt</> : <><X size={11} /> Chưa đạt</>}
+                    </span>
                   </div>
-                  <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${isHealthy ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
-                    {isHealthy ? <><Check size={12} /> Đạt</> : <><X size={12} /> Chưa đạt</>}
-                  </span>
+                  <p className="mt-1 text-slate-600">{trainerHorseHealthLabel(selectedHorse?.current_status)}</p>
                 </div>
 
-                <div className="flex items-start justify-between gap-3 p-2.5">
-                  <div>
-                    <p className="font-semibold text-slate-800">2. Đánh giá sẵn sàng từ Bác sĩ thú y (Ready)</p>
-                    <p className="text-slate-500">Hiện tại: {trainerHorseReadinessLabel(selectedHorse?.readiness_status)}</p>
+                <div className={`rounded-lg border p-2.5 ${isReady ? "border-emerald-200 bg-emerald-50/40" : "border-amber-200 bg-amber-50/50"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-800">2. Bác sĩ thú y duyệt</span>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${isReady ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                      {isReady ? <><Check size={11} /> Đạt</> : <><X size={11} /> Chưa đạt</>}
+                    </span>
                   </div>
-                  <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${isReady ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
-                    {isReady ? <><Check size={12} /> Đạt</> : <><X size={12} /> Chưa đạt</>}
-                  </span>
+                  <p className="mt-1 text-slate-600">
+                    {isReady ? "Đã đánh giá Sẵn sàng" : `${trainerHorseReadinessLabel(selectedHorse?.readiness_status)} · Cần BS bật Sẵn sàng ở tab Sức khỏe`}
+                  </p>
                 </div>
 
-                <div className="flex items-start justify-between gap-3 p-2.5">
-                  <div>
-                    <p className="font-semibold text-slate-800">3. Không khóa huấn luyện & Không chấn thương mở</p>
-                    <p className="text-slate-500">
-                      {isLocked
-                        ? "Ngựa đang bị khóa huấn luyện trên hệ thống"
-                        : eligibility?.has_unresolved_injury
-                          ? "Còn hồ sơ chấn thương chưa đánh dấu Hồi phục"
-                          : "Sẵn sàng nhận lịch thi đấu"}
-                    </p>
+                <div className={`rounded-lg border p-2.5 ${!lockCheckFailed ? "border-emerald-200 bg-emerald-50/40" : "border-rose-200 bg-rose-50/40"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-800">3. Khóa &amp; Chấn thương</span>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${!lockCheckFailed ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+                      {!lockCheckFailed ? <><Check size={11} /> Đạt</> : <><X size={11} /> Bị chặn</>}
+                    </span>
                   </div>
-                  <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${!lockCheckFailed ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
-                    {!lockCheckFailed ? <><Check size={12} /> Đạt</> : <><X size={12} /> Bị chặn</>}
-                  </span>
+                  <p className="mt-1 text-slate-600">
+                    {isLocked
+                      ? "Ngựa đang bị khóa huấn luyện"
+                      : eligibility?.has_unresolved_injury
+                        ? "Còn chấn thương chưa hồi phục"
+                        : "Không khóa · Ổn định"}
+                  </p>
                 </div>
 
-                <div className="p-2.5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-slate-800">4. Trùng lịch & Đăng ký hợp lệ trong ngày đua</p>
-                      <p className="text-slate-500">
-                        {!effectiveRaceId
-                          ? "Chọn một giải đấu ở Bước 1 để hệ thống kiểm tra trùng lịch."
-                          : checkingEligibility
-                            ? "Đang kiểm tra lịch tập, khám định kỳ và giải khác..."
-                            : eligibilityError
-                              ? eligibilityError
-                              : eligibility?.already_registered
-                                ? "Ngựa đã có đăng ký đang hiệu lực ở giải đấu này."
-                                : eligibility && eligibility.conflicts.length > 0
-                                  ? `Phát hiện ${eligibility.conflicts.length} sự kiện trùng trong ngày ${eligibility.race_date}.`
-                                  : eligibility
-                                    ? `Lịch ngày ${eligibility.race_date} hoàn toàn trống.`
-                                    : ""}
-                      </p>
-                    </div>
+                <div className={`rounded-lg border p-2.5 ${
+                  !effectiveRaceId || checkingEligibility
+                    ? "border-slate-200 bg-slate-50/70"
+                    : scheduleCheckPassed
+                      ? "border-emerald-200 bg-emerald-50/40"
+                      : "border-rose-200 bg-rose-50/40"
+                }`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-slate-800">4. Lịch ngày đua</span>
                     {effectiveRaceId && !checkingEligibility && (
-                      <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${
-                        !eligibilityError && eligibility && !eligibility.already_registered && eligibility.conflicts.length === 0 && eligibility.blocking_reasons.length === 0
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-rose-50 text-rose-700"
-                      }`}>
-                        {!eligibilityError && eligibility && !eligibility.already_registered && eligibility.conflicts.length === 0 && eligibility.blocking_reasons.length === 0
-                          ? <><Check size={12} /> Hợp lệ</>
-                          : <><X size={12} /> Bị chặn</>}
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${scheduleCheckPassed ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>
+                        {scheduleCheckPassed ? <><Check size={11} /> Hợp lệ</> : <><X size={11} /> Bị chặn</>}
                       </span>
                     )}
                   </div>
+                  <p className="mt-1 text-slate-600">
+                    {!effectiveRaceId
+                      ? "Chưa có giải đấu để kiểm tra"
+                      : checkingEligibility
+                        ? "Đang đồng bộ lịch ngày đua..."
+                        : eligibilityError
+                          ? eligibilityError
+                          : eligibility?.already_registered
+                            ? "Đã đăng ký giải này"
+                            : conflicts.length > 0
+                              ? `Trùng ${conflicts.length} sự kiện ngày ${formatIsoDateVi(eligibility?.race_date)}`
+                              : extraBlockingReasons[0] ?? `Trống lịch ngày ${formatIsoDateVi(eligibility?.race_date)}`}
+                  </p>
+                </div>
+              </div>
 
-                  {eligibility && eligibility.conflicts.length > 0 && (
-                    <ul className="mt-2 space-y-1 rounded-lg bg-rose-50 p-2 text-rose-800 list-inside list-disc">
-                      {eligibility.conflicts.map((conflict) => (
-                        <li key={conflict.event_id}>
-                          {conflict.event_type}{conflict.title ? ` · ${conflict.title}` : ""} ({conflict.event_date}
-                          {conflict.start_time ? ` · ${conflict.start_time.slice(0, 5)}–${conflict.end_time?.slice(0, 5) ?? ""}` : " · Cả ngày"})
-                        </li>
-                      ))}
-                    </ul>
+              {effectiveRaceId && !checkingEligibility && (conflicts.length > 0 || extraBlockingReasons.length > 0) && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50/70 p-3 space-y-2 text-xs">
+                  {conflicts.length > 0 && (
+                    <>
+                      <p className="font-bold text-rose-900">Xử lý lịch trùng trong ngày {formatIsoDateVi(eligibility?.race_date)}:</p>
+                      <div className="space-y-1.5">
+                        {conflicts.map((conflict) => {
+                          const canCancelDirectly = isTrainingConflict(conflict);
+                          const cancellingThis = resolvingConflictId === conflict.event_id || resolvingConflictId === "ALL";
+                          return (
+                            <div key={conflict.event_id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-rose-200/80 bg-white px-2.5 py-2 text-rose-900">
+                              <span>
+                                <strong>{conflictTypeLabel(conflict.event_type)}</strong>
+                                {conflict.title ? ` · ${conflict.title}` : ""} ({formatIsoDateVi(conflict.event_date)}
+                                {conflict.start_time ? ` · ${conflict.start_time.slice(0, 5)}–${conflict.end_time?.slice(0, 5) ?? ""}` : " · Cả ngày"})
+                              </span>
+                              {canCancelDirectly ? (
+                                <button
+                                  type="button"
+                                  disabled={busy || resolvingConflictId !== null}
+                                  onClick={() => void handleCancelConflict(conflict)}
+                                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+                                >
+                                  <X size={12} /> {cancellingThis ? "Đang hủy..." : "Hủy buổi tập này"}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => onOpenCalendarOnDate(conflict.event_date)}
+                                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-300 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                                >
+                                  <CalendarDays size={12} /> Mở trên Lịch
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {trainingConflicts.length >= 2 && (
+                        <div className="flex justify-end pt-1">
+                          <button
+                            type="button"
+                            disabled={busy || resolvingConflictId !== null}
+                            onClick={() => void handleCancelAllTrainingConflicts(trainingConflicts)}
+                            className="inline-flex items-center gap-1 rounded-md bg-rose-700 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-rose-800 disabled:opacity-50"
+                          >
+                            <Trash2 size={12} /> Hủy tất cả {trainingConflicts.length} buổi tập trùng
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
-
-                  {eligibility && eligibility.blocking_reasons.length > 0 && (
-                    <ul className="mt-2 space-y-1 rounded-lg bg-rose-50 p-2 text-rose-800 list-inside list-disc">
-                      {eligibility.blocking_reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                  {extraBlockingReasons.length > 0 && (
+                    <ul className="list-inside list-disc space-y-0.5 text-rose-800">
+                      {extraBlockingReasons.map((reason) => <li key={reason}>{reason}</li>)}
                     </ul>
                   )}
                 </div>
-              </div>
+              )}
 
               {eligibilityError && <Notice error>{eligibilityError}</Notice>}
 
@@ -4372,9 +4630,9 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
                 </Notice>
               )}
 
-              {eligibility && eligibility.eligible && eligibility.warnings.length === 0 && (
+              {canSubmitRegister && (eligibility?.warnings.length ?? 0) === 0 && (
                 <Notice variant="success">
-                  {selectedHorse?.horse_name} đủ toàn bộ điều kiện tham dự giải “{eligibility.race_name}” ngày {formatIsoDateVi(eligibility.race_date)}.
+                  {selectedHorse?.horse_name} đã đạt đủ 4/4 điều kiện tham dự giải “{eligibility?.race_name}” ngày {formatIsoDateVi(eligibility?.race_date)}.
                 </Notice>
               )}
             </div>
@@ -4386,10 +4644,11 @@ function RaceEntriesPanel({ selectedHorse, horses, races, entries, onRegister, o
                 disabled={busy || !canSubmitRegister}
                 onClick={() => { if (effectiveRaceId) onRegister(effectiveRaceId); }}
               >
-                <Plus size={15} /> Bước 3 · Đăng ký ngựa vào giải chính thức
+                {canSubmitRegister && <Plus size={15} />}
+                <span>{registerButtonLabel}</span>
               </button>
               <p className="text-xs text-slate-500">
-                Lưu ý: Ngày thi đấu giải chính thức chiếm trọn ngày trên lịch tập luyện và chăm sóc của ngựa.
+                Ngày thi đấu giải chính thức chiếm trọn ngày trên lịch tập luyện và chăm sóc của ngựa.
               </p>
             </div>
           </div>
