@@ -3263,8 +3263,8 @@ function CarePanel({
                               const isTrainingEvent = isTrainingCalendarEvent(event);
                               const isOverdue = isEventOverdue(event, schedule);
                               const isMyCareEvent = scope === "mine" || isAssignedDoctor(event, schedule, currentUser);
-                              const canManage = !event.context && Boolean(scheduleId) && isMyCareEvent;
-                              const canComplete = canManage && event.status === "Scheduled" && event.event_date <= today();
+                              const canManage = !event.context && Boolean(scheduleId) && (isHeadVet || isMyCareEvent);
+                              const canComplete = canManage && isMyCareEvent && event.status === "Scheduled" && event.event_date <= today();
                               const canBook = canManage && (Boolean(event.is_periodic_due) || isCancelled || schedule?.event_status === "Cancelled");
                               const hasBookedEvent = !event.is_periodic_due && event.status === "Scheduled";
                               const horse = horses.find((h) => h.id === (event.horse?.id ?? event.horse_id) || h.id === schedule?.horse_id);
