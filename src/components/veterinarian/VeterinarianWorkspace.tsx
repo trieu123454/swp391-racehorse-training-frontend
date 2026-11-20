@@ -2041,7 +2041,7 @@ function CarePanel({
   const [weekStart, setWeekStart] = useState(() => mondayOfWeek(today()));
   const [scope, setScope] = useState<"mine" | "all">("all");
   const [horseFilter, setHorseFilter] = useState("all");
-  const [includeContext, setIncludeContext] = useState(true);
+  const [includeContext, setIncludeContext] = useState(false);
   const [bookNow, setBookNow] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [bookId, setBookId] = useState("");
@@ -2388,6 +2388,10 @@ function CarePanel({
   }
   async function submitMove(event: FormEvent<HTMLFormElement>, id: string) {
     event.preventDefault();
+    if (!isHeadVet) {
+      setError("Chỉ trưởng ban thú y được phép dời lịch chăm sóc.");
+      return;
+    }
     const form = event.currentTarget;
     const formData = new FormData(form);
     const slotRange = formData.get("slot_time_range") as string;
@@ -3373,6 +3377,7 @@ function CarePanel({
                                         <>
                                           {hasBookedEvent && (
                                             <>
+                                              {isHeadVet && (
                                               <button
                                                 type="button"
                                                 className={`rounded px-2 py-0.5 text-[10px] font-bold border transition ${
@@ -3384,6 +3389,7 @@ function CarePanel({
                                               >
                                                 Dời lịch
                                               </button>
+                                              )}
                                               <button
                                                 type="button"
                                                 className="rounded bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-900 hover:bg-rose-200 border border-rose-300"
@@ -3454,7 +3460,7 @@ function CarePanel({
                                       </div>
                                     </form>
                                   )}
-                                  {scheduleId && moveId === scheduleId && (
+                                  {isHeadVet && scheduleId && moveId === scheduleId && (
                                     <form onSubmit={(submitEvent) => void submitMove(submitEvent, scheduleId)} className="mt-2 grid gap-2 rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-left shadow-xs">
                                       <div className="flex items-center justify-between text-xs font-bold text-slate-900">
                                         <span>Dời sang ca khác</span>
