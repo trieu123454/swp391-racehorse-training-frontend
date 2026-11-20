@@ -5,16 +5,23 @@ import {
   Activity,
   AlertCircle,
   AlertTriangle,
+  Ban,
+  CalendarDays,
   CheckCircle2,
   ClipboardList,
   ExternalLink,
   FileText,
   History,
+  MapPin,
+  Medal,
   Package,
+  Pencil,
   Plus,
   RefreshCw,
+  Search,
   ShieldCheck,
   Trophy,
+  Users,
   Wallet,
   XCircle,
 } from "lucide-react";
@@ -24,13 +31,23 @@ import InventoryManagerPanel from "@/components/club-manager/InventoryManagerPan
 import NotificationCenter from "@/components/shared/NotificationCenter";
 import { CompactId } from "@/components/shared/CompactId";
 import { authenticatedRequest, ApiRequestError } from "@/api/client";
-import { getHorseStables, listHorses, openFreshDocument, type Horse, type Stable } from "@/api/horses/api";
+import { getHorseStables, listHorses, type Horse, type Stable } from "@/api/horses/api";
+import { openFreshDocument } from "@/api/horses/api";
 import {
+  cancelOfficialRace,
+  cancelOfficialRaceEntry,
+  getCompetitionReport,
   getManagerRegistrationDocumentUrl,
   listHorseRegistrationRequests,
+  listOfficialRaceEntries,
+  listOfficialRaces,
   reviewHorseRegistrationRequest,
+  updateOfficialRace,
+  type CompetitionReport,
   type HorseRegistrationStatusFilter,
   type ManagerHorseRegistrationRequest,
+  type OfficialRace,
+  type OfficialRaceEntry,
 } from "@/api/club-manager/api";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 
@@ -44,7 +61,6 @@ type Incident = {
   assignee_name: string | null; assignment_note: string | null; result_note: string | null; created_at: string;
 };
 type AuditRow = { id: string; user_name: string | null; email: string | null; action_performed: string; created_at: string };
-type OfficialRace = { id: string; race_name: string; grade: string | null; distance_category: string | null; distance_meters: number | null; race_date: string; location: string | null; description: string | null };
 type Report = {
   from: string;
   to: string;
@@ -55,7 +71,15 @@ type Report = {
   pending_incidents: number;
   training_performance: { scheduled: number; in_progress: number; completed: number; cancelled: number; blocked: number };
   operating_costs_and_prize_income: { care_cost: number; medical_cost: number; prize_income: number; other_amount: number };
-  official_competition: { registered: number; completed: number };
+  official_competition: {
+    registered: number;
+    completed: number;
+    blocked?: number;
+    cancelled?: number;
+    wins?: number;
+    podiums?: number;
+    total_prize?: number;
+  };
 };
 
 type WorkspaceTab = "overview" | "care" | "inventory" | "incidents" | "finance" | "races" | "audit" | "horse-requests";
@@ -182,6 +206,7 @@ export default function ClubManagerWorkspace() {
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [report, setReport] = useState<Report | null>(null);
   const [officialRaces, setOfficialRaces] = useState<OfficialRace[]>([]);
+  const [competitionReport, setCompetitionReport] = useState<CompetitionReport | null>(null);
   const [loadErrors, setLoadErrors] = useState<LoadErrors>(EMPTY_ERRORS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -195,12 +220,11 @@ export default function ClubManagerWorkspace() {
       authenticatedRequest<Report>(`/api/club-manager/operations-report?from=${date}&to=${date}`),
       authenticatedRequest<{ items: Option[] }>("/api/horses?page=1&size=100&limit=100"),
       authenticatedRequest<Option[]>("/api/club-manager/grooms"),
-
-
-      authenticatedRequest<{ data: OfficialRace[] }>("/api/club-manager/races"),
+      listOfficialRaces(),
       authenticatedRequest<{ data: IncidentAssignee[] }>("/api/club-manager/groom-incidents/assignees"),
       listHorseRegistrationRequests(requestStatusFilter),
       getHorseStables(),
+      getCompetitionReport(),
     ]);
 
     const nextErrors: LoadErrors = {
@@ -225,6 +249,7 @@ export default function ClubManagerWorkspace() {
     read(7, "Người phụ trách sự cố", ["incidents"], (value) => setIncidentAssignees((value as { data: IncidentAssignee[] }).data));
     read(8, "Yêu cầu hồ sơ ngựa", ["horse-requests"], (value) => setHorseRequests(value as ManagerHorseRegistrationRequest[]));
     read(9, "Danh sách chuồng", ["horse-requests"], (value) => setStables(value as Stable[]));
+    read(10, "Báo cáo thành tích thi đấu", ["races"], (value) => setCompetitionReport(value as CompetitionReport));
     setLoadErrors(nextErrors);
   }, [date, incidentFilter, requestStatusFilter]);
 
@@ -477,31 +502,61 @@ export default function ClubManagerWorkspace() {
           {!incidents.length && <p className="text-sm text-slate-500">Không có sự cố ở bộ lọc này.</p>}
         </div>
       </Panel>}
-      {tab === "races" && <div className="grid gap-5 xl:grid-cols-2">
-        <Panel title="Thêm giải đấu chính thức" icon={Trophy}>
-          <form onSubmit={addOfficialRace} className="grid gap-3 sm:grid-cols-2">
-            <label className="block sm:col-span-2"><span className="field-label">Tên giải</span><input className="field-control px-3" name="race_name" maxLength={150} required /></label>
-            <label className="block"><span className="field-label">Ngày thi đấu</span><input className="field-control px-3" name="race_date" type="date" min={date} defaultValue={date} required /></label>
-            <label className="block"><span className="field-label">Cự ly (mét)</span><input className="field-control px-3" name="distance_meters" type="number" min="1" max="100000" step="1" /></label>
-            <label className="block"><span className="field-label">Hạng giải</span><input className="field-control px-3" name="grade" maxLength={10} /></label>
-            <label className="block"><span className="field-label">Nhóm cự ly</span><input className="field-control px-3" name="distance_category" maxLength={20} /></label>
-            <label className="block sm:col-span-2"><span className="field-label">Địa điểm</span><input className="field-control px-3" name="location" maxLength={150} /></label>
-            <label className="block sm:col-span-2"><span className="field-label">Mô tả</span><textarea className="field-control min-h-20 px-3 py-2" name="description" /></label>
-            <button className="gold-button sm:col-span-2" disabled={busy}><Plus size={15} /> Thêm giải đấu</button>
-          </form>
-        </Panel>
-        <Panel title="Danh sách giải đấu chính thức" icon={Trophy}>
-          <div className="space-y-2">{officialRaces.map((race) => <article key={race.id} className="rounded-lg bg-slate-50 p-3.5">
-            <div className="flex items-center justify-between gap-2">
-              <p className="font-normal text-equine-navy">{race.race_name}</p>
-              <CompactId id={race.id} />
-            </div>
-            <p className="mt-1 text-sm font-normal text-slate-600">{race.race_date}{race.location ? ` · ${race.location}` : ""}</p>
-            <p className="mt-1 text-xs font-normal text-slate-500">{race.distance_meters ? `${race.distance_meters} m` : "Chưa nhập cự ly"}{race.grade ? ` · Hạng ${race.grade}` : ""}{race.distance_category ? ` · ${race.distance_category}` : ""}</p>
-            {race.description && <p className="mt-2 whitespace-pre-wrap text-sm font-normal text-slate-600">{race.description}</p>}
-          </article>)}{!officialRaces.length && <p className="text-sm text-slate-500">Chưa có giải đấu.</p>}</div>
-        </Panel>
-      </div>}
+      {tab === "races" && <ManagerRacesPanel
+        date={date}
+        officialRaces={officialRaces}
+        competitionReport={competitionReport}
+        busy={busy}
+        onAddRace={addOfficialRace}
+        onUpdateRace={async (raceId, input) => {
+          setBusy(true);
+          setError("");
+          setNotice("");
+          try {
+            await updateOfficialRace(raceId, input);
+            setNotice("Đã cập nhật thông tin giải đấu chính thức.");
+            await load();
+            return true;
+          } catch (reason) {
+            setError(requestError(reason));
+            return false;
+          } finally {
+            setBusy(false);
+          }
+        }}
+        onCancelRace={async (raceId, reason) => {
+          setBusy(true);
+          setError("");
+          setNotice("");
+          try {
+            await cancelOfficialRace(raceId, reason);
+            setNotice("Đã hủy giải đấu và giải phóng lịch cho các ngựa đã đăng ký.");
+            await load();
+            return true;
+          } catch (err) {
+            setError(requestError(err));
+            return false;
+          } finally {
+            setBusy(false);
+          }
+        }}
+        onCancelEntry={async (entryId, reason) => {
+          setBusy(true);
+          setError("");
+          setNotice("");
+          try {
+            await cancelOfficialRaceEntry(entryId, reason);
+            setNotice("Đã rút ngựa khỏi giải đấu và giải phóng lịch ngày đua.");
+            await load();
+            return true;
+          } catch (err) {
+            setError(requestError(err));
+            return false;
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />}
 
       {tab === "finance" && <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Tổng hợp thu chi" icon={Wallet}>
@@ -1139,4 +1194,631 @@ function Select({ name, label, options }: { name: string; label: string; options
 
 function money(value: number | undefined) {
   return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value ?? 0);
+}
+
+function managerRaceEntryStatusLabel(status: string) {
+  return ({
+    Registered: "Đã đăng ký",
+    Blocked: "Tạm khóa y tế",
+    Completed: "Đã hoàn thành",
+    Cancelled: "Đã rút / Hủy",
+  } as Record<string, string>)[status] ?? status;
+}
+
+function managerHealthLabel(status: string) {
+  return ({
+    Healthy: "Khỏe mạnh",
+    Monitoring: "Đang theo dõi",
+    Injured: "Chấn thương",
+    Quarantine: "Cách ly",
+  } as Record<string, string>)[status] ?? status;
+}
+
+function managerReadinessLabel(status: string) {
+  return ({
+    Ready: "Sẵn sàng",
+    NotReady: "Chưa sẵn sàng",
+    Unknown: "Chưa đánh giá",
+  } as Record<string, string>)[status] ?? status;
+}
+
+function formatManagerRaceDate(value?: string | null) {
+  if (!value) return "—";
+  const parsed = new Date(`${value.slice(0, 10)}T00:00:00`);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(parsed);
+}
+
+type ManagerRaceFilter = "ALL" | "SCHEDULED" | "COMPLETED" | "CANCELLED";
+
+function ManagerRacesPanel({
+  date,
+  officialRaces,
+  competitionReport,
+  busy,
+  onAddRace,
+  onUpdateRace,
+  onCancelRace,
+  onCancelEntry,
+}: {
+  date: string;
+  officialRaces: OfficialRace[];
+  competitionReport: CompetitionReport | null;
+  busy: boolean;
+  onAddRace: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onUpdateRace: (raceId: string, input: {
+    race_name?: string;
+    race_date?: string;
+    grade?: string | null;
+    distance_category?: string | null;
+    distance_meters?: number | null;
+    location?: string | null;
+    description?: string | null;
+  }) => Promise<boolean>;
+  onCancelRace: (raceId: string, reason: string) => Promise<boolean>;
+  onCancelEntry: (entryId: string, reason: string) => Promise<boolean>;
+}) {
+  const [showCreateForm, setShowCreateForm] = useState(officialRaces.length === 0);
+  const [raceStatusFilter, setRaceStatusFilter] = useState<ManagerRaceFilter>("ALL");
+  const [raceSearch, setRaceSearch] = useState("");
+  const [editingRace, setEditingRace] = useState<OfficialRace | null>(null);
+  const [cancellingRace, setCancellingRace] = useState<OfficialRace | null>(null);
+  const [cancelRaceReason, setCancelRaceReason] = useState("");
+  const [rosterRace, setRosterRace] = useState<OfficialRace | null>(null);
+  const [rosterEntries, setRosterEntries] = useState<OfficialRaceEntry[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterError, setRosterError] = useState("");
+  const [withdrawingEntry, setWithdrawingEntry] = useState<OfficialRaceEntry | null>(null);
+  const [withdrawReason, setWithdrawReason] = useState("");
+
+  async function openRoster(race: OfficialRace) {
+    setRosterRace(race);
+    setRosterLoading(true);
+    setRosterError("");
+    try {
+      const response = await listOfficialRaceEntries(race.id);
+      setRosterEntries(response.data);
+    } catch (reason) {
+      setRosterEntries([]);
+      setRosterError(requestError(reason));
+    } finally {
+      setRosterLoading(false);
+    }
+  }
+
+  const summary = competitionReport?.summary;
+  const todayIso = new Date().toLocaleDateString("en-CA");
+  const defaultRaceDate = date >= todayIso ? date : todayIso;
+
+  const raceCounts = {
+    all: officialRaces.length,
+    scheduled: officialRaces.filter((r) => r.status !== "Cancelled" && r.status !== "Completed").length,
+    completed: officialRaces.filter((r) => r.status === "Completed").length,
+    cancelled: officialRaces.filter((r) => r.status === "Cancelled").length,
+  };
+
+  const normalizedQuery = raceSearch.trim().toLowerCase();
+  const filteredRaces = officialRaces.filter((race) => {
+    if (raceStatusFilter === "SCHEDULED" && (race.status === "Cancelled" || race.status === "Completed")) return false;
+    if (raceStatusFilter === "COMPLETED" && race.status !== "Completed") return false;
+    if (raceStatusFilter === "CANCELLED" && race.status !== "Cancelled") return false;
+    if (normalizedQuery) {
+      const hay = `${race.race_name} ${race.location ?? ""} ${race.grade ?? ""} ${race.distance_category ?? ""}`.toLowerCase();
+      if (!hay.includes(normalizedQuery)) return false;
+    }
+    return true;
+  });
+
+  const leaderboard = competitionReport?.leaderboard ?? [];
+  const recentResults = competitionReport?.recent_results ?? [];
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <Metric
+          icon={Trophy}
+          label="Tổng giải chính thức"
+          value={String(summary?.total_races ?? raceCounts.scheduled + raceCounts.completed)}
+        />
+        <Metric
+          icon={Users}
+          label="Đang ĐK / Tạm khóa y tế"
+          value={`${summary?.registered ?? 0} ĐK · ${summary?.blocked ?? 0} khóa`}
+        />
+        <Metric
+          icon={CheckCircle2}
+          label="Hoàn thành / Đã rút"
+          value={`${summary?.completed ?? 0} xong · ${summary?.cancelled ?? 0} hủy`}
+        />
+        <Metric
+          icon={Medal}
+          label="Thành tích CLB (H1 / Top 3)"
+          value={`${summary?.wins ?? 0} Vô địch · ${summary?.podiums ?? 0} Top 3`}
+        />
+        <Metric
+          icon={Wallet}
+          label="Tổng tiền thưởng CLB"
+          value={money(summary?.total_prize)}
+        />
+      </div>
+
+      <Panel title="Quản lý & Điều phối giải đấu chính thức" icon={Trophy}>
+        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-equine-line bg-slate-50/70 p-3.5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {([
+              ["ALL", `Tất cả (${raceCounts.all})`],
+              ["SCHEDULED", `Đang mở / Sắp diễn ra (${raceCounts.scheduled})`],
+              ["COMPLETED", `Đã hoàn thành (${raceCounts.completed})`],
+              ["CANCELLED", `Đã hủy (${raceCounts.cancelled})`],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setRaceStatusFilter(key)}
+                className={raceStatusFilter === key ? "gold-button !min-h-[34px] !px-3 !text-xs" : "soft-button !min-h-[34px] !px-3 !text-xs"}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="relative flex-1 sm:w-64 sm:flex-none">
+              <span className="sr-only">Tìm giải đấu</span>
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                className="field-control !h-9 bg-white pl-8 pr-3 text-xs"
+                value={raceSearch}
+                onChange={(event) => setRaceSearch(event.target.value)}
+                placeholder="Tìm tên giải, địa điểm, hạng..."
+              />
+            </label>
+            <button
+              type="button"
+              className={showCreateForm ? "soft-button !min-h-[36px] !px-3.5 !text-xs" : "gold-button !min-h-[36px] !px-3.5 !text-xs"}
+              onClick={() => setShowCreateForm((prev) => !prev)}
+            >
+              {showCreateForm ? "Đóng biểu mẫu" : <><Plus size={14} /> Tạo giải đấu mới</>}
+            </button>
+          </div>
+        </div>
+
+        {showCreateForm && (
+          <form onSubmit={onAddRace} className="mb-5 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-between border-b border-slate-200 pb-2">
+              <h3 className="text-sm font-bold text-equine-navy">Tạo giải đấu chính thức mới</h3>
+              <span className="text-xs text-slate-500">Thông báo sẽ tự động gửi tới Head Trainer sau khi tạo</span>
+            </div>
+            <label className="block sm:col-span-2">
+              <span className="field-label">Tên giải đấu <span className="text-rose-600">*</span></span>
+              <input className="field-control bg-white px-3" name="race_name" maxLength={150} required placeholder="VD: Giải Vô địch Quốc gia Mùa Thu" />
+            </label>
+            <label className="block">
+              <span className="field-label">Ngày thi đấu <span className="text-rose-600">*</span></span>
+              <input className="field-control bg-white px-3" name="race_date" type="date" min={todayIso} defaultValue={defaultRaceDate} required />
+            </label>
+            <label className="block">
+              <span className="field-label">Cự ly (mét)</span>
+              <input className="field-control bg-white px-3" name="distance_meters" type="number" min="1" max="100000" step="1" placeholder="1600" />
+            </label>
+            <label className="block">
+              <span className="field-label">Hạng giải</span>
+              <input className="field-control bg-white px-3" name="grade" maxLength={10} placeholder="G1, G2, Open..." />
+            </label>
+            <label className="block">
+              <span className="field-label">Nhóm cự ly</span>
+              <input className="field-control bg-white px-3" name="distance_category" maxLength={20} placeholder="Sprint, Mile, Long..." />
+            </label>
+            <label className="block sm:col-span-2">
+              <span className="field-label">Địa điểm tổ chức</span>
+              <input className="field-control bg-white px-3" name="location" maxLength={150} placeholder="VD: Trường đua Đại Nam / Quốc gia" />
+            </label>
+            <label className="block sm:col-span-2 lg:col-span-4">
+              <span className="field-label">Mô tả điều lệ & ghi chú</span>
+              <textarea className="field-control min-h-20 bg-white px-3 py-2" name="description" placeholder="Điều kiện đường chạy, lưu ý ban tổ chức..." />
+            </label>
+            <div className="sm:col-span-2 lg:col-span-4 flex justify-end gap-2">
+              <button type="button" className="soft-button !text-xs" disabled={busy} onClick={() => setShowCreateForm(false)}>Đóng</button>
+              <button className="gold-button" disabled={busy}><Plus size={15} /> Thêm giải đấu chính thức</button>
+            </div>
+          </form>
+        )}
+
+        {filteredRaces.length > 0 ? (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {filteredRaces.map((race) => {
+              const isPastScheduled = race.status === "Scheduled" && race.race_date < todayIso;
+              const statusBadge = race.status === "Cancelled"
+                ? { label: "Đã hủy giải", cls: "bg-rose-50 text-rose-700 border-rose-200" }
+                : race.status === "Completed"
+                  ? { label: "Đã hoàn thành", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" }
+                  : isPastScheduled
+                    ? { label: "Đã qua ngày thi đấu", cls: "bg-amber-50 text-amber-800 border-amber-200" }
+                    : { label: "Đang mở đăng ký", cls: "bg-sky-50 text-sky-700 border-sky-200" };
+              const canEdit = race.status !== "Cancelled";
+              const canCancel = race.status !== "Cancelled" && race.completed_count === 0;
+              const activeHorseCount = race.registered_count + race.blocked_count + race.completed_count;
+
+              return (
+                <article
+                  key={race.id}
+                  className={`flex flex-col justify-between rounded-xl border p-4 transition ${
+                    race.status === "Cancelled" ? "border-slate-200 bg-slate-50/70" : "border-equine-line bg-white shadow-sm hover:shadow-md"
+                  }`}
+                >
+                  <div>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold text-base text-equine-navy">{race.race_name}</h3>
+                          <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${statusBadge.cls}`}>{statusBadge.label}</span>
+                          {race.grade && <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700">Hạng {race.grade}</span>}
+                        </div>
+                      </div>
+                      <CompactId id={race.id} />
+                    </div>
+
+                    <div className="mt-3 grid gap-2 rounded-lg bg-slate-50 p-3 text-xs sm:grid-cols-3">
+                      <div>
+                        <span className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-slate-400">
+                          <CalendarDays size={12} /> Ngày thi đấu
+                        </span>
+                        <strong className="mt-0.5 block text-slate-800">{formatManagerRaceDate(race.race_date)}</strong>
+                      </div>
+                      <div>
+                        <span className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-slate-400">
+                          <MapPin size={12} /> Địa điểm
+                        </span>
+                        <strong className="mt-0.5 block text-slate-800">{race.location || "Chưa cập nhật"}</strong>
+                      </div>
+                      <div>
+                        <span className="block text-[11px] uppercase tracking-wide text-slate-400">Cự ly & Nhóm</span>
+                        <strong className="mt-0.5 block text-slate-800">
+                          {race.distance_meters ? `${race.distance_meters.toLocaleString("vi-VN")} m` : "—"}
+                          {race.distance_category ? ` · ${race.distance_category}` : ""}
+                        </strong>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                      <span className="rounded-md border border-slate-200 bg-white px-2.5 py-1">Đã ĐK: <strong className="text-sky-700">{race.registered_count}</strong></span>
+                      {race.blocked_count > 0 && (
+                        <span className="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-rose-700">Khóa y tế: <strong>{race.blocked_count}</strong></span>
+                      )}
+                      <span className="rounded-md border border-slate-200 bg-white px-2.5 py-1">Hoàn thành: <strong className="text-emerald-700">{race.completed_count}</strong></span>
+                      {race.cancelled_count > 0 && (
+                        <span className="rounded-md border border-slate-200 bg-white px-2.5 py-1">Đã rút/hủy: <strong>{race.cancelled_count}</strong></span>
+                      )}
+                      {(race.total_prize_amount > 0 || race.completed_count > 0) && (
+                        <span className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-900">
+                          Tổng thưởng: <strong>{money(race.total_prize_amount)}</strong>
+                        </span>
+                      )}
+                    </div>
+
+                    {race.cancel_reason && (
+                      <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                        <strong>Lý do hủy giải:</strong> {race.cancel_reason}
+                      </p>
+                    )}
+                    {race.description && (
+                      <p className="mt-2.5 whitespace-pre-wrap text-xs leading-relaxed text-slate-600">{race.description}</p>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                    <button type="button" className="soft-button !min-h-[34px] !px-3 !text-xs" disabled={busy} onClick={() => void openRoster(race)}>
+                      <Users size={13} /> Danh sách ngựa ({activeHorseCount})
+                    </button>
+                    {canEdit && (
+                      <button type="button" className="soft-button !min-h-[34px] !px-3 !text-xs" disabled={busy} onClick={() => setEditingRace(race)}>
+                        <Pencil size={13} /> Sửa / Dời ngày
+                      </button>
+                    )}
+                    {canCancel && (
+                      <button
+                        type="button"
+                        className="soft-button !min-h-[34px] !px-3 !text-xs border-rose-200 bg-rose-50 text-rose-700"
+                        disabled={busy}
+                        onClick={() => { setCancellingRace(race); setCancelRaceReason(""); }}
+                      >
+                        <Ban size={13} /> Hủy giải
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-8 text-center text-sm text-slate-500">
+            {officialRaces.length === 0
+              ? "Chưa có giải đấu chính thức nào. Nhấn “Tạo giải đấu mới” để khởi tạo."
+              : "Không có giải đấu nào khớp bộ lọc hoặc từ khóa tìm kiếm."}
+          </div>
+        )}
+      </Panel>
+
+      {(leaderboard.length > 0 || recentResults.length > 0) && (
+        <div className="grid gap-5 xl:grid-cols-2">
+          <Panel title="Bảng xếp hạng ngựa thi đấu xuất sắc" icon={Trophy}>
+            {leaderboard.length > 0 ? (
+              <div className="overflow-x-auto rounded-lg border border-equine-line">
+                <table className="w-full min-w-[480px] text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2.5">#</th>
+                      <th className="px-3 py-2.5">Ngựa thi đấu</th>
+                      <th className="px-3 py-2.5">Số giải</th>
+                      <th className="px-3 py-2.5">Hạng 1</th>
+                      <th className="px-3 py-2.5">Top 3</th>
+                      <th className="px-3 py-2.5">Tốt nhất</th>
+                      <th className="px-3 py-2.5 text-right">Tiền thưởng</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-equine-line">
+                    {leaderboard.map((row, idx) => (
+                      <tr key={row.horse_id} className="bg-white">
+                        <td className="px-3 py-2.5">
+                          <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+                            idx === 0
+                              ? "bg-amber-100 text-amber-900"
+                              : idx <= 2
+                                ? "bg-slate-200 text-slate-800"
+                                : "bg-slate-100 text-slate-600"
+                          }`}>
+                            #{idx + 1}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 font-semibold text-equine-navy">{row.horse_name}</td>
+                        <td className="px-3 py-2.5">{row.completed_races}</td>
+                        <td className="px-3 py-2.5 font-semibold text-amber-800">{row.wins}</td>
+                        <td className="px-3 py-2.5">{row.podiums}</td>
+                        <td className="px-3 py-2.5">{row.best_position == null ? "—" : `Hạng ${row.best_position}`}</td>
+                        <td className="px-3 py-2.5 text-right font-semibold text-equine-navy">{money(row.total_prize)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">Chưa có dữ liệu xếp hạng từ các giải đã hoàn thành.</p>
+            )}
+          </Panel>
+
+          <Panel title="Kết quả thi đấu chính thức gần đây" icon={Medal}>
+            {recentResults.length > 0 ? (
+              <div className="max-h-[420px] space-y-2.5 overflow-y-auto pr-1">
+                {recentResults.map((item) => (
+                  <article key={item.entry_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-equine-line bg-slate-50/70 p-3 text-sm">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong className="text-equine-navy">{item.horse_name}</strong>
+                        <span className="text-slate-400">·</span>
+                        <span className="font-medium text-slate-700">{item.race_name}</span>
+                        {item.grade && <span className="rounded bg-white px-1.5 py-0.5 text-[11px] font-semibold text-slate-600 border border-slate-200">{item.grade}</span>}
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {formatManagerRaceDate(item.race_date)}{item.location ? ` · ${item.location}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                        item.result_position === 1
+                          ? "bg-amber-100 text-amber-900"
+                          : item.result_position <= 3
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-white text-slate-700 border border-slate-200"
+                      }`}>
+                        Hạng {item.result_position}
+                      </span>
+                      <strong className="text-xs text-equine-navy">{money(item.prize_amount ?? 0)}</strong>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500">Chưa có kết quả thi đấu gần đây trong kỳ báo cáo.</p>
+            )}
+          </Panel>
+        </div>
+      )}
+
+      {editingRace && (
+        <Modal title="Chỉnh sửa giải đấu chính thức" busy={busy} onClose={() => setEditingRace(null)}>
+          <form
+            className="grid gap-3 sm:grid-cols-2"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const values = new FormData(event.currentTarget);
+              const distanceRaw = String(values.get("distance_meters") ?? "").trim();
+              const ok = await onUpdateRace(editingRace.id, {
+                race_name: editingRace.completed_count > 0 ? editingRace.race_name : String(values.get("race_name") ?? "").trim(),
+                race_date: editingRace.completed_count > 0 ? editingRace.race_date : String(values.get("race_date") ?? ""),
+                distance_meters: editingRace.completed_count > 0 ? editingRace.distance_meters : (distanceRaw ? Number(distanceRaw) : null),
+                grade: String(values.get("grade") ?? "").trim() || null,
+                distance_category: String(values.get("distance_category") ?? "").trim() || null,
+                location: String(values.get("location") ?? "").trim() || null,
+                description: String(values.get("description") ?? "").trim() || null,
+              });
+              if (ok) setEditingRace(null);
+            }}
+          >
+            {editingRace.completed_count > 0 && (
+              <div className="sm:col-span-2">
+                <Notice variant="warning">Giải đấu đã có kết quả hoàn thành nên khóa tên giải, ngày thi đấu và cự ly; chỉ được cập nhật địa điểm/mô tả.</Notice>
+              </div>
+            )}
+            <label className="block sm:col-span-2">
+              <span className="field-label">Tên giải</span>
+              <input className="field-control px-3" name="race_name" maxLength={150} defaultValue={editingRace.race_name} disabled={editingRace.completed_count > 0} required />
+            </label>
+            <label className="block">
+              <span className="field-label">Ngày thi đấu</span>
+              <input className="field-control px-3" name="race_date" type="date" min={todayIso} defaultValue={editingRace.race_date} disabled={editingRace.completed_count > 0} required />
+            </label>
+            <label className="block">
+              <span className="field-label">Cự ly (mét)</span>
+              <input className="field-control px-3" name="distance_meters" type="number" min="1" max="100000" step="1" defaultValue={editingRace.distance_meters ?? ""} disabled={editingRace.completed_count > 0} />
+            </label>
+            <label className="block">
+              <span className="field-label">Hạng giải</span>
+              <input className="field-control px-3" name="grade" maxLength={10} defaultValue={editingRace.grade ?? ""} />
+            </label>
+            <label className="block">
+              <span className="field-label">Nhóm cự ly</span>
+              <input className="field-control px-3" name="distance_category" maxLength={20} defaultValue={editingRace.distance_category ?? ""} />
+            </label>
+            <label className="block sm:col-span-2">
+              <span className="field-label">Địa điểm</span>
+              <input className="field-control px-3" name="location" maxLength={150} defaultValue={editingRace.location ?? ""} />
+            </label>
+            <label className="block sm:col-span-2">
+              <span className="field-label">Mô tả</span>
+              <textarea className="field-control min-h-20 px-3 py-2" name="description" defaultValue={editingRace.description ?? ""} />
+            </label>
+            <p className="text-xs text-slate-500 sm:col-span-2">Khi dời ngày thi đấu, hệ thống sẽ tự động kiểm tra trùng lịch của tất cả ngựa đã đăng ký.</p>
+            <div className="flex justify-end gap-2 sm:col-span-2">
+              <button type="button" className="soft-button" disabled={busy} onClick={() => setEditingRace(null)}>Hủy</button>
+              <button type="submit" className="gold-button" disabled={busy}>Lưu thay đổi</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {cancellingRace && (
+        <Modal title="Xác nhận hủy giải đấu" busy={busy} onClose={() => setCancellingRace(null)}>
+          <form
+            className="space-y-4"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (!cancelRaceReason.trim()) return;
+              const ok = await onCancelRace(cancellingRace.id, cancelRaceReason.trim());
+              if (ok) setCancellingRace(null);
+            }}
+          >
+            <p className="text-sm text-slate-700">
+              Hủy giải <strong>{cancellingRace.race_name}</strong> ngày <strong>{cancellingRace.race_date}</strong> sẽ đồng thời hủy toàn bộ lượt đăng ký hiện có ({cancellingRace.registered_count + cancellingRace.blocked_count} ngựa) và giải phóng lịch ngày đua.
+            </p>
+            <label className="block">
+              <span className="field-label">Lý do hủy giải <span className="text-rose-600">*</span></span>
+              <input
+                className="field-control px-3"
+                maxLength={255}
+                required
+                value={cancelRaceReason}
+                onChange={(event) => setCancelRaceReason(event.target.value)}
+                placeholder="Ví dụ: Ban tổ chức hoãn vô thời hạn..."
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="soft-button" disabled={busy} onClick={() => setCancellingRace(null)}>Đóng</button>
+              <button type="submit" className="danger-button" disabled={busy || !cancelRaceReason.trim()}>Xác nhận hủy giải</button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {rosterRace && (
+        <Modal title={`Danh sách ngựa · ${rosterRace.race_name}`} busy={busy} onClose={() => { setRosterRace(null); setWithdrawingEntry(null); }}>
+          <div className="space-y-4">
+            <div className="grid gap-2 rounded-lg border border-equine-line bg-slate-50 p-3 text-xs sm:grid-cols-4">
+              <div><span className="text-slate-400 block">Ngày thi đấu</span><strong className="text-equine-navy">{formatManagerRaceDate(rosterRace.race_date)}</strong></div>
+              <div><span className="text-slate-400 block">Địa điểm</span><strong className="text-equine-navy">{rosterRace.location || "Chưa cập nhật"}</strong></div>
+              <div><span className="text-slate-400 block">Cự ly / Hạng</span><strong className="text-equine-navy">{rosterRace.distance_meters ? `${rosterRace.distance_meters.toLocaleString("vi-VN")} m` : "—"}{rosterRace.grade ? ` · ${rosterRace.grade}` : ""}</strong></div>
+              <div><span className="text-slate-400 block">Trạng thái giải</span><strong className="text-equine-navy">{rosterRace.status === "Cancelled" ? "Đã hủy" : rosterRace.status === "Completed" ? "Hoàn thành" : "Đang mở"}</strong></div>
+            </div>
+
+            {rosterError && <Notice error>{rosterError}</Notice>}
+            {rosterLoading ? (
+              <p className="text-sm text-slate-500">Đang tải danh sách ngựa tham dự…</p>
+            ) : !rosterEntries.length ? (
+              <p className="text-sm text-slate-500">Chưa có ngựa nào được đăng ký vào giải này.</p>
+            ) : (
+              <div className="max-h-96 space-y-2.5 overflow-y-auto pr-1">
+                {rosterEntries.map((entry) => {
+                  const canWithdraw = entry.status === "Registered" || entry.status === "Blocked";
+                  const entryBadgeCls = entry.status === "Blocked"
+                    ? "border-rose-200 bg-rose-50 text-rose-700"
+                    : entry.status === "Completed"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : entry.status === "Cancelled"
+                        ? "border-slate-200 bg-slate-100 text-slate-600"
+                        : "border-sky-200 bg-sky-50 text-sky-700";
+                  return (
+                    <article key={entry.entry_id} className="rounded-lg border border-equine-line bg-slate-50 p-3 text-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-equine-navy">{entry.horse_name}</p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            Chủ sở hữu: <strong>{entry.owner_name ?? "Chưa gắn chủ"}</strong> · Đăng ký bởi: {entry.registered_by_name ?? "Head Trainer"}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            Sức khỏe: <strong>{managerHealthLabel(entry.current_status)}</strong> · Thể lực Vet: <strong>{managerReadinessLabel(entry.readiness_status)}</strong>
+                            {entry.is_training_locked ? " · Đang khóa huấn luyện" : ""}
+                          </p>
+                        </div>
+                        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${entryBadgeCls}`}>
+                          {entry.result_position != null ? `Hạng ${entry.result_position} · Hoàn thành` : managerRaceEntryStatusLabel(entry.status)}
+                        </span>
+                      </div>
+                      {entry.status === "Completed" && (
+                        <p className="mt-1.5 text-xs text-slate-600">Tiền thưởng: <strong className="text-equine-navy">{money(entry.prize_amount ?? 0)}</strong></p>
+                      )}
+                      {entry.cancel_reason && (
+                        <p className="mt-1.5 text-xs text-rose-700">Lý do rút: {entry.cancel_reason}</p>
+                      )}
+                      {canWithdraw && (
+                        <div className="mt-2">
+                          <button
+                            type="button"
+                            className="soft-button !min-h-[30px] !px-2.5 !text-xs border-rose-200 bg-rose-50 text-rose-700"
+                            disabled={busy}
+                            onClick={() => { setWithdrawingEntry(entry); setWithdrawReason(""); }}
+                          >
+                            <Ban size={12} /> Rút ngựa khỏi giải
+                          </button>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+
+            {withdrawingEntry && (
+              <form
+                className="rounded-lg border border-rose-200 bg-rose-50/70 p-3 space-y-2.5"
+                onSubmit={async (event) => {
+                  event.preventDefault();
+                  if (!withdrawReason.trim()) return;
+                  const ok = await onCancelEntry(withdrawingEntry.entry_id, withdrawReason.trim());
+                  if (ok) {
+                    setWithdrawingEntry(null);
+                    await openRoster(rosterRace);
+                  }
+                }}
+              >
+                <p className="text-xs font-semibold text-rose-900">Rút ngựa {withdrawingEntry.horse_name} khỏi giải:</p>
+                <input
+                  className="field-control bg-white px-3 text-sm"
+                  maxLength={255}
+                  required
+                  value={withdrawReason}
+                  onChange={(event) => setWithdrawReason(event.target.value)}
+                  placeholder="Nhập lý do rút ngựa..."
+                />
+                <div className="flex justify-end gap-2">
+                  <button type="button" className="soft-button !min-h-[32px] !px-3 !text-xs" onClick={() => setWithdrawingEntry(null)}>Hủy</button>
+                  <button type="submit" className="danger-button !min-h-[32px] !px-3 !text-xs" disabled={busy || !withdrawReason.trim()}>Xác nhận rút</button>
+                </div>
+              </form>
+            )}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
 }

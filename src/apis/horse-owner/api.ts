@@ -64,6 +64,7 @@ export type OwnerTrainingVideo = {
 export type OwnerRaceResult = {
   entry_id: string;
   entry_status: string | null;
+  cancel_reason?: string | null;
   result_position: number | null;
   prize_amount: number | null;
   race_id: string;
@@ -75,6 +76,7 @@ export type OwnerRaceResult = {
   location: string | null;
   description: string | null;
   is_simulated: boolean;
+  race_status?: string | null;
 };
 
 export type OwnerFinancialTransaction = {

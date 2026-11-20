@@ -117,6 +117,45 @@ export type RaceOption = {
   location?: string | null;
   distance_meters?: number | null;
   grade?: string | null;
+  distance_category?: string | null;
+  status?: string | null;
+};
+
+export type RaceScheduleConflict = {
+  event_id: string;
+  event_type: string;
+  title?: string | null;
+  event_date: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  horse_name?: string | null;
+};
+
+export type RaceRecoveryWarning = {
+  code: string;
+  race_id?: string;
+  race_date?: string;
+  training_schedule_id?: string;
+  event_date?: string;
+  message: string;
+};
+
+export type RaceEligibility = {
+  horse_id: string;
+  horse_name: string;
+  race_id: string;
+  race_name: string;
+  race_date: string;
+  current_status: string;
+  readiness_status: string;
+  is_training_locked: boolean;
+  has_unresolved_injury: boolean;
+  race_status: string;
+  already_registered: boolean;
+  eligible: boolean;
+  blocking_reasons: string[];
+  conflicts: RaceScheduleConflict[];
+  warnings: RaceRecoveryWarning[];
 };
 
 export type SimulationHorse = {
@@ -303,17 +342,35 @@ export const headTrainerApi = {
     return call<Record<string, unknown>>(`/api/training-schedules/${id}/videos`, "POST", input);
   },
   recordRaceResult(id: string, input: { result_position: number; prize_amount: number }) {
-    return call<Record<string, unknown>>(`/api/race-entries/${id}/result`, "PATCH", input);
+    return call<Record<string, unknown>>(`/api/race-entries/${encodeURIComponent(id)}/result`, "PATCH", input);
   },
   races(from?: string, to?: string) {
     const params = query({ from, to, page: 1, limit: 100 });
     return call<Page<RaceOption>>(`/api/head-trainer/races?${params}`);
   },
+  raceEligibility(horseId: string, raceId: string) {
+    const params = query({ race_id: raceId });
+    return call<RaceEligibility>(`/api/horses/${encodeURIComponent(horseId)}/race-entries/eligibility?${params}`);
+  },
   registerRace(horseId: string, raceId: string) {
-    return call<Record<string, unknown>>(`/api/horses/${horseId}/race-entries`, "POST", { race_id: raceId });
+    return call<Record<string, unknown> & { warnings?: RaceRecoveryWarning[] }>(
+      `/api/horses/${encodeURIComponent(horseId)}/race-entries`,
+      "POST",
+      { race_id: raceId },
+    );
+  },
+  cancelRaceEntry(entryId: string, reason: string) {
+    return call<Record<string, unknown>>(`/api/race-entries/${encodeURIComponent(entryId)}/cancel`, "POST", { reason });
+  },
+  restoreRaceEntry(entryId: string) {
+    return call<Record<string, unknown> & { warnings?: RaceRecoveryWarning[] }>(
+      `/api/race-entries/${encodeURIComponent(entryId)}/restore`,
+      "POST",
+      {},
+    );
   },
   raceEntries(horseId: string) {
-    return call<Page<Record<string, unknown>>>(`/api/horses/${horseId}/race-entries?page=1&limit=100`);
+    return call<Page<Record<string, unknown>>>(`/api/horses/${encodeURIComponent(horseId)}/race-entries?page=1&limit=100`);
   },
   analysis(horseId: string, from: string, to: string) {
     return call<TrainingAnalysis>(`/api/horses/${horseId}/training-analysis?${query({from,to})}`);

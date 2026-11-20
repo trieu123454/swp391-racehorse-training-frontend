@@ -263,14 +263,249 @@ function TrainingPanel({ dashboard }: { dashboard: OwnerDashboard }) {
 }
 
 function RacePanel({ dashboard }: { dashboard: OwnerDashboard }) {
-  const officialCount = dashboard.race_history.filter((race) => !race.is_simulated).length;
-  const simulatedCount = dashboard.race_history.length - officialCount;
-  const winnings = dashboard.race_history.reduce((sum, race) => sum + (race.prize_amount ?? 0), 0);
+  const [raceFilter, setRaceFilter] = useState<"ALL" | "OFFICIAL" | "SIMULATED">("ALL");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "COMPLETED" | "ACTIVE" | "CANCELLED">("ALL");
+  const [yearFilter, setYearFilter] = useState<string>("ALL");
+
+  const officialEntries = useMemo(
+    () => dashboard.race_history.filter((race) => !race.is_simulated),
+    [dashboard.race_history],
+  );
+  const simulatedEntries = useMemo(
+    () => dashboard.race_history.filter((race) => race.is_simulated),
+    [dashboard.race_history],
+  );
+  const activeOfficialEntries = useMemo(
+    () => officialEntries.filter((race) => (race.entry_status === "Registered" || race.entry_status === "Blocked") && race.race_status !== "Cancelled"),
+    [officialEntries],
+  );
+  const completedOfficial = useMemo(
+    () => officialEntries.filter((race) => race.entry_status === "Completed"),
+    [officialEntries],
+  );
+  const winsCount = useMemo(
+    () => completedOfficial.filter((race) => race.result_position === 1).length,
+    [completedOfficial],
+  );
+  const podiumCount = useMemo(
+    () => completedOfficial.filter((race) => race.result_position != null && race.result_position <= 3).length,
+    [completedOfficial],
+  );
+  const bestRank = useMemo(() => {
+    const ranks = completedOfficial
+      .map((race) => race.result_position)
+      .filter((rank): rank is number => typeof rank === "number" && rank >= 1);
+    return ranks.length > 0 ? Math.min(...ranks) : null;
+  }, [completedOfficial]);
+  const officialWinnings = useMemo(
+    () => completedOfficial.reduce((sum, race) => sum + (race.prize_amount ?? 0), 0),
+    [completedOfficial],
+  );
+
+  const years = useMemo(() => {
+    const set = new Set<string>();
+    for (const race of dashboard.race_history) {
+      if (race.race_date?.length >= 4) set.add(race.race_date.slice(0, 4));
+    }
+    return Array.from(set).sort((a, b) => b.localeCompare(a));
+  }, [dashboard.race_history]);
+
+  const filteredRaces = useMemo(() => {
+    return dashboard.race_history.filter((race) => {
+      if (raceFilter === "OFFICIAL" && race.is_simulated) return false;
+      if (raceFilter === "SIMULATED" && !race.is_simulated) return false;
+      if (yearFilter !== "ALL" && !race.race_date?.startsWith(yearFilter)) return false;
+
+      const isActive = (race.entry_status === "Registered" || race.entry_status === "Blocked") && race.race_status !== "Cancelled";
+      const isCancelled = race.entry_status === "Cancelled" || race.race_status === "Cancelled";
+      if (statusFilter === "COMPLETED" && race.entry_status !== "Completed") return false;
+      if (statusFilter === "ACTIVE" && !isActive) return false;
+      if (statusFilter === "CANCELLED" && !isCancelled) return false;
+      return true;
+    });
+  }, [dashboard.race_history, raceFilter, statusFilter, yearFilter]);
+
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-3"><InfoTile label="Giải đấu chính thức" value={String(officialCount)} /><InfoTile label="Lượt chạy mô phỏng" value={String(simulatedCount)} /><InfoTile label="Tổng tiền thưởng đã ghi nhận" value={money(winnings)} /></div>
-      <Panel title="Lịch sử thi đấu" icon={Trophy}>
-        {dashboard.race_history.length === 0 ? <Empty>Chưa có thành tích thi đấu được ghi nhận.</Empty> : <div className="space-y-3">{dashboard.race_history.map((race) => <article key={race.entry_id} className="rounded-xl border border-equine-line p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><h4 className="font-semibold text-equine-navy">{race.race_name}</h4>{race.is_simulated && <span className="rounded-full bg-violet-50 px-2 py-1 text-[10px] font-bold text-violet-800">Mô phỏng</span>}</div><p className="mt-1 text-sm text-slate-600">{formatDate(race.race_date)}{race.location ? ` · ${race.location}` : ""}{race.distance_meters ? ` · ${race.distance_meters.toLocaleString("vi-VN")} m` : ""}{race.grade ? ` · Hạng ${race.grade}` : ""}</p></div><span className="rounded-full bg-equine-mist px-3 py-1 text-xs font-semibold">{race.result_position == null ? entryStatus(race.entry_status) : `Hạng ${race.result_position}`}</span></div><div className="mt-3 text-sm text-slate-600">Tiền thưởng: <strong className="text-equine-navy">{race.prize_amount == null ? "Chưa cập nhật" : money(race.prize_amount)}</strong></div>{race.description && <p className="mt-2 text-sm text-slate-500">{race.description}</p>}</article>)}</div>}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <InfoTile label="Giải đấu chính thức" value={String(officialEntries.length)} detail={`${completedOfficial.length} lượt đã có kết quả`} />
+        <InfoTile label="Vô địch (Hạng 1)" value={String(winsCount)} detail={`${podiumCount} lần vào Top 3`} />
+        <InfoTile label="Thành tích tốt nhất" value={bestRank == null ? "—" : `Hạng ${bestRank}`} detail="Chỉ tính giải chính thức" />
+        <InfoTile label="Tổng tiền thưởng chính thức" value={money(officialWinnings)} detail="Loại trừ lượt chạy mô phỏng" />
+        <InfoTile label="Lượt chạy mô phỏng 3D" value={String(simulatedEntries.length)} detail="Huấn luyện nội bộ" />
+      </div>
+
+      {activeOfficialEntries.length > 0 && (
+        <Panel title="Lịch thi đấu chính thức sắp tới & Đang đăng ký" icon={CalendarDays}>
+          <div className="grid gap-3 md:grid-cols-2">
+            {activeOfficialEntries.map((race) => {
+              const isBlocked = race.entry_status === "Blocked";
+              return (
+                <article
+                  key={`upcoming-${race.entry_id}`}
+                  className={`rounded-xl border p-4 ${isBlocked ? "border-rose-200 bg-rose-50/40" : "border-sky-200 bg-sky-50/40"}`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h4 className="font-semibold text-equine-navy">{race.race_name}</h4>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {formatDate(race.race_date)}
+                        {race.location ? ` · ${race.location}` : ""}
+                        {race.distance_meters ? ` · ${race.distance_meters.toLocaleString("vi-VN")} m` : ""}
+                        {race.grade ? ` · Hạng giải ${race.grade}` : ""}
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${isBlocked ? "bg-rose-100 text-rose-800" : "bg-sky-100 text-sky-800"}`}>
+                      {isBlocked ? "Tạm khóa y tế" : "Đã đăng ký"}
+                    </span>
+                  </div>
+                  <p className="mt-2.5 text-xs text-slate-600">
+                    {isBlocked
+                      ? "Tạm khóa do trạng thái y tế; bác sĩ thú y sẽ kiểm tra lại trước khi Head Trainer khôi phục lịch thi đấu."
+                      : "Đã đăng ký · Sẵn sàng thi đấu theo lịch chính thức."}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+        </Panel>
+      )}
+
+      <Panel title="Lịch sử & Kết quả thi đấu" icon={Trophy}>
+        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-equine-line bg-slate-50/70 p-3.5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {([
+              ["ALL", `Tất cả (${dashboard.race_history.length})`],
+              ["OFFICIAL", `Giải chính thức (${officialEntries.length})`],
+              ["SIMULATED", `Đua thử 3D (${simulatedEntries.length})`],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setRaceFilter(key)}
+                className={raceFilter === key ? "gold-button !min-h-[34px] !px-3 !text-xs" : "soft-button !min-h-[34px] !px-3 !text-xs"}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs font-medium text-slate-600">
+              Trạng thái
+              <select
+                aria-label="Lọc theo trạng thái thi đấu"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as "ALL" | "COMPLETED" | "ACTIVE" | "CANCELLED")}
+                className="field-control ml-2 inline-flex h-9 w-40 bg-white px-2 text-xs"
+              >
+                <option value="ALL">Tất cả trạng thái</option>
+                <option value="COMPLETED">Đã có kết quả</option>
+                <option value="ACTIVE">Đang mở / Tạm khóa</option>
+                <option value="CANCELLED">Đã hủy</option>
+              </select>
+            </label>
+            {years.length > 0 && (
+              <label className="text-xs font-medium text-slate-600">
+                Năm
+                <select
+                  aria-label="Lọc theo năm thi đấu"
+                  value={yearFilter}
+                  onChange={(event) => setYearFilter(event.target.value)}
+                  className="field-control ml-2 inline-flex h-9 w-28 bg-white px-2 text-xs"
+                >
+                  <option value="ALL">Tất cả</option>
+                  {years.map((item) => <option key={item} value={item}>{item}</option>)}
+                </select>
+              </label>
+            )}
+          </div>
+        </div>
+
+        {filteredRaces.length === 0 ? (
+          <Empty>Chưa có bản ghi thi đấu phù hợp bộ lọc hiện tại.</Empty>
+        ) : (
+          <div className="space-y-3">
+            {filteredRaces.map((race) => {
+              const isBlocked = race.entry_status === "Blocked";
+              const isCancelled = race.entry_status === "Cancelled" || race.race_status === "Cancelled";
+              const isCompleted = race.entry_status === "Completed";
+              const rankLabel = race.result_position == null
+                ? entryStatus(race.entry_status)
+                : race.result_position === 1 && !race.is_simulated
+                  ? "Hạng 1 · Vô địch"
+                  : race.result_position === 2 && !race.is_simulated
+                    ? "Hạng 2 · Á quân"
+                    : `Hạng ${race.result_position}`;
+              const badgeCls = isBlocked
+                ? "bg-rose-50 text-rose-700 border-rose-200"
+                : isCancelled
+                  ? "bg-slate-100 text-slate-600 border-slate-200"
+                  : race.result_position === 1 && !race.is_simulated
+                    ? "bg-amber-100 text-amber-900 border-amber-300"
+                    : (race.result_position === 2 || race.result_position === 3) && !race.is_simulated
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                      : "bg-equine-mist text-equine-navy border-slate-200";
+              const prizeText = race.is_simulated
+                ? "Không áp dụng (Đua thử nội bộ)"
+                : isCompleted
+                  ? money(race.prize_amount ?? 0)
+                  : isCancelled
+                    ? "Đã hủy đăng ký"
+                    : "Chờ kết quả sau ngày thi đấu";
+
+              return (
+                <article key={race.entry_id} className="rounded-xl border border-equine-line bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="font-semibold text-equine-navy">{race.race_name}</h4>
+                        {race.is_simulated && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold text-violet-800">Mô phỏng</span>}
+                        {race.race_status === "Cancelled" && <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700">Giải đã hủy</span>}
+                      </div>
+                    </div>
+                    <span className={`rounded-full border px-3 py-1 text-xs font-bold ${badgeCls}`}>{rankLabel}</span>
+                  </div>
+
+                  <div className="mt-3 grid gap-2 rounded-lg bg-slate-50 p-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <span className="block text-[11px] uppercase tracking-wide text-slate-400">Ngày thi đấu</span>
+                      <strong className="mt-0.5 block text-slate-800">{formatDate(race.race_date)}</strong>
+                    </div>
+                    <div>
+                      <span className="block text-[11px] uppercase tracking-wide text-slate-400">Địa điểm</span>
+                      <strong className="mt-0.5 block text-slate-800">{race.location || "Chưa cập nhật"}</strong>
+                    </div>
+                    <div>
+                      <span className="block text-[11px] uppercase tracking-wide text-slate-400">Cự ly & Hạng giải</span>
+                      <strong className="mt-0.5 block text-slate-800">
+                        {race.distance_meters ? `${race.distance_meters.toLocaleString("vi-VN")} m` : "—"}
+                        {race.grade ? ` · Hạng ${race.grade}` : ""}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="block text-[11px] uppercase tracking-wide text-slate-400">Tiền thưởng / Ghi nhận</span>
+                      <strong className="mt-0.5 block text-equine-navy">{prizeText}</strong>
+                    </div>
+                  </div>
+
+                  {isBlocked && (
+                    <p className="mt-2.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                      Lượt đăng ký này đang tạm khóa do bác sĩ thú y đặt trạng thái theo dõi/chấn thương cho ngựa.
+                    </p>
+                  )}
+
+                  {race.cancel_reason && (
+                    <p className="mt-2.5 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-700">
+                      <strong>Lý do hủy:</strong> {race.cancel_reason}
+                    </p>
+                  )}
+                  {race.description && <p className="mt-2 text-xs text-slate-500">{race.description}</p>}
+                </article>
+              );
+            })}
+          </div>
+        )}
       </Panel>
     </div>
   );
@@ -333,7 +568,12 @@ function scheduleStatus(value: string | null) {
 }
 
 function entryStatus(value: string | null) {
-  return ({ Registered: "Đã ghi danh", Completed: "Đã hoàn thành", Cancelled: "Đã hủy" } as Record<string, string>)[value ?? ""] ?? value ?? "Chưa có kết quả";
+  return ({
+    Registered: "Đã đăng ký",
+    Blocked: "Tạm khóa y tế",
+    Completed: "Đã hoàn thành",
+    Cancelled: "Đã hủy",
+  } as Record<string, string>)[value ?? ""] ?? value ?? "Chưa có kết quả";
 }
 
 function financialCategory(value: string) {
