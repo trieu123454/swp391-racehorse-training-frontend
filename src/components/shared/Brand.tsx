@@ -9,21 +9,19 @@ export function Brand({
 }) {
   return (
     <div className="inline-flex min-w-0 max-w-full items-center">
-      <Image
-        alt="Equine Racehorse System"
-        className={`w-auto shrink-0 object-contain ${
-          compact ? "h-14 sm:h-16 lg:h-[68px]" : "h-16 sm:h-[72px]"
-        } ${
-          light
-            ? "brightness-0 invert"
-            : "mix-blend-multiply [filter:contrast(1.06)_brightness(1.03)]"
-        }`}
-        height={compact ? 68 : 72}
-        priority
-        src="/assets/aistudio/image_f48a425a.png"
-        style={{ width: "auto" }}
-        width={compact ? 180 : 196}
-      />
+      <span
+        className={`relative block shrink-0 ${compact ? "h-14 sm:h-16 lg:h-[68px]" : "h-16 sm:h-[72px]"}`}
+        style={{ aspectRatio: "1983 / 793" }}
+      >
+        <Image
+          alt="Equine Racehorse System"
+          className={`object-contain ${light ? "brightness-0 invert" : "mix-blend-multiply [filter:contrast(1.06)_brightness(1.03)]"}`}
+          fill
+          priority
+          sizes="180px"
+          src="/assets/aistudio/image_f48a425a.png"
+        />
+      </span>
     </div>
   );
 }

@@ -194,8 +194,17 @@ export async function getOwnerHorses() {
   return authenticatedRequest<{ items: OwnerHorse[]; total: number }>("/api/horse-owner/horses");
 }
 
+async function requestOwnerList<T>(path: string): Promise<T[]> {
+  const response = await authenticatedRequest<unknown>(path);
+  if (Array.isArray(response)) return response as T[];
+  if (response && typeof response === "object" && "items" in response && Array.isArray(response.items)) {
+    return response.items as T[];
+  }
+  throw new Error("Dữ liệu danh sách yêu cầu không hợp lệ. Vui lòng thử lại.");
+}
+
 export function getHorseRegistrationRequests() {
-  return authenticatedRequest<HorseRegistrationRequest[]>("/api/horse-owner/horse-registration-requests");
+  return requestOwnerList<HorseRegistrationRequest>("/api/horse-owner/horse-registration-requests");
 }
 
 export function getOwnerRegistrationDocumentUrl(requestId: string, docId: string, download = false) {
@@ -211,17 +220,26 @@ export async function submitHorseRegistrationRequest(
   documentTypes: string[],
   onUploadProgress?: (fraction: number) => void,
 ) {
-  const form = new FormData();
-  form.append("request", new Blob([JSON.stringify(input)], { type: "application/json" }));
-  if (horseImage) form.append("horseImage", horseImage);
-  documents.forEach((file) => form.append("documents", file));
-  if (documents.length) form.append("documentTypes", new Blob([JSON.stringify(documentTypes)], { type: "application/json" }));
-  return authenticatedUploadWithProgress<HorseRegistrationRequest>(
-    "/api/horse-owner/horse-registration-requests",
-    "POST",
-    form,
-    onUploadProgress,
-  );
+  if (horseImage || documents.length || documentTypes.length || input.requestType === "LINK") {
+    const form = new FormData();
+    form.append("request", new Blob([JSON.stringify(input)], { type: "application/json" }));
+    if (horseImage) form.append("horseImage", horseImage);
+    documents.forEach((file) => form.append("documents", file));
+    if (documents.length) form.append("documentTypes", new Blob([JSON.stringify(documentTypes)], { type: "application/json" }));
+    const result = onUploadProgress
+      ? await authenticatedUploadWithProgress<HorseRegistrationRequest>("/api/horse-owner/horse-registration-requests", "POST", form, onUploadProgress)
+      : await authenticatedRequest<HorseRegistrationRequest>("/api/horse-owner/horse-registration-requests", { method: "POST", body: form });
+    return { ...result, documents: result.documents ?? [], history: result.history ?? [] };
+  }
+  if (input.requestType !== "REGISTER") {
+    throw new Error("Liên kết ngựa hiện chưa được hỗ trợ bởi dịch vụ đăng ký.");
+  }
+  const { horseName, breed, birthYear, heightCm, currentWeightKg, pedigreeFather, pedigreeMother, ownerNote } = input;
+  const result = await authenticatedRequest<HorseRegistrationRequest>("/api/horse-owner/horse-registration-requests", {
+    method: "POST",
+    body: JSON.stringify({ horseName, breed, birthYear, heightCm, currentWeightKg, pedigreeFather, pedigreeMother, reason: ownerNote }),
+  });
+  return { ...result, documents: result.documents ?? [], history: result.history ?? [] };
 }
 
 export async function resubmitHorseRegistrationRequest(
@@ -246,7 +264,7 @@ export async function resubmitHorseRegistrationRequest(
 }
 
 export function getOwnershipTransferRequests() {
-  return authenticatedRequest<OwnershipTransferRequest[]>("/api/horse-owner/ownership-transfer-requests");
+  return requestOwnerList<OwnershipTransferRequest>("/api/horse-owner/ownership-transfer-requests");
 }
 
 export function respondToOwnershipTransfer(id: string, action: "CONSENT" | "DECLINE", note?: string) {

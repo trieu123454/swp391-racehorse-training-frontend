@@ -803,6 +803,36 @@ progress::-moz-progress-bar {
   }
 }
 
+.equine-horse { display: block; overflow: visible; }
+.equine-horse__tail { transform-box: fill-box; transform-origin: 90% 10%; animation: equine-tail 6s ease-in-out infinite; }
+.equine-horse__eye { transform-box: fill-box; transform-origin: center; animation: equine-blink 7s infinite; }
+.equine-horse__torso { transform-box: fill-box; transform-origin: center bottom; animation: equine-breathe 4s ease-in-out infinite; }
+.equine-horse--eating .equine-horse__neck { transform: rotate(35deg); transform-box: fill-box; transform-origin: 20% 85%; animation: equine-eat 6s ease-in-out infinite; }
+.equine-horse--sick .equine-horse__neck { transform-box: fill-box; transform-origin: 20% 85%; transform: rotate(12deg); }
+.equine-horse--sick .equine-horse__tail { animation: none; }
+.equine-horse--lying .equine-horse__torso { animation: none; }
+.stable-yard-figure-wrap:has(.equine-horse) { height: 126px; }
+.equine-horse__leg { transform-box: view-box; }
+.equine-horse__leg--hindLeft, .equine-horse__leg--hindRight { transform-origin: 26% 49%; }
+.equine-horse__leg--frontLeft, .equine-horse__leg--frontRight { transform-origin: 59% 49%; }
+.stable-yard-horse[data-motion="walk"] .equine-horse__leg--hindLeft,
+.stable-yard-horse[data-motion="walk"] .equine-horse__leg--frontRight { animation: equine-step .8s ease-in-out infinite; }
+.stable-yard-horse[data-motion="walk"] .equine-horse__leg--hindRight,
+.stable-yard-horse[data-motion="walk"] .equine-horse__leg--frontLeft { animation: equine-step .8s ease-in-out -.4s infinite; }
+.stable-yard-horse[data-motion="trot"] .equine-horse__leg--hindLeft,
+.stable-yard-horse[data-motion="trot"] .equine-horse__leg--frontRight { animation: equine-step .36s ease-in-out infinite; }
+.stable-yard-horse[data-motion="trot"] .equine-horse__leg--hindRight,
+.stable-yard-horse[data-motion="trot"] .equine-horse__leg--frontLeft { animation: equine-step .36s ease-in-out -.18s infinite; }
+.stable-yard-horse[data-motion="graze"] .equine-horse__neck { transform-box: fill-box; transform-origin: 20% 85%; animation: equine-eat 6s ease-in-out infinite; }
+@keyframes equine-step { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(10deg); } }
+@keyframes equine-tail { 0%, 65%, 100% { transform: rotate(0); } 75% { transform: rotate(10deg); } 85% { transform: rotate(-7deg); } }
+@keyframes equine-blink { 0%, 92%, 96%, 100% { transform: scaleY(1); } 94% { transform: scaleY(.08); } }
+@keyframes equine-breathe { 0%, 100% { scale: 1 1; } 50% { scale: 1.006 1.018; } }
+@keyframes equine-eat { 0%, 100% { transform: rotate(12deg); } 40%, 70% { transform: rotate(40deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .equine-horse * { animation: none !important; transition: none !important; }
+}
+
 .stable-yard-stall {
   overflow: hidden;
   border: 1px solid #d8c7ad;
@@ -1068,7 +1098,7 @@ progress::-moz-progress-bar {
 
 .stable-yard-horse__name-pill {
   position: absolute;
-  top: 22px;
+  top: -8px;
   left: 99%;
   z-index: 2;
   display: flex;

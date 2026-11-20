@@ -5,12 +5,12 @@ import Link from "next/link";
 import { ArrowUpRight, X, Stethoscope, ShieldAlert, HeartPulse, FileText, Sparkles } from "lucide-react";
 import { Routes } from "@/routes/Routes";
 import type { VetHorse } from "@/api/veterinarian/api";
-import { HorseImage } from "@/components/horses/HorseUI";
+import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import type { Horse } from "@/api/horses/api";
+import HorseIllustration, { type HorseCoat } from "./Horse";
 
 type MotionState = "walk" | "trot" | "graze" | "idle";
 type HorseAgent = { id: string; x: number; direction: -1 | 1; motion: MotionState; remainingMs: number; speed: number };
-type HorseColor = { coat: string; mane: string; shade: string };
 type StableHorse = { horse: VetHorse; colorIndex: number };
 type StableGroup = {
   id: string;
@@ -33,15 +33,6 @@ export type YardStableBox = {
 
 const HORSE_WIDTH = 150;
 const FRAME_MS = 1000 / 60;
-const horseColors: HorseColor[] = [
-  { coat: "#8b5838", mane: "#40271b", shade: "#70472f" },
-  { coat: "#bd875d", mane: "#805235", shade: "#9c6848" },
-  { coat: "#4e3024", mane: "#21140e", shade: "#382219" },
-  { coat: "#c8cbce", mane: "#666b70", shade: "#9da2a6" },
-  { coat: "#292827", mane: "#151414", shade: "#201e1d" },
-  { coat: "#98442e", mane: "#53271c", shade: "#753321" },
-];
-
 function randomBetween(min: number, max: number) {
   return min + Math.random() * (max - min);
 }
@@ -104,8 +95,8 @@ export default function HorseStableYard({
   onUpdateStatus?: (horseId: string, status: string, readiness: string, note?: string) => Promise<void>;
 }) {
   const [selectedHorse, setSelectedHorse] = useState<VetHorse | null>(null);
-  const [filterType, setFilterType] = useState<"all" | "quarantine" | "injury" | "normal">("all");
   const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   const groups = useMemo(() => {
     const byStable = new Map<string, StableGroup>();
@@ -154,16 +145,10 @@ export default function HorseStableYard({
     });
   }, [horses, stables]);
 
-  const filteredGroups = useMemo(() => {
-    if (filterType === "quarantine") return groups.filter((g) => g.box_type === "Quarantine");
-    if (filterType === "injury") return groups.filter((g) => g.box_type === "Injury");
-    if (filterType === "normal") return groups.filter((g) => g.box_type === "Normal" || !g.box_type);
-    return groups;
-  }, [groups, filterType]);
-
   const sceneHeight = Math.max(260, ...groups.map((group) => sceneHeightForHorseCount(group.horses.length)));
 
   const selectHorse = useCallback((horse: VetHorse) => {
+    setActionError("");
     setSelectedHorse(horse);
     onSelectHorse(horse.id);
   }, [onSelectHorse]);
@@ -171,16 +156,16 @@ export default function HorseStableYard({
   async function handleRelocate(horseId: string, status: string, readiness: string, note: string) {
     if (!onUpdateStatus) return;
     setActionBusy(true);
+    setActionError("");
     try {
       await onUpdateStatus(horseId, status, readiness, note);
       setSelectedHorse(null);
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : "Không thể cập nhật trạng thái. Vui lòng thử lại.");
     } finally {
       setActionBusy(false);
     }
   }
-
-  const quarantineCount = groups.filter((g) => g.box_type === "Quarantine").flatMap((g) => g.horses).length;
-  const injuryCount = groups.filter((g) => g.box_type === "Injury").flatMap((g) => g.horses).length;
 
   return (
     <>
@@ -189,60 +174,21 @@ export default function HorseStableYard({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-equine-line bg-slate-50/70 px-4 py-3">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="font-sans text-sm font-black text-equine-navy">Sơ đồ Chuồng trại & Khu Y tế</h2>
+              <h2 className="font-sans text-sm font-black text-equine-navy">Sơ đồ chuồng trại</h2>
               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-300">
                 Trực quan 2D
               </span>
             </div>
             <p className="mt-0.5 text-[11px] text-slate-500">
-              {horses.length} ngựa · {groups.length} khu vực chuồng (bao gồm Chuồng Cách ly 1 con & Chuồng Dưỡng thương 1 con)
+              {horses.length} ngựa · {groups.length} khu vực chuồng
             </p>
           </div>
 
-          {/* Sub-tabs chuyển nhanh giữa các khu chuồng */}
-          <div className="inline-flex flex-wrap rounded-lg border border-slate-300 bg-white p-1 text-xs shadow-xs">
-            <button
-              type="button"
-              onClick={() => setFilterType("all")}
-              className={`rounded-md px-2.5 py-1 text-xs font-bold transition ${
-                filterType === "all" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              Tất cả chuồng ({groups.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterType("quarantine")}
-              className={`rounded-md px-2.5 py-1 text-xs font-bold transition flex items-center gap-1 ${
-                filterType === "quarantine" ? "bg-rose-600 text-white shadow-xs" : "text-rose-700 hover:bg-rose-50"
-              }`}
-            >
-              <ShieldAlert size={13} /> Khu Cách ly ({quarantineCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterType("injury")}
-              className={`rounded-md px-2.5 py-1 text-xs font-bold transition flex items-center gap-1 ${
-                filterType === "injury" ? "bg-amber-600 text-white shadow-xs" : "text-amber-800 hover:bg-amber-50"
-              }`}
-            >
-              <HeartPulse size={13} /> Khu Chấn thương ({injuryCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterType("normal")}
-              className={`rounded-md px-2.5 py-1 text-xs font-bold transition ${
-                filterType === "normal" ? "bg-slate-900 text-white shadow-xs" : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              🏡 Chuồng Thường
-            </button>
-          </div>
         </div>
 
         {/* Lưới các chuồng 2D */}
         <div className="grid grid-cols-1 gap-3.5 p-3.5 xl:grid-cols-2">
-          {filteredGroups.map((group) => {
+          {groups.map((group) => {
             const isQuarantine = group.box_type === "Quarantine" || group.section.toLowerCase().includes("cách ly");
             const isInjury = group.box_type === "Injury" || group.section.toLowerCase().includes("chấn thương");
             const isEmpty = group.horses.length === 0;
@@ -345,16 +291,12 @@ export default function HorseStableYard({
             );
           })}
 
-          {filteredGroups.length === 0 && (
+          {groups.length === 0 && (
             <p className="rounded-xl bg-slate-50 px-3 py-8 text-center text-xs text-slate-500 xl:col-span-2">
-              Không có chuồng nào phù hợp bộ lọc đã chọn.
+              Chưa có dữ liệu chuồng trại.
             </p>
           )}
         </div>
-
-        <p className="px-4 pb-3 text-xs text-slate-500">
-          💡 Bấm trực tiếp vào bất kỳ con ngựa nào trong chuồng để mở ngay <strong>Bàn khám bệnh</strong>, kê đơn thuốc hoặc điều chuyển chuồng cách ly.
-        </p>
       </section>
 
       {/* THẺ HÀNH ĐỘNG Y TẾ TRỰC TIẾP KHI BẤM VÀO NGỰA */}
@@ -397,6 +339,7 @@ export default function HorseStableYard({
           </div>
 
           {/* CÁC NÚT HÀNH ĐỘNG TRỰC TIẾP DÀNH CHO BÁC SĨ THÚ Y */}
+          {actionError && <Notice error>{actionError}</Notice>}
           <div className="mt-4 space-y-2">
             {onGoToExam && (
               <button
@@ -647,7 +590,7 @@ function StablePen({
         const lane = index % laneCount;
         const depth = laneCount === 1 || lane === laneCount - 1 ? "near" : "far";
         const bottom = laneCount === 1 || lane === laneCount - 1 ? 4 : 28;
-        const color = horseColors[item.colorIndex % horseColors.length];
+        const coats: HorseCoat[] = ["bay", "chestnut", "black", "gray", "palomino"];
         return (
           <button
             key={item.horse.id}
@@ -670,50 +613,12 @@ function StablePen({
                 <span className="ml-1 text-[9px] text-indigo-600 bg-indigo-50 px-1 rounded font-bold">🩺</span>
               </span>
               <span className="stable-yard-figure-wrap">
-                <HorseFigure colors={color} />
+                <HorseIllustration className="stable-yard-figure" coatColor={coats[item.colorIndex % coats.length]} hasStar={item.colorIndex % 3 === 0} socks={item.colorIndex % 2 === 0 ? ["frontLeft", "hindRight"] : []} size={142} />
               </span>
             </span>
           </button>
         );
       })}
     </div>
-  );
-}
-
-function HorseFigure({ colors }: { colors: HorseColor }) {
-  return (
-    <svg viewBox="0 0 180 120" className="stable-yard-figure" aria-hidden="true">
-      <g className="stable-yard-horse__tail">
-        <path d="M47 53 C37 55 35 63 28 67 C24 70 20 71 16 69 C22 77 33 73 39 68 C43 64 47 62 51 61" fill={colors.mane} />
-        <path d="M30 68 Q24 77 19 79 M35 66 Q31 75 28 78" fill="none" stroke={colors.mane} strokeWidth="2.5" strokeLinecap="round" />
-      </g>
-      <g className="stable-yard-horse__leg stable-yard-horse__leg--back-far">
-        <path d="M57 65 C54 74 55 82 51 91 L47 103 L54 104 L62 93 L67 70Z" fill={colors.shade} stroke="#513322" strokeWidth="1.5" strokeLinejoin="round" />
-        <path d="M47 101 L54 101 L58 106 L45 106Z" fill="#3d2a20" />
-      </g>
-      <g className="stable-yard-horse__leg stable-yard-horse__leg--front-far">
-        <path d="M105 63 C108 73 106 82 109 92 L106 102 L113 104 L119 93 L116 79 L117 65Z" fill={colors.shade} stroke="#513322" strokeWidth="1.5" strokeLinejoin="round" />
-        <path d="M106 101 L113 101 L117 106 L104 106Z" fill="#3d2a20" />
-      </g>
-      <g className="stable-yard-horse__body">
-        <path d="M44 50 C48 37 63 31 81 32 C94 31 108 36 119 42 C127 47 130 57 125 65 C121 73 108 76 91 75 L66 71 C52 69 42 62 44 50Z" fill={colors.coat} stroke="#553622" strokeWidth="2.3" strokeLinejoin="round" />
-        <path d="M106 46 C112 37 116 27 121 20 C126 13 135 13 143 20 L148 27 C145 32 139 35 134 39 L126 60 L116 59Z" fill={colors.coat} stroke="#553622" strokeWidth="2.2" strokeLinejoin="round" />
-        <path d="M141 18 C144 14 148 11 154 12 C158 13 162 16 166 21 C170 27 170 33 165 37 C159 42 153 43 145 42 L137 38 C135 34 135 27 139 21Z" fill={colors.coat} stroke="#553622" strokeWidth="2" strokeLinejoin="round" />
-        <path d="M136 17 L139 8 L144 14Z" fill={colors.coat} stroke="#553622" strokeWidth="1.4" />
-        <circle cx="156" cy="22" r="2.2" fill="#1b120c" />
-        <path d="M164 32 C163 35 160 36 157 35" fill="none" stroke="#2c1a11" strokeWidth="1.2" strokeLinecap="round" />
-      </g>
-      <g className="stable-yard-horse__mane">
-        <path d="M117 48 C120 40 124 31 129 23 C132 18 136 15 139 12 C137 18 134 25 131 33 C128 41 126 48 123 54Z" fill={colors.mane} />
-      </g>
-      <g className="stable-yard-horse__leg stable-yard-horse__leg--back-near">
-        <path d="M66 67 C63 76 65 85 62 94 L59 105 L66 106 L73 95 L76 72Z" fill={colors.coat} stroke="#553622" strokeWidth="1.6" strokeLinejoin="round" />
-        <path d="M59 103 L66 103 L70 108 L57 108Z" fill="#2d1c14" />
-      </g>
-      <g className="stable-yard-horse__leg stable-yard-horse__leg--front-near">
-        <path d="M113 65 C116 75 114 84 117 94 L114 105 L121 106 L127 95 L124 81 L125 67Z" fill={colors.coat} stroke="#553622" strokeWidth="1.6" strokeLinejoin="round" />
-        <path d="M114 103 L121 103 L125 108 L112 108Z" fill="#2d1c14" />
-      </g>
-    </svg>
   );
 }

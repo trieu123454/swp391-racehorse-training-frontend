@@ -188,11 +188,27 @@ export type HorseRegistrationStatusFilter =
   | "REJECTED"
   | "ALL";
 
-export function listHorseRegistrationRequests(status: HorseRegistrationStatusFilter = "PENDING") {
-  return request<ManagerHorseRegistrationRequest[]>(
-    `/horse-registration-requests?status=${encodeURIComponent(status)}`,
-  );
+export async function listHorseRegistrationRequests(status: HorseRegistrationStatusFilter = "PENDING") {
+  try {
+    const response = await request<unknown>(`/horse-registration-requests?status=${encodeURIComponent(status)}`);
+    if (Array.isArray(response)) return response as ManagerHorseRegistrationRequest[];
+    if (response && typeof response === "object") {
+      if ("items" in response && Array.isArray(response.items)) {
+        return response.items as ManagerHorseRegistrationRequest[];
+      }
+      if ("data" in response && Array.isArray(response.data)) {
+        return response.data as ManagerHorseRegistrationRequest[];
+      }
+    }
+    throw new Error("Dữ liệu danh sách hồ sơ chờ duyệt không hợp lệ. Vui lòng thử lại.");
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 404) {
+      throw new Error("Dịch vụ chưa hỗ trợ tải danh sách hồ sơ chờ duyệt. Cần cập nhật backend.");
+    }
+    throw error;
+  }
 }
+
 
 export function listPendingHorseRegistrationRequests() {
   return listHorseRegistrationRequests("PENDING");

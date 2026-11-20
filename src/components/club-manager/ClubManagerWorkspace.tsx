@@ -452,6 +452,7 @@ export default function ClubManagerWorkspace() {
       </Panel>}
 
       {tab === "horse-requests" && <HorseRegistrationReviewPanel
+        loadFailed={loadErrors["horse-requests"].some((item) => item.section === "Yêu cầu hồ sơ ngựa")}
         requests={horseRequests}
         stables={stables}
         statusFilter={requestStatusFilter}
@@ -761,6 +762,7 @@ function LinkHorsePicker({
 
 function HorseRegistrationReviewPanel({
   requests,
+  loadFailed,
   stables,
   statusFilter,
   onStatusFilterChange,
@@ -772,6 +774,7 @@ function HorseRegistrationReviewPanel({
 }: {
   requests: ManagerHorseRegistrationRequest[];
   stables: Stable[];
+  loadFailed: boolean;
   statusFilter: HorseRegistrationStatusFilter;
   onStatusFilterChange: (next: HorseRegistrationStatusFilter) => void;
   cardErrors: Record<string, string>;
@@ -1123,7 +1126,7 @@ function HorseRegistrationReviewPanel({
             </article>
           );
         })}
-        {!requests.length && (
+        {!loadFailed && !requests.length && (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-8 text-center text-sm text-slate-500">
             <CheckCircle2 size={24} className="mx-auto text-emerald-500 mb-2" />
             <p className="font-semibold text-slate-700">Không có yêu cầu nào ở bộ lọc này</p>

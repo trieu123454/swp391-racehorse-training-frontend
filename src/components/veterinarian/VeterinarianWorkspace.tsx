@@ -18,7 +18,6 @@ import {
   LockKeyhole,
   MapPin,
   Pill,
-  RefreshCw,
   Search,
   ShieldAlert,
   Stethoscope,
@@ -27,11 +26,13 @@ import {
   Users,
   Utensils,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { HorseImage, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
+import ExamHorsePicker from "./ExamHorsePicker";
+import ExamHistoryViews from "./ExamHistoryViews";
 import InjuryModel3D from "@/components/veterinarian/InjuryModel3D";
-import HorseStableYard from "@/components/veterinarian/HorseStableYard";
+import StableWorkspace from "./StableWorkspace";
 import { CompactId } from "@/components/shared/CompactId";
 import { StatTile } from "@/components/shared/StatTile";
 import type { Horse } from "@/api/horses/api";
@@ -239,12 +240,11 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
-  const [unread, setUnread] = useState(0);
-  const [actionCount, setActionCount] = useState(0);
+  const [, setUnread] = useState(0);
+  const [, setActionCount] = useState(0);
   const [actionItems, setActionItems] = useState<VetActionItem[]>([]);
   const [actionItemsLoading, setActionItemsLoading] = useState(true);
   const [actionItemsError, setActionItemsError] = useState("");
-  const [openIncidentCount, setOpenIncidentCount] = useState(0);
   const [recentActivities, setRecentActivities] = useState<VetActivity[]>([]);
   const [activityHistoryReady, setActivityHistoryReady] = useState(false);
   const [autoOpenExam, setAutoOpenExam] = useState(false);
@@ -254,12 +254,8 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
     setLoading(true);
     setError("");
     try {
-      const [result, incidents] = await Promise.all([
-        veterinarianApi.overview(),
-        veterinarianApi.incidents("Open").catch(() => null),
-      ]);
+      const result = await veterinarianApi.overview();
       setOverview(result);
-      if (incidents) setOpenIncidentCount(incidents.data.length);
       setSelectedId((current) => result.horses.some((horse) => horse.id === current)
         ? current
         : result.horses[0]?.id ?? "");
@@ -357,14 +353,6 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
       window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
     };
   }, [horses, loadActionItems, loadOverview, loadUnread]);
-  const stableGroups = useMemo(() => {
-    const groups = new Map<string, VetHorse[]>();
-    for (const item of horses) {
-      const location = item.stable_box ? `Khu ${item.stable_box.section} · Chuồng ${item.stable_box.box_code}` : "Chưa xếp chuồng";
-      groups.set(location, [...(groups.get(location) ?? []), item]);
-    }
-    return [...groups.entries()].sort(([left], [right]) => left.localeCompare(right, "vi"));
-  }, [horses]);
   const visibleHorses = horses.filter((item) => {
     const query = search.trim().toLocaleLowerCase("vi");
     return item.horse_name.toLocaleLowerCase("vi").includes(query)
@@ -396,7 +384,7 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
     <section className="dashboard-workspace mx-auto w-full" aria-label="Không gian bác sĩ thú y">
       {error && <div className="mt-5"><Notice error>{error}</Notice></div>}
 
-      {isSingleHorseTab && <div className="relative mt-4 w-full max-w-2xl">
+      {isSingleHorseTab && tab !== "exams" && <div className="relative mt-4 w-full max-w-2xl">
         <label className="flex items-center gap-2 rounded-xl border border-equine-line bg-white px-3 py-2.5 shadow-sm"><Search size={16} className="shrink-0 text-slate-500" /><span className="sr-only">Tìm ngựa theo tên hoặc mã số</span><input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none" placeholder="Tìm theo tên hoặc mã số ngựa..." /></label>
         {search.trim() && <div className="absolute left-0 right-0 top-full z-20 mt-2 max-h-[65vh] space-y-2 overflow-y-auto rounded-xl border border-equine-line bg-white p-2 shadow-lg">
           {loading && !overview ? <Notice>Đang tìm ngựa...</Notice> : visibleHorses.length === 0 ? <Notice>Không tìm thấy ngựa phù hợp.</Notice> : visibleHorses.map((item) => <HorseChoice key={item.id} horse={item} selected={item.id === selectedId} onClick={() => { setSelectedId(item.id); setSearch(""); }} />)}
@@ -404,51 +392,22 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
       </div>}
 
       {tab === "stables" ? (
-        <div className="mt-5 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(300px,420px)_minmax(0,1fr)]">
-          <StableMapPanel
-            horses={horses}
-            stables={overview?.stables}
-            selectedId={selectedId}
-            openIncidentCount={openIncidentCount}
-            unread={unread}
-            actionCount={actionCount}
-            onIncident={() => { selectTab("incidents"); }}
-            onNotifications={() => { selectTab("notifications"); }}
-            onRefresh={() => { void loadOverview(); void loadUnread(); }}
-            onSelectHorse={(id) => { setSelectedId(id); selectTab("overview"); }}
-            onGoToExam={(id) => {
-              setSelectedId(id);
-              setAutoOpenExam(true);
-              selectTab("exams");
-            }}
-          />
-          <HorseStableYard
-            horses={horses}
-            stables={overview?.stables}
-            onSelectHorse={setSelectedId}
-            onGoToExam={(id) => {
-              setSelectedId(id);
-              setAutoOpenExam(true);
-              selectTab("exams");
-            }}
-            onUpdateStatus={async (horseId, status, readiness, note) => {
-              try {
-                const res = await veterinarianApi.updateHealthStatus(horseId, status, readiness, note);
-                showToast(
-                  res.stable_relocation?.message
-                    ? `Đã cập nhật trạng thái & ${res.stable_relocation.message}`
-                    : "Đã cập nhật trạng thái sức khỏe"
-                );
-                await loadOverview();
-              } catch (err) {
-                showToast(veterinarianError(err));
-              }
-            }}
-          />
-        </div>
+        <StableWorkspace
+          stables={overview?.stables}
+          onGoToExam={(id) => { setSelectedId(id); setAutoOpenExam(true); selectTab("exams"); }}
+          onUpdateStatus={async (horseId, status, readiness, note) => {
+            try {
+              const result = await veterinarianApi.updateHealthStatus(horseId, status, readiness, note);
+              showToast(result.stable_relocation?.message ?? "Đã cập nhật trạng thái sức khỏe");
+              await loadOverview();
+            } catch (reason) {
+              showToast(veterinarianError(reason));
+              throw reason;
+            }
+          }}
+          onSelectHorse={setSelectedId} horses={horses} loading={loading} onRefresh={() => { void loadOverview(); }} onOpen={(id) => { setSelectedId(id); selectTab("overview"); }} />
       ) : (
       <div className="mt-4 min-w-0">
-          {tab === "exams" && <ExamHorseRoster horses={horses} selectedId={selectedId} onSelectHorse={setSelectedId} />}
           {(tab === "dispatch" || tab === "care") && horse && (
             <CarePanel
               horses={horses}
@@ -469,11 +428,15 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
           {tab === "incidents" && <StableIncidentsPanel onOpenHorse={(id) => { setSelectedId(id); selectTab("overview"); }} />}
           {tab === "notifications" && <NotificationsPanel horses={horses} activities={recentActivities} initialActionItems={actionItems} actionsLoading={actionItemsLoading} actionsError={actionItemsError} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} />}
           {isSingleHorseTab && horse && <>
-            <HorseSummary horse={horse} />
+            {tab !== "exams" && <HorseSummary horse={horse} />}
             <div className="mt-4">
               {tab === "overview" && <HorseStatusPanel horse={horse} onChanged={changed} />}
               {tab === "exams" && (
                 <ExamsPanel
+                  key={horse.id}
+                  onOpenInjuries={() => selectTab("injuries")}
+                  horses={horses}
+                  onSelectHorse={setSelectedId}
                   horse={horse}
                   onChanged={changed}
                   autoOpenCreate={autoOpenExam}
@@ -492,333 +455,6 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
           {!horse && !loading && !["incidents", "notifications"].includes(tab) && <div className="rounded-lg border border-equine-line bg-white p-6 shadow-sm"><Notice>Chưa có ngựa đang hoạt động để quản lý sức khỏe.</Notice></div>}
       </div>
       )}
-    </section>
-  );
-}
-
-function StableMapPanel({
-  horses,
-  stables = [],
-  selectedId,
-  openIncidentCount,
-  unread,
-  actionCount,
-  onIncident,
-  onNotifications,
-  onRefresh,
-  onSelectHorse,
-  onGoToExam,
-}: {
-  horses: VetHorse[];
-  stables?: HealthOverview["stables"];
-  selectedId: string | null;
-  openIncidentCount: number;
-  unread: number;
-  actionCount: number;
-  onIncident: () => void;
-  onNotifications: () => void;
-  onRefresh: () => void;
-  onSelectHorse: (id: string) => void;
-  onGoToExam: (id: string) => void;
-}) {
-  const quarantineStables = useMemo(
-    () => (stables ?? []).filter((s) => s.box_type === "Quarantine"),
-    [stables]
-  );
-  const injuryStables = useMemo(
-    () => (stables ?? []).filter((s) => s.box_type === "Injury"),
-    [stables]
-  );
-
-  // Nhóm ngựa chuồng thường theo vị trí
-  const normalGroups = useMemo(() => {
-    const groups = new Map<string, VetHorse[]>();
-    for (const h of horses) {
-      const boxType = h.stable_box?.box_type;
-      if (boxType === "Quarantine" || boxType === "Injury") continue;
-      const loc = h.stable_box
-        ? `Khu ${h.stable_box.section} · Chuồng ${h.stable_box.box_code}`
-        : "Chưa gán chuồng";
-      groups.set(loc, [...(groups.get(loc) ?? []), h]);
-    }
-    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, "vi"));
-  }, [horses]);
-
-  return (
-    <section className="overflow-hidden rounded-xl border border-equine-line bg-white shadow-sm" aria-label="Sơ đồ chuồng trại">
-      <div className="flex items-center justify-between gap-2 border-b border-equine-line bg-slate-50/70 px-3.5 py-3">
-        <div className="min-w-0">
-          <h2 className="font-sans text-sm font-bold text-equine-navy">Phân bổ Chuồng & Y tế</h2>
-          <p className="mt-0.5 text-[11px] text-slate-500">
-            {horses.length} chiến mã · 3 khu chức năng
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            title="Sự cố"
-            aria-label={`Sự cố cần xử lý: ${openIncidentCount}`}
-            onClick={onIncident}
-            className="relative grid h-8 w-8 place-items-center rounded-lg text-rose-700 hover:bg-rose-50"
-          >
-            <AlertTriangle size={15} />
-            <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-rose-100 px-1 text-[9px] font-bold">
-              {openIncidentCount}
-            </span>
-          </button>
-          <button
-            type="button"
-            title="Thông báo"
-            aria-label={`Thông báo: ${unread} chưa đọc, ${actionCount} việc cần xử lý`}
-            onClick={onNotifications}
-            className="relative grid h-8 w-8 place-items-center rounded-lg text-equine-navy hover:bg-equine-mist"
-          >
-            <Bell size={15} />
-            <span
-              className={`absolute -right-1 -top-1 min-w-4 rounded-full px-1 text-[9px] font-bold ${
-                unread ? "bg-rose-100 text-rose-700" : "bg-equine-mist text-slate-600"
-              }`}
-            >
-              {unread}
-            </span>
-            {actionCount > 0 && <span className="absolute -bottom-0.5 -right-1 h-2 w-2 rounded-full bg-amber-500" />}
-          </button>
-          <button
-            type="button"
-            title="Làm mới"
-            aria-label="Làm mới dữ liệu"
-            className="grid h-8 w-8 place-items-center rounded-lg text-equine-navy hover:bg-equine-mist"
-            onClick={onRefresh}
-          >
-            <RefreshCw size={14} />
-          </button>
-        </div>
-      </div>
-
-      <div className="max-h-[min(75vh,620px)] space-y-3 overflow-y-auto p-3">
-        {/* 1. KHU CÁCH LY Y TẾ (QUARANTINE) */}
-        <div className="rounded-xl border border-rose-300 bg-rose-50/30 p-2.5">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="flex items-center gap-1 text-[11px] font-black uppercase tracking-wide text-rose-900">
-              <ShieldAlert size={14} className="text-rose-600" />
-              Khu Cách Ly Y Tế (1 con/box)
-            </span>
-            <span className="rounded-full bg-rose-100 px-1.5 py-0.2 text-[10px] font-bold text-rose-800">
-              Q-01..Q-03
-            </span>
-          </div>
-          <div className="space-y-1.5">
-            {quarantineStables.map((box) => {
-              const horseInBox = horses.find(
-                (h) => h.stable_box?.id === box.id || h.stable_box?.box_code === box.box_code
-              );
-              if (horseInBox) {
-                return (
-                  <div
-                    key={box.id}
-                    className={`flex items-center justify-between gap-1.5 rounded-lg border p-2 transition ${
-                      horseInBox.id === selectedId
-                        ? "border-rose-400 bg-white ring-2 ring-rose-200"
-                        : "border-rose-200 bg-white hover:bg-rose-50/50"
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-black text-rose-950">
-                          [{box.box_code}]
-                        </span>
-                        <span className="truncate text-xs font-bold text-slate-900">
-                          {horseInBox.horse_name}
-                        </span>
-                      </div>
-                      <span className="mt-0.5 inline-block rounded-full bg-rose-100 px-1.5 py-0.2 text-[9px] font-bold text-rose-800">
-                        {statusLabels[horseInBox.current_status] ?? horseInBox.current_status}
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => onGoToExam(horseInBox.id)}
-                        className="flex items-center gap-1 rounded-md bg-rose-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-rose-700"
-                        title="Vào bàn khám con này ngay"
-                      >
-                        <Stethoscope size={11} /> Khám
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onSelectHorse(horseInBox.id)}
-                        className="rounded-md border border-slate-300 bg-slate-50 px-1.5 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-100"
-                      >
-                        Hồ sơ
-                      </button>
-                    </div>
-                  </div>
-                );
-              }
-              return (
-                <div
-                  key={box.id}
-                  className="flex items-center justify-between rounded-lg border border-dashed border-rose-200 bg-white/70 px-2.5 py-1.5 text-xs"
-                >
-                  <span className="font-bold text-rose-950 text-[11px]">
-                    Chuồng {box.box_code}
-                  </span>
-                  <span className="text-[10px] font-medium text-slate-500">
-                    Trống (0/1) · Sẵn sàng cách ly
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 2. KHU DƯỠNG THƯƠNG / CHẤN THƯƠNG (INJURY CARE) */}
-        <div className="rounded-xl border border-amber-300 bg-amber-50/30 p-2.5">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="flex items-center gap-1 text-[11px] font-black uppercase tracking-wide text-amber-950">
-              <HeartPulse size={14} className="text-amber-600" />
-              Khu Chấn Thương & Dưỡng Sức (1 con/box)
-            </span>
-            <span className="rounded-full bg-amber-100 px-1.5 py-0.2 text-[10px] font-bold text-amber-900">
-              I-01..I-03
-            </span>
-          </div>
-          <div className="space-y-1.5">
-            {injuryStables.map((box) => {
-              const horseInBox = horses.find(
-                (h) => h.stable_box?.id === box.id || h.stable_box?.box_code === box.box_code
-              );
-              if (horseInBox) {
-                return (
-                  <div
-                    key={box.id}
-                    className={`flex items-center justify-between gap-1.5 rounded-lg border p-2 transition ${
-                      horseInBox.id === selectedId
-                        ? "border-amber-400 bg-white ring-2 ring-amber-200"
-                        : "border-amber-200 bg-white hover:bg-amber-50/50"
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-black text-amber-950">
-                          [{box.box_code}]
-                        </span>
-                        <span className="truncate text-xs font-bold text-slate-900">
-                          {horseInBox.horse_name}
-                        </span>
-                      </div>
-                      <span className="mt-0.5 inline-block rounded-full bg-amber-100 px-1.5 py-0.2 text-[9px] font-bold text-amber-900">
-                        {statusLabels[horseInBox.current_status] ?? horseInBox.current_status}
-                      </span>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => onGoToExam(horseInBox.id)}
-                        className="flex items-center gap-1 rounded-md bg-amber-600 px-2 py-1 text-[10px] font-bold text-white hover:bg-amber-700"
-                        title="Vào bàn khám con này ngay"
-                      >
-                        <Stethoscope size={11} /> Khám
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onSelectHorse(horseInBox.id)}
-                        className="rounded-md border border-slate-300 bg-slate-50 px-1.5 py-1 text-[10px] font-bold text-slate-700 hover:bg-slate-100"
-                      >
-                        Hồ sơ
-                      </button>
-                    </div>
-                  </div>
-                );
-              }
-              return (
-                <div
-                  key={box.id}
-                  className="flex items-center justify-between rounded-lg border border-dashed border-amber-200 bg-white/70 px-2.5 py-1.5 text-xs"
-                >
-                  <span className="font-bold text-amber-950 text-[11px]">
-                    Chuồng {box.box_code}
-                  </span>
-                  <span className="text-[10px] font-medium text-slate-500">
-                    Trống (0/1) · Sẵn sàng tiếp nhận
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 3. KHU NUÔI DƯỠNG (CHUỒNG THƯỜNG) */}
-        <div>
-          <p className="mb-2 text-[11px] font-black uppercase tracking-wide text-slate-500">
-            🏡 Khu Nuôi Dưỡng (Chuồng Thường)
-          </p>
-          <div className="space-y-2">
-            {normalGroups.map(([location, occupants]) => (
-              <div key={location} className="rounded-xl border border-equine-line bg-[#f8fafc] p-2.5">
-                <div className="mb-1.5 flex items-center justify-between text-[11px] font-bold text-slate-600">
-                  <span className="truncate">{location}</span>
-                  <span className="rounded-full bg-slate-200 px-1.5 py-0.2 text-[9px] font-bold">
-                    {occupants.length} con
-                  </span>
-                </div>
-                <div className="space-y-1.5">
-                  {occupants.map((item) => (
-                    <div
-                      key={item.id}
-                      className={`flex items-center justify-between gap-1.5 rounded-lg border p-1.5 transition ${
-                        item.id === selectedId
-                          ? "border-equine-navy bg-white ring-1 ring-equine-navy/30 shadow-xs"
-                          : "border-slate-200 bg-white hover:bg-slate-50"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => onSelectHorse(item.id)}
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <div className="truncate text-xs font-semibold text-equine-navy">
-                          {item.horse_name}
-                          {item.is_training_locked && (
-                            <span className="ml-1 text-[10px] font-bold text-rose-600">· Khóa</span>
-                          )}
-                        </div>
-                        <span
-                          className={`mt-0.5 inline-block rounded-full px-1.5 py-0.2 text-[9px] font-bold ${
-                            item.current_status === "Injured" || item.current_status === "Quarantine"
-                              ? "bg-rose-100 text-rose-800"
-                              : item.current_status === "Monitoring"
-                              ? "bg-amber-100 text-amber-900"
-                              : "bg-emerald-100 text-emerald-800"
-                          }`}
-                        >
-                          {statusLabels[item.current_status] ?? item.current_status}
-                        </span>
-                      </button>
-
-                      <div className="flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => onGoToExam(item.id)}
-                          className="flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700 hover:bg-indigo-100 border border-indigo-200"
-                          title={`Vào bàn khám ngay cho ${item.horse_name}`}
-                        >
-                          <Stethoscope size={11} /> Khám
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {!normalGroups.length && (
-              <p className="rounded-lg bg-equine-mist px-3 py-4 text-center text-xs text-slate-500">
-                Chưa có dữ liệu chuồng thường.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
     </section>
   );
 }
@@ -1070,64 +706,19 @@ function ExamForm({
   );
 }
 
-type ExamHorseSummary = { horse: VetHorse; total: number; latestExamDate: string | null };
-
-function ExamHorseRoster({ horses, selectedId, onSelectHorse }: { horses: VetHorse[]; selectedId: string; onSelectHorse: (id: string) => void }) {
-  const [items, setItems] = useState<ExamHorseSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  const load = useCallback(async () => {
-    if (horses.length === 0) {
-      setItems([]);
-      setError("");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError("");
-    const results = await Promise.allSettled(horses.map((horse) => veterinarianApi.exams(horse.id)));
-    const summaries: ExamHorseSummary[] = [];
-    let failedCount = 0;
-    results.forEach((result, index) => {
-      if (result.status === "rejected") {
-        failedCount += 1;
-        return;
-      }
-      const total = Math.max(result.value.total, result.value.data.length);
-      if (total > 0) summaries.push({ horse: horses[index], total, latestExamDate: result.value.data[0]?.exam_date ?? null });
-    });
-    summaries.sort((left, right) => Date.parse(right.latestExamDate ?? "") - Date.parse(left.latestExamDate ?? ""));
-    setItems(summaries);
-    setError(failedCount > 0 ? `Không tải được hồ sơ khám của ${failedCount} ngựa.` : "");
-    setLoading(false);
-  }, [horses]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  return <SectionCard title="Ngựa đã có hồ sơ khám" description="Danh sách ngựa từng được khám, kèm số lần và ngày khám gần nhất. Chọn ngựa để xem lịch sử khám." icon={Stethoscope} action={<button type="button" className="soft-button h-9 px-3 text-xs" disabled={loading} onClick={() => void load()}><RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Làm mới</button>}>
-    {error && <div className="mb-3"><Notice error>{error}</Notice></div>}
-    {loading && items.length === 0 ? <Notice>Đang tải danh sách ngựa đã khám...</Notice> : items.length === 0 ? error ? null : <Empty>Chưa có ngựa nào có hồ sơ khám.</Empty> : <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {items.map((item) => <button key={item.horse.id} type="button" aria-pressed={selectedId === item.horse.id} onClick={() => onSelectHorse(item.horse.id)} className={`flex min-w-0 items-center gap-3 rounded-lg border p-3 text-left transition ${selectedId === item.horse.id ? "border-equine-navy bg-slate-50 ring-1 ring-equine-navy/20" : "border-equine-line bg-white hover:bg-slate-50"}`}>
-        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-equine-mist"><HorseImage horse={item.horse as unknown as Horse} /></div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold text-equine-navy">{item.horse.horse_name}</p>
-          <p className="mt-0.5 truncate text-xs text-slate-500">{item.horse.stable_box ? `Chuồng ${item.horse.stable_box.box_code} · Khu ${item.horse.stable_box.section}` : "Chưa xếp chuồng"}</p>
-          <p className="mt-1 text-xs text-slate-600">{item.total} lần khám · gần nhất {displayDate(item.latestExamDate)}</p>
-        </div>
-      </button>)}
-    </div>}
-    {loading && items.length > 0 && <p className="mt-2 text-xs text-slate-500" role="status">Đang cập nhật danh sách...</p>}
-  </SectionCard>;
-}
-
 function ExamsPanel({
+  onOpenInjuries,
+  horses,
+  onSelectHorse,
   horse,
   onChanged,
   autoOpenCreate,
   linkedScheduleId,
   onResetAutoOpen,
 }: {
+  onOpenInjuries: () => void;
+  horses: VetHorse[];
+  onSelectHorse: (id: string) => void;
   horse: VetHorse;
   onChanged: (message: string) => void;
   autoOpenCreate?: boolean;
@@ -1135,6 +726,9 @@ function ExamsPanel({
   onResetAutoOpen?: () => void;
 }) {
   const [response, setResponse] = useState<{ data: HealthExam[]; total: number }>({ data: [], total: 0 });
+  const [diagnoses, setDiagnoses] = useState<MedicalRecord[]>([]);
+  const [diagnosesLoading, setDiagnosesLoading] = useState(true);
+  const [diagnosesError, setDiagnosesError] = useState("");
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<HealthExam | null>(null);
   const [logs, setLogs] = useState<HealthExamLog[]>([]);
@@ -1146,6 +740,42 @@ function ExamsPanel({
   const [alerts, setAlerts] = useState<HealthExam["alerts"]>([]);
   const [pendingSchedule, setPendingSchedule] = useState<CareSchedule | null>(null);
   const [autoCompleteCare, setAutoCompleteCare] = useState(true);
+  const [diagnosisExamId, setDiagnosisExamId] = useState("");
+  const [diagnosisBusy, setDiagnosisBusy] = useState(false);
+  const [examInjuries, setExamInjuries] = useState<InjuryMarker[]>([]);
+  const [injuryHistoryError, setInjuryHistoryError] = useState("");
+  useEffect(() => {
+    let active = true;
+    const loadInjuries = async () => {
+      try {
+        const result = await veterinarianApi.injuries(horse.id);
+        if (active) { setExamInjuries(result.data); setInjuryHistoryError(""); }
+      } catch (reason) {
+        if (active) setInjuryHistoryError(veterinarianError(reason));
+      }
+    };
+    void loadInjuries();
+    window.addEventListener(APP_MUTATION_COMPLETED_EVENT, loadInjuries);
+    return () => { active = false; window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, loadInjuries); };
+  }, [horse.id]);
+  const examEditorRef = useRef<HTMLDivElement>(null);
+  const openExamId = detail?.id;
+  useEffect(() => {
+    if (openExamId || creating) {
+      examEditorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      examEditorRef.current?.focus({ preventScroll: true });
+    }
+  }, [openExamId, creating]);
+
+  const diagnosesByExam = useMemo(() => {
+    const grouped = new Map<string, MedicalRecord[]>();
+    for (const record of diagnoses) {
+      if (!record.health_exam_id) continue;
+      grouped.set(record.health_exam_id, [...(grouped.get(record.health_exam_id) ?? []), record]);
+    }
+    return grouped;
+  }, [diagnoses]);
+  const standaloneDiagnoses = useMemo(() => diagnoses.filter((record) => !record.health_exam_id), [diagnoses]);
 
   useEffect(() => {
     if (autoOpenCreate) {
@@ -1195,7 +825,29 @@ function ExamsPanel({
     } catch (reason) { setError(veterinarianError(reason)); }
     finally { setLoading(false); }
   }, [horse.id]);
-  useEffect(() => { setDetail(null); setLogs([]); setResponse({ data: [], total: 0 }); if (!autoOpenCreate) setCreating(false); void load(); }, [autoOpenCreate, load]);
+  const loadDiagnoses = useCallback(async () => {
+    setDiagnosesLoading(true);
+    setDiagnosesError("");
+    try {
+      const result = await veterinarianApi.records(horse.id);
+      setDiagnoses(result.data);
+    } catch (reason) {
+      setDiagnoses([]);
+      setDiagnosesError(veterinarianError(reason));
+    } finally {
+      setDiagnosesLoading(false);
+    }
+  }, [horse.id]);
+  useEffect(() => {
+    setDetail(null);
+    setLogs([]);
+    setResponse({ data: [], total: 0 });
+    setDiagnoses([]);
+    setDiagnosisExamId("");
+    if (!autoOpenCreate) setCreating(false);
+    void load();
+    void loadDiagnoses();
+  }, [autoOpenCreate, load, loadDiagnoses]);
 
   async function openExam(id: string) {
     setError(""); setLoading(true); setDetail(null); setLogs([]);
@@ -1239,11 +891,37 @@ function ExamsPanel({
     finally { setBusy(false); }
   }
 
-  return <SectionCard title="Hồ sơ khám bệnh" description="Ghi nhận sinh hiệu, kết quả khám và xem lại lịch sử chỉnh sửa." icon={Stethoscope} action={<button type="button" className="gold-button h-10 px-3" onClick={() => { setCreating((value) => !value); setDetail(null); setEditing(false); setError(""); }}><Stethoscope size={15} /> Khám mới</button>}>
+  async function saveDiagnosis(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!detail) return;
+    setDiagnosisBusy(true);
+    setDiagnosesError("");
+    try {
+      const values = formValues(event.currentTarget, [], ["treatment_plan"]);
+      await veterinarianApi.createRecord(horse.id, {
+        ...values,
+        health_exam_id: detail.id,
+      } as { health_exam_id: string; diagnosis: string; treatment_plan?: string });
+      setDiagnosisExamId("");
+      await loadDiagnoses();
+      onChanged("Đã lưu chẩn đoán vào lịch sử khám của ngựa.");
+    } catch (reason) {
+      setDiagnosesError(veterinarianError(reason));
+    } finally {
+      setDiagnosisBusy(false);
+    }
+  }
+
+  return <SectionCard title="Khám bệnh" icon={Stethoscope} action={<button type="button" className="gold-button h-10 px-3" disabled={busy} onClick={() => { setCreating(true); setDetail(null); setEditing(false); setError(""); }}><Stethoscope size={15} /> Khám mới</button>}>
+    <div className="mb-5 flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 p-3">
+      <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-equine-mist sm:h-20 sm:w-20"><HorseImage horse={horse as unknown as Horse} /></div>
+      <ExamHorsePicker horses={horses} selected={horse} disabled={busy || diagnosisBusy} onSelect={onSelectHorse} />
+      <div className="text-xs text-slate-500"><p>{horse.stable_box ? `Chuồng ${horse.stable_box.box_code} · Khu ${horse.stable_box.section}` : "Chưa gán chuồng"}</p><p className="mt-1">{statusLabels[horse.current_status] ?? horse.current_status} · {response.total} lần khám</p>{horse.is_training_locked && <p className="mt-1 text-amber-800">Khóa tập luyện: {horse.lock_reason || horse.lock_level}</p>}</div>
+    </div>
     <ErrorLine>{error}</ErrorLine>
     {alerts && alerts.length > 0 && <div className="my-3 space-y-2">{alerts.map((alert) => <p key={alert.field} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><AlertTriangle size={14} className="mr-2 inline" />{alert.field}: {alert.value} · ngưỡng tham khảo {alert.normal_range}</p>)}</div>}
     {creating && (
-      <div className="mb-5 rounded-xl border border-equine-line bg-slate-50 p-4">
+      <div ref={examEditorRef} tabIndex={-1} className="mb-5 rounded-xl border border-equine-line bg-slate-50 p-4">
         <h4 className="mb-4 font-semibold text-equine-navy">Lần khám mới</h4>
         <ExamForm
           editing={false}
@@ -1256,12 +934,28 @@ function ExamsPanel({
         />
       </div>
     )}
-    {detail && <div className="mb-5 rounded-xl border border-equine-line bg-slate-50 p-4">
+    {detail && <div ref={examEditorRef} tabIndex={-1} className="mb-5 rounded-xl border border-equine-line bg-slate-50 p-4">
+      <div className="mb-3 flex justify-end"><button type="button" className="text-sm font-medium text-slate-600 hover:text-equine-navy" onClick={() => { setDetail(null); setEditing(false); setDiagnosisExamId(""); }}>Đóng chi tiết</button></div>
       <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h4 className="font-semibold text-equine-navy">Chi tiết lần khám</h4><CompactId id={detail.id} /></div><p className="text-sm text-slate-500">{displayDate(detail.exam_date)} · {detail.doctor?.name ?? "Bác sĩ"}</p>{detail.last_edited_at && <p className="mt-1 text-xs text-slate-500">Sửa gần nhất: {displayDate(detail.last_edited_at)} · {detail.last_edited_by?.name ?? "Bác sĩ"}</p>}</div><button type="button" className="soft-button h-9 px-3" onClick={() => setEditing((value) => !value)}> {editing ? "Đóng chỉnh sửa" : "Chỉnh sửa"}</button></div>
       {editing ? <div className="mt-4"><ExamForm initial={detail} editing busy={busy} onSubmit={save} onCancel={() => setEditing(false)} /></div> : <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{[...examFields, ...examLongFields].map((field) => { const value = detail[field.name as keyof HealthExam]; return value === undefined || value === null || value === "" ? null : <p key={field.name} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="block text-xs text-slate-500">{field.label}</span><span className="whitespace-pre-wrap font-medium text-slate-800">{String(value)}</span></p>; })}</div>}
       <div className="mt-4 border-t border-equine-line pt-3"><p className="mb-2 flex items-center gap-2 text-sm font-semibold text-equine-navy"><ClipboardCheck size={15} /> Lịch sử sửa ({logs.length})</p>{logs.length === 0 ? <p className="text-xs text-slate-500">Hồ sơ chưa có lần chỉnh sửa.</p> : <div className="space-y-2">{logs.map((log) => <div key={log.id} className="rounded-lg bg-white p-3 text-xs"><p className="font-semibold">{log.edited_by?.name ?? "Bác sĩ"} · {displayDate(log.edited_at)}</p><ul className="mt-1 space-y-1">{log.changes.map((change) => <li key={change.field}>{change.field}: {String(change.old_value ?? "—")} → {String(change.new_value ?? "—")}</li>)}</ul></div>)}</div>}</div>
+      <section className="mt-4 border-t border-equine-line pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-2 text-sm font-semibold text-equine-navy"><FileHeart size={15} /> Chẩn đoán chấn thương trong lần khám</p>
+          {diagnosisExamId !== detail.id && <button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => setDiagnosisExamId(detail.id)}>+ Thêm chẩn đoán</button>}
+        </div>
+        {diagnosesLoading ? <p className="mt-2 text-xs text-slate-500">Đang tải chẩn đoán...</p> : (diagnosesByExam.get(detail.id) ?? []).length === 0 ? <p className="mt-2 text-xs text-slate-500">Chưa có chẩn đoán gắn với lần khám này.</p> : <div className="mt-2 space-y-2">{(diagnosesByExam.get(detail.id) ?? []).map((record) => <article key={record.id} className="rounded-lg border border-rose-100 bg-white p-3"><p className="whitespace-pre-wrap text-sm font-semibold text-slate-900">{record.diagnosis}</p><p className="mt-1 text-xs text-slate-500">Ngày ghi nhận: {displayDate(record.created_at)}</p>{record.treatment_plan && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{record.treatment_plan}</p>}</article>)}</div>}
+        {diagnosisExamId === detail.id && <form onSubmit={(event) => void saveDiagnosis(event)} className="mt-3 space-y-3 rounded-xl bg-white p-3">
+          <TextAreaField label="Chẩn đoán chấn thương" name="diagnosis" required rows={2} />
+          <TextAreaField label="Phác đồ điều trị" name="treatment_plan" rows={3} />
+          <div className="flex gap-2"><button className="gold-button h-10" disabled={diagnosisBusy}>Lưu vào lịch sử khám</button><button type="button" className="soft-button h-10 px-3" disabled={diagnosisBusy} onClick={() => setDiagnosisExamId("")}>Hủy</button></div>
+        </form>}
+      </section>
     </div>}
-    {loading && response.data.length === 0 ? <Notice>Đang tải lịch sử khám...</Notice> : error ? null : response.data.length === 0 ? <Empty>Chưa có hồ sơ khám. Hãy tạo lần khám đầu tiên.</Empty> : <div className="space-y-2">{response.data.map((exam) => <button key={exam.id} type="button" onClick={() => void openExam(exam.id)} className="flex w-full flex-col gap-2 rounded-xl border border-equine-line p-3 text-left hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><p className="font-semibold text-equine-navy">{displayDate(exam.exam_date)}</p><CompactId id={exam.id} /></div><p className="text-xs text-slate-500">{exam.doctor?.name ?? "Bác sĩ"}{exam.has_edits ? " · Đã chỉnh sửa" : ""}</p></div><div className="flex gap-3 text-sm"><span>{exam.temperature_c ?? "—"} °C</span><span>{exam.heart_rate ?? "—"} bpm</span><span>{exam.respiratory_rate ?? "—"} lần/phút</span></div></button>)}</div>}
+    {diagnosesError && <div className="mb-3"><Notice error>Không tải được lịch sử chẩn đoán: {diagnosesError}</Notice></div>}
+    {standaloneDiagnoses.length > 0 && <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50/50 p-3"><h4 className="font-semibold text-equine-navy">Chẩn đoán trong lịch sử ngựa chưa gắn với lần khám</h4><div className="mt-2 space-y-2">{standaloneDiagnoses.map((record) => <article key={record.id} className="rounded-lg border border-amber-100 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="whitespace-pre-wrap text-sm font-semibold text-slate-900">{record.diagnosis}</p><span className="text-xs text-slate-500">{displayDate(record.created_at)}</span></div>{record.treatment_plan && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{record.treatment_plan}</p>}</article>)}</div></section>}
+    {injuryHistoryError && <Notice error>{injuryHistoryError}</Notice>}
+    {loading && response.data.length === 0 ? <Notice>Đang tải lịch sử khám...</Notice> : !error && <ExamHistoryViews key={horse.id} injuries={examInjuries} onOpenInjuries={onOpenInjuries} exams={response.data} diagnosesByExam={diagnosesByExam} onOpen={(id) => void openExam(id)} />}
     {response.data.length < response.total && <button type="button" className="soft-button mt-3 h-10 px-4" disabled={loading} onClick={() => void load(page + 1, true)}>Tải thêm hồ sơ</button>}
   </SectionCard>;
 }
@@ -1356,7 +1050,7 @@ function MedicalPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (messa
   return <div className="space-y-4">
     <SectionCard title="Chẩn đoán & phác đồ" description="Gắn chẩn đoán với lần khám của cùng ngựa; đơn thuốc được kê từ hồ sơ chẩn đoán." icon={FileHeart} action={<button type="button" className="gold-button h-10 px-3" onClick={() => setCreating((value) => !value)}>+ Chẩn đoán</button>}>
       <ErrorLine>{error}</ErrorLine>{medicalNotice && <div className="mb-3"><Notice>{medicalNotice}</Notice></div>}
-      {creating && <form onSubmit={createRecord} className="mb-4 space-y-3 rounded-xl border border-equine-line bg-slate-50 p-4"><h4 className="font-semibold text-equine-navy">Tạo chẩn đoán</h4><label className="block"><span className="field-label">Lần khám liên quan (không bắt buộc)</span><select name="health_exam_id" defaultValue="" className="field-control px-3"><option value="">Không gắn lần khám</option>{exams.map((exam) => <option key={exam.id} value={exam.id}>{displayDate(exam.exam_date)} · {exam.temperature_c ?? "—"} °C</option>)}</select></label><TextAreaField label="Chẩn đoán" name="diagnosis" required /><TextAreaField label="Phác đồ điều trị" name="treatment_plan" rows={3} /><div className="flex gap-2"><button className="gold-button" disabled={busy}>Lưu chẩn đoán</button><button type="button" className="soft-button h-11 px-4" onClick={() => setCreating(false)}>Hủy</button></div></form>}
+      {creating && <form onSubmit={createRecord} className="mb-4 space-y-3 rounded-xl border border-equine-line bg-slate-50 p-4"><h4 className="font-semibold text-equine-navy">Tạo chẩn đoán</h4><label className="block"><span className="field-label">Lần khám liên quan</span><select name="health_exam_id" defaultValue={exams[0]?.id ?? ""} className="field-control px-3"><option value="">Chỉ lưu trong lịch sử chẩn đoán</option>{exams.map((exam) => <option key={exam.id} value={exam.id}>{displayDate(exam.exam_date)} · {exam.temperature_c ?? "—"} °C</option>)}</select></label>{exams.length > 0 && <p className="text-xs text-slate-500">Chọn lần khám để chẩn đoán xuất hiện trong tab Khám bệnh của ngựa.</p>}<TextAreaField label="Chẩn đoán" name="diagnosis" required /><TextAreaField label="Phác đồ điều trị" name="treatment_plan" rows={3} /><div className="flex gap-2"><button className="gold-button" disabled={busy}>Lưu chẩn đoán</button><button type="button" className="soft-button h-11 px-4" onClick={() => setCreating(false)}>Hủy</button></div></form>}
       {loading ? <Notice>Đang tải hồ sơ điều trị...</Notice> : error.includes("Chẩn đoán:") ? null : records.length === 0 ? <Empty>Chưa có chẩn đoán cho ngựa này.</Empty> : <div className="space-y-2">{records.map((record) => {
         const detail = details[record.id];
         return <article key={record.id} className="rounded-xl border border-equine-line p-3">
@@ -2347,7 +2041,7 @@ function CarePanel({
   const [weekStart, setWeekStart] = useState(() => mondayOfWeek(today()));
   const [scope, setScope] = useState<"mine" | "all">("all");
   const [horseFilter, setHorseFilter] = useState("all");
-  const [includeContext, setIncludeContext] = useState(true);
+  const [includeContext, setIncludeContext] = useState(false);
   const [bookNow, setBookNow] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [bookId, setBookId] = useState("");
@@ -2694,6 +2388,10 @@ function CarePanel({
   }
   async function submitMove(event: FormEvent<HTMLFormElement>, id: string) {
     event.preventDefault();
+    if (!isHeadVet) {
+      setError("Chỉ trưởng ban thú y được phép dời lịch chăm sóc.");
+      return;
+    }
     const form = event.currentTarget;
     const formData = new FormData(form);
     const slotRange = formData.get("slot_time_range") as string;
@@ -3679,6 +3377,7 @@ function CarePanel({
                                         <>
                                           {hasBookedEvent && (
                                             <>
+                                              {isHeadVet && (
                                               <button
                                                 type="button"
                                                 className={`rounded px-2 py-0.5 text-[10px] font-bold border transition ${
@@ -3690,6 +3389,7 @@ function CarePanel({
                                               >
                                                 Dời lịch
                                               </button>
+                                              )}
                                               <button
                                                 type="button"
                                                 className="rounded bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-900 hover:bg-rose-200 border border-rose-300"
@@ -3760,7 +3460,7 @@ function CarePanel({
                                       </div>
                                     </form>
                                   )}
-                                  {scheduleId && moveId === scheduleId && (
+                                  {isHeadVet && scheduleId && moveId === scheduleId && (
                                     <form onSubmit={(submitEvent) => void submitMove(submitEvent, scheduleId)} className="mt-2 grid gap-2 rounded-lg border border-slate-300 bg-slate-100 p-2.5 text-left shadow-xs">
                                       <div className="flex items-center justify-between text-xs font-bold text-slate-900">
                                         <span>Dời sang ca khác</span>
