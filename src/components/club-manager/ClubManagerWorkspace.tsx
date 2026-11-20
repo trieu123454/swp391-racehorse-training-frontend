@@ -18,16 +18,18 @@ import {
   Wallet,
   XCircle,
 } from "lucide-react";
-import { HorseImage, Notice } from "@/components/horses/HorseUI";
+import { HorseImage, Modal, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import InventoryManagerPanel from "@/components/club-manager/InventoryManagerPanel";
 import NotificationCenter from "@/components/shared/NotificationCenter";
 import { CompactId } from "@/components/shared/CompactId";
 import { authenticatedRequest, ApiRequestError } from "@/api/client";
-import { getHorseStables, type Horse, type Stable } from "@/api/horses/api";
+import { getHorseStables, listHorses, openFreshDocument, type Horse, type Stable } from "@/api/horses/api";
 import {
-  listPendingHorseRegistrationRequests,
+  getManagerRegistrationDocumentUrl,
+  listHorseRegistrationRequests,
   reviewHorseRegistrationRequest,
+  type HorseRegistrationStatusFilter,
   type ManagerHorseRegistrationRequest,
 } from "@/api/club-manager/api";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
@@ -170,6 +172,8 @@ export default function ClubManagerWorkspace() {
   const [horses, setHorses] = useState<Option[]>([]);
   const [stables, setStables] = useState<Stable[]>([]);
   const [horseRequests, setHorseRequests] = useState<ManagerHorseRegistrationRequest[]>([]);
+  const [requestStatusFilter, setRequestStatusFilter] = useState<HorseRegistrationStatusFilter>("PENDING");
+  const [cardErrors, setCardErrors] = useState<Record<string, string>>({});
   const [grooms, setGrooms] = useState<Option[]>([]);
   const [tasks, setTasks] = useState<ManagerTask[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -195,7 +199,7 @@ export default function ClubManagerWorkspace() {
 
       authenticatedRequest<{ data: OfficialRace[] }>("/api/club-manager/races"),
       authenticatedRequest<{ data: IncidentAssignee[] }>("/api/club-manager/groom-incidents/assignees"),
-      listPendingHorseRegistrationRequests(),
+      listHorseRegistrationRequests(requestStatusFilter),
       getHorseStables(),
     ]);
 
@@ -215,14 +219,14 @@ export default function ClubManagerWorkspace() {
     read(1, "Sự cố Groom", ["incidents"], (value) => setIncidents((value as { data: Incident[] }).data));
     read(2, "Nhật ký thao tác", ["audit"], (value) => setAudit((value as { data: AuditRow[] }).data));
     read(3, "Báo cáo vận hành", ["overview", "finance"], (value) => setReport(value as Report));
-    read(4, "Danh sách ngựa", ["care", "finance"], (value) => setHorses((value as { items: Option[] }).items.map((horse) => ({ ...horse, id: String(horse.id) }))));
+    read(4, "Danh sách ngựa", ["care", "finance", "horse-requests"], (value) => setHorses((value as { items: Option[] }).items.map((horse) => ({ ...horse, id: String(horse.id) }))));
     read(5, "Danh sách Groom", ["care"], (value) => setGrooms((value as Option[]).map((groom) => ({ ...groom, id: Number(groom.id) }))));
     read(6, "Danh sách giải đấu", ["races"], (value) => setOfficialRaces((value as { data: OfficialRace[] }).data));
     read(7, "Người phụ trách sự cố", ["incidents"], (value) => setIncidentAssignees((value as { data: IncidentAssignee[] }).data));
     read(8, "Yêu cầu hồ sơ ngựa", ["horse-requests"], (value) => setHorseRequests(value as ManagerHorseRegistrationRequest[]));
     read(9, "Danh sách chuồng", ["horse-requests"], (value) => setStables(value as Stable[]));
     setLoadErrors(nextErrors);
-  }, [date, incidentFilter]);
+  }, [date, incidentFilter, requestStatusFilter]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -281,24 +285,41 @@ export default function ClubManagerWorkspace() {
     if (saved) form.reset();
   }
 
-  async function reviewHorseRequest(id: string, action: "APPROVE" | "REQUEST_INFORMATION" | "REJECT", form: HTMLFormElement) {
-    if (action === "APPROVE" && !form.reportValidity()) return;
+  async function reviewHorseRequest(id: string, action: "APPROVE" | "REQUEST_INFORMATION" | "REJECT", form: HTMLFormElement): Promise<boolean> {
     const values = new FormData(form);
     const reviewNote = String(values.get("reviewNote") ?? "").trim();
+    const setCardError = (message: string) => setCardErrors((current) => ({ ...current, [id]: message }));
+    setCardError("");
+
     if (action !== "APPROVE" && !reviewNote) {
-      setError(action === "REJECT" ? "Vui lòng nhập lý do từ chối." : "Vui lòng nêu rõ thông tin hoặc giấy tờ cần bổ sung.");
+      setCardError(action === "REJECT" ? "Vui lòng nhập lý do từ chối." : "Vui lòng nêu rõ thông tin hoặc giấy tờ cần bổ sung.");
       const reviewNoteField = form.elements.namedItem("reviewNote");
       if (reviewNoteField instanceof HTMLElement) reviewNoteField.focus();
-      return;
+      return false;
     }
+
+    const request = horseRequests.find((item) => item.id === id);
     const body: { action: "APPROVE" | "REQUEST_INFORMATION" | "REJECT"; stableBoxId?: string; horseId?: string; reviewNote?: string } = {
       action,
       reviewNote: reviewNote || undefined,
     };
     if (action === "APPROVE") {
-      const request = horseRequests.find((item) => item.id === id);
-      if (request?.request_type === "REGISTER") body.stableBoxId = String(values.get("stableBoxId") ?? "");
-      if (request?.request_type === "LINK") body.horseId = String(values.get("horseId") ?? "");
+      if (request?.request_type === "REGISTER") {
+        const stableBoxId = String(values.get("stableBoxId") ?? "").trim();
+        if (!stableBoxId) {
+          setCardError("Vui lòng chọn chuồng trại cho hồ sơ ngựa mới.");
+          return false;
+        }
+        body.stableBoxId = stableBoxId;
+      }
+      if (request?.request_type === "LINK") {
+        const horseId = String(values.get("horseId") ?? "").trim();
+        if (!horseId) {
+          setCardError("Vui lòng chọn hồ sơ ngựa cần liên kết.");
+          return false;
+        }
+        body.horseId = horseId;
+      }
     }
     setBusy(true);
     setError("");
@@ -307,8 +328,10 @@ export default function ClubManagerWorkspace() {
       await reviewHorseRegistrationRequest(id, body);
       setNotice(action === "APPROVE" ? "Đã duyệt hồ sơ; nếu ngựa đang có chủ, yêu cầu đang chờ chủ hiện tại xác nhận." : action === "REQUEST_INFORMATION" ? "Đã yêu cầu Horse Owner bổ sung thông tin." : "Đã từ chối yêu cầu và gửi lý do cho Horse Owner.");
       await load();
+      return true;
     } catch (reason) {
-      setError(requestError(reason));
+      setCardError(requestError(reason));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -405,8 +428,12 @@ export default function ClubManagerWorkspace() {
 
       {tab === "horse-requests" && <HorseRegistrationReviewPanel
         requests={horseRequests}
-        horses={horses}
         stables={stables}
+        statusFilter={requestStatusFilter}
+        onStatusFilterChange={setRequestStatusFilter}
+        cardErrors={cardErrors}
+        onClearCardError={(id) => setCardErrors((current) => ({ ...current, [id]: "" }))}
+        onCardError={(id, message) => setCardErrors((current) => ({ ...current, [id]: message }))}
         busy={busy}
         onReview={reviewHorseRequest}
       />}
@@ -550,28 +577,251 @@ function Panel({ title, icon: Icon, children }: { title: string; icon: typeof Ac
   return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h2 className="mb-4 flex items-center gap-2 font-sans text-lg font-normal text-equine-navy"><Icon size={18} />{title}</h2>{children}</section>;
 }
 
-function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onReview }: {
-  requests: ManagerHorseRegistrationRequest[];
-  horses: Option[];
-  stables: Stable[];
-  busy: boolean;
-  onReview: (id: string, action: "APPROVE" | "REQUEST_INFORMATION" | "REJECT", form: HTMLFormElement) => void;
+const registrationFilterOptions: { value: HorseRegistrationStatusFilter; label: string }[] = [
+  { value: "PENDING", label: "Chờ duyệt" },
+  { value: "NEEDS_INFORMATION", label: "Cần bổ sung" },
+  { value: "AWAITING_OWNER_CONSENT", label: "Chờ chủ xác nhận" },
+  { value: "APPROVED", label: "Đã duyệt" },
+  { value: "REJECTED", label: "Đã từ chối" },
+  { value: "ALL", label: "Tất cả" },
+];
+
+const registrationStatusBadge: Record<ManagerHorseRegistrationRequest["status"], { label: string; cls: string }> = {
+  PENDING: { label: "Chờ duyệt", cls: "bg-sky-50 text-sky-700 border-sky-200" },
+  NEEDS_INFORMATION: { label: "Cần bổ sung", cls: "bg-amber-50 text-amber-800 border-amber-200" },
+  AWAITING_OWNER_CONSENT: { label: "Chờ chủ hiện tại xác nhận", cls: "bg-purple-50 text-purple-700 border-purple-200" },
+  APPROVED: { label: "Đã duyệt", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  REJECTED: { label: "Đã từ chối", cls: "bg-rose-50 text-rose-700 border-rose-200" },
+};
+
+function LinkHorsePicker({
+  request,
+  onSelectHorse,
+}: {
+  request: ManagerHorseRegistrationRequest;
+  onSelectHorse: (horse: Horse | null) => void;
 }) {
+  const initialTerm = request.microchip_number || request.passport_number || request.horse_name;
+  const [search, setSearch] = useState(initialTerm);
+  const [results, setResults] = useState<Horse[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [selectedHorse, setSelectedHorse] = useState<Horse | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      void listHorses({ search: search.trim() || undefined, page: 1, size: 20 })
+        .then((res) => { if (active) setResults(res.items); })
+        .catch(() => { if (active) setResults([]); })
+        .finally(() => { if (active) setLoading(false); });
+    }, 250);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [search]);
+
+  function choose(horse: Horse | null) {
+    setSelectedHorse(horse);
+    onSelectHorse(horse);
+  }
+
   return (
-    <Panel title={`Yêu cầu hồ sơ ngựa · ${requests.length} chờ duyệt`} icon={FileText}>
+    <div className="space-y-2">
+      <input type="hidden" name="horseId" value={selectedHorse?.id ?? ""} />
+      <label className="block">
+        <span className="field-label">Tìm & chọn hồ sơ ngựa cần liên kết <span className="text-rose-600">*</span></span>
+        <input
+          type="search"
+          className="field-control bg-white px-3"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Tìm theo tên, giống, microchip hoặc hộ chiếu..."
+        />
+      </label>
+
+      {selectedHorse && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950">
+          <div>
+            <strong>Đã chọn: {selectedHorse.horse_name}</strong>
+            <span className="ml-1.5 text-emerald-800">
+              {selectedHorse.breed ? `· ${selectedHorse.breed}` : ""}
+              {selectedHorse.microchip_number ? ` · Chip ${selectedHorse.microchip_number}` : ""}
+              {selectedHorse.passport_number ? ` · HC ${selectedHorse.passport_number}` : ""}
+              {selectedHorse.owner_name ? ` · Chủ hiện tại: ${selectedHorse.owner_name}` : " · Chưa có chủ"}
+            </span>
+          </div>
+          <button type="button" className="font-semibold text-emerald-900 underline" onClick={() => choose(null)}>Đổi ngựa</button>
+        </div>
+      )}
+
+      <div className="max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100" role="listbox" aria-label="Danh sách ngựa tìm được">
+        {loading && <p className="px-3 py-2.5 text-xs text-slate-500">Đang tìm hồ sơ ngựa…</p>}
+        {!loading && results.length === 0 && (
+          <p className="px-3 py-2.5 text-xs text-slate-500">Không tìm thấy hồ sơ ngựa khớp từ khóa.</p>
+        )}
+        {!loading && results.map((horse) => {
+          const sameOwner = horse.owner_id != null && horse.owner_id === request.owner_id;
+          const chipMatch = Boolean(request.microchip_number && horse.microchip_number && request.microchip_number.trim().toLowerCase() === horse.microchip_number.trim().toLowerCase());
+          const passMatch = Boolean(request.passport_number && horse.passport_number && request.passport_number.trim().toLowerCase() === horse.passport_number.trim().toLowerCase());
+          const selected = selectedHorse?.id === horse.id;
+          return (
+            <button
+              key={horse.id}
+              type="button"
+              role="option"
+              aria-selected={selected}
+              disabled={sameOwner}
+              onClick={() => choose(horse)}
+              className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition ${
+                sameOwner ? "bg-slate-50 opacity-60 cursor-not-allowed" : selected ? "bg-teal-50" : "hover:bg-slate-50"
+              }`}
+            >
+              <div className="min-w-0">
+                <p className="font-semibold text-slate-900 truncate">
+                  {horse.horse_name}
+                  {horse.breed ? ` · ${horse.breed}` : ""}
+                  {horse.birth_year ? ` (${horse.birth_year})` : ""}
+                </p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  {horse.microchip_number ? `Chip: ${horse.microchip_number} · ` : ""}
+                  {horse.passport_number ? `HC: ${horse.passport_number} · ` : ""}
+                  {horse.owner_name ? `Chủ: ${horse.owner_name}` : "Chưa có chủ"}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {(chipMatch || passMatch) && (
+                  <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">Khớp mã định danh</span>
+                )}
+                {sameOwner && (
+                  <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">Đã thuộc người gửi</span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-slate-500">Nếu hồ sơ đã có chủ khác, sau khi duyệt yêu cầu sẽ gửi thông báo chờ chủ hiện tại xác nhận.</p>
+    </div>
+  );
+}
+
+function HorseRegistrationReviewPanel({
+  requests,
+  stables,
+  statusFilter,
+  onStatusFilterChange,
+  cardErrors,
+  onClearCardError,
+  onCardError,
+  busy,
+  onReview,
+}: {
+  requests: ManagerHorseRegistrationRequest[];
+  stables: Stable[];
+  statusFilter: HorseRegistrationStatusFilter;
+  onStatusFilterChange: (next: HorseRegistrationStatusFilter) => void;
+  cardErrors: Record<string, string>;
+  onClearCardError: (id: string) => void;
+  onCardError: (id: string, message: string) => void;
+  busy: boolean;
+  onReview: (id: string, action: "APPROVE" | "REQUEST_INFORMATION" | "REJECT", form: HTMLFormElement) => Promise<boolean>;
+}) {
+  const [selectedLinkHorses, setSelectedLinkHorses] = useState<Record<string, Horse | null>>({});
+  const [confirmState, setConfirmState] = useState<{
+    request: ManagerHorseRegistrationRequest;
+    action: "APPROVE" | "REJECT";
+    form: HTMLFormElement;
+    summary: string;
+  } | null>(null);
+
+  function requestDecision(request: ManagerHorseRegistrationRequest, action: "APPROVE" | "REJECT", form: HTMLFormElement) {
+    onClearCardError(request.id);
+    const values = new FormData(form);
+    if (action === "REJECT") {
+      const note = String(values.get("reviewNote") ?? "").trim();
+      if (!note) {
+        onCardError(request.id, "Vui lòng nhập lý do từ chối.");
+        const reviewNoteField = form.elements.namedItem("reviewNote");
+        if (reviewNoteField instanceof HTMLElement) reviewNoteField.focus();
+        return;
+      }
+      setConfirmState({
+        request,
+        action,
+        form,
+        summary: `Từ chối vĩnh viễn yêu cầu "${request.horse_name}" của ${request.owner_name}? Trạng thái Đã từ chối không thể mở lại; chủ ngựa sẽ phải gửi yêu cầu mới nếu cần.`,
+      });
+      return;
+    }
+
+    if (request.request_type === "REGISTER") {
+      const stableId = String(values.get("stableBoxId") ?? "").trim();
+      if (!stableId) {
+        onCardError(request.id, "Vui lòng chọn chuồng trại còn trống trước khi duyệt.");
+        return;
+      }
+      const chosenStable = stables.find((item) => item.id === stableId);
+      setConfirmState({
+        request,
+        action,
+        form,
+        summary: `Xác nhận duyệt và tạo hồ sơ ngựa mới "${request.horse_name}" cho ${request.owner_name}, xếp vào chuồng ${chosenStable ? `${chosenStable.box_code} · ${chosenStable.section}` : stableId}?`,
+      });
+      return;
+    }
+
+    const horseId = String(values.get("horseId") ?? "").trim();
+    if (!horseId) {
+      onCardError(request.id, "Vui lòng chọn hồ sơ ngựa cần liên kết trước khi duyệt.");
+      return;
+    }
+    const targetHorse = selectedLinkHorses[request.id];
+    const transferNotice = targetHorse?.owner_id
+      ? ` Hồ sơ đang thuộc ${targetHorse.owner_name ?? "chủ hiện tại"}; hệ thống sẽ gửi yêu cầu chờ chủ hiện tại xác nhận chuyển quyền.`
+      : " Hồ sơ chưa có chủ; quyền sở hữu sẽ được gán ngay cho người gửi yêu cầu.";
+    setConfirmState({
+      request,
+      action,
+      form,
+      summary: `Xác nhận duyệt liên kết yêu cầu "${request.horse_name}" của ${request.owner_name} với hồ sơ "${targetHorse?.horse_name ?? horseId}"?${transferNotice}`,
+    });
+  }
+
+  return (
+    <Panel title={`Yêu cầu hồ sơ ngựa · ${requests.length} hồ sơ`} icon={FileText}>
+      <div className="mb-5 flex flex-wrap gap-2">
+        {registrationFilterOptions.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onStatusFilterChange(option.value)}
+            className={statusFilter === option.value ? "workspace-tab is-active" : "workspace-tab"}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
       <div className="space-y-5">
         {requests.map((request) => {
-          const candidateHorses = horses;
+          const badge = registrationStatusBadge[request.status];
           return (
             <article key={request.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
               {/* Header Dossier */}
               <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4">
                 <div>
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex flex-wrap items-center gap-2.5">
                     <h3 className="font-sans text-xl font-bold text-slate-900">{request.horse_name}</h3>
                     <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
                       {request.request_type === "LINK" ? "Yêu cầu liên kết" : "Đăng ký hồ sơ mới"}
                     </span>
+                    <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${badge.cls}`}>
+                      {badge.label}
+                    </span>
+                    {request.revision_no > 1 && (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                        Bổ sung lần {request.revision_no}
+                      </span>
+                    )}
                     <CompactId id={request.id} />
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
@@ -655,6 +905,14 @@ function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onRevie
                     </div>
                   )}
 
+                  {/* Review Note when present */}
+                  {request.review_note && (
+                    <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-xs">
+                      <span className="font-semibold text-slate-800 block mb-0.5">Ghi chú xét duyệt gần nhất:</span>
+                      <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">{request.review_note}</p>
+                    </div>
+                  )}
+
                   {/* Documents */}
                   {request.documents.length > 0 && (
                     <div className="space-y-1.5 pt-1">
@@ -675,136 +933,193 @@ function HorseRegistrationReviewPanel({ requests, horses, stables, busy, onRevie
                                 </p>
                               </div>
                             </div>
-                            <a
-                              href={document.url}
-                              target="_blank"
-                              rel="noreferrer"
+                            <button
+                              type="button"
+                              onClick={() => void openFreshDocument(() => getManagerRegistrationDocumentUrl(request.id, document.id), document.url)}
                               className="shrink-0 soft-button !min-h-[26px] !px-2.5 !text-[11px]"
                             >
                               Xem <ExternalLink size={10} />
-                            </a>
+                            </button>
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
+
+                  {/* History timeline */}
+                  {request.history?.length > 0 && (
+                    <details open={request.revision_no > 1} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-xs">
+                      <summary className="cursor-pointer font-semibold text-slate-700 select-none">
+                        Lịch sử xử lý ({request.history.length} bước)
+                      </summary>
+                      <ol className="mt-2.5 ml-2 space-y-2 border-l border-slate-200 pl-3">
+                        {request.history.map((entry) => (
+                          <li key={entry.id} className="relative">
+                            <span className="absolute -left-[17px] top-1 size-2 rounded-full bg-teal-600 ring-2 ring-white" />
+                            <p className="font-semibold text-slate-800">{registrationHistoryLabel(entry.action)} (Lần {entry.revision_no})</p>
+                            <p className="text-[11px] text-slate-400">{new Date(entry.created_at).toLocaleString("vi-VN")}</p>
+                            {entry.note && (
+                              <p className="mt-1 rounded border border-slate-200 bg-white p-2 text-slate-700 whitespace-pre-wrap">{entry.note}</p>
+                            )}
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  )}
                 </div>
               </div>
 
               {/* Review & Decision Box */}
-              <form className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
-                <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
-                  <CheckCircle2 size={16} className="text-teal-700" />
-                  <h4 className="font-sans text-sm font-bold text-slate-900">Quyết định phê duyệt của Quản lý</h4>
-                </div>
+              {request.status === "PENDING" && (
+                <form className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+                  <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                    <CheckCircle2 size={16} className="text-teal-700" />
+                    <h4 className="font-sans text-sm font-bold text-slate-900">Quyết định phê duyệt của Quản lý</h4>
+                  </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {request.request_type === "REGISTER" ? (
+                  {cardErrors[request.id] && <Notice error>{cardErrors[request.id]}</Notice>}
+
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {request.request_type === "REGISTER" ? (
+                      <label className="block">
+                        <span className="field-label">Xếp chuồng trại khi tạo hồ sơ <span className="text-rose-600">*</span></span>
+                        <select
+                          className="field-control px-3 bg-white"
+                          name="stableBoxId"
+                          defaultValue=""
+                          required
+                          disabled={!stables.length}
+                          onChange={() => onClearCardError(request.id)}
+                        >
+                          <option value="">-- Chọn chuồng trại còn trống --</option>
+                          {stables.map((stable) => {
+                            const free = Math.max(0, stable.capacity - stable.occupied);
+                            return (
+                              <option key={stable.id} value={stable.id}>
+                                {stable.box_code} · {stable.section} ({stable.occupied}/{stable.capacity} · còn {free} chỗ)
+                              </option>
+                            );
+                          })}
+                        </select>
+                        {!stables.length && (
+                          <p className="mt-1 text-xs text-rose-600">Không có chuồng còn chỗ; hãy thêm chuồng trước khi duyệt.</p>
+                        )}
+                      </label>
+                    ) : (
+                      <LinkHorsePicker
+                        request={request}
+                        onSelectHorse={(horse) => {
+                          onClearCardError(request.id);
+                          setSelectedLinkHorses((current) => ({ ...current, [request.id]: horse }));
+                        }}
+                      />
+                    )}
+
                     <label className="block">
-                      <span className="field-label">Xếp chuồng trại khi tạo hồ sơ <span className="text-rose-600">*</span></span>
-                      <select
-                        className="field-control px-3 bg-white"
-                        name="stableBoxId"
-                        defaultValue={stables[0]?.id ?? ""}
-                        required
-                        disabled={!stables.length}
-                      >
-                        {stables.map((stable) => (
-                          <option key={stable.id} value={stable.id}>
-                            {stable.box_code} · {stable.section}
-                          </option>
-                        ))}
-                      </select>
-                      {!stables.length && (
-                        <p className="mt-1 text-xs text-rose-600">Không có chuồng còn chỗ; hãy thêm chuồng trước khi duyệt.</p>
-                      )}
+                      <span className="field-label">Ghi chú duyệt / Lý do từ chối</span>
+                      <textarea
+                        className="field-control min-h-[42px] max-h-32 px-3 py-2 bg-white"
+                        name="reviewNote"
+                        maxLength={1000}
+                        rows={2}
+                        placeholder="Nhập lý do khi yêu cầu bổ sung hoặc từ chối..."
+                        onChange={() => onClearCardError(request.id)}
+                      />
                     </label>
-                  ) : (
-                    <label className="block">
-                      <span className="field-label">Chọn hồ sơ ngựa cần liên kết <span className="text-rose-600">*</span></span>
-                      <select
-                        className="field-control px-3 bg-white"
-                        name="horseId"
-                        defaultValue=""
-                        required
-                        disabled={!candidateHorses.length}
-                      >
-                        <option value="">-- Chọn hồ sơ ngựa trong hệ thống --</option>
-                        {candidateHorses.map((horse) => (
-                          <option key={horse.id} value={horse.id}>
-                            {horse.horse_name}
-                            {horse.breed ? ` · ${horse.breed}` : ""}
-                            {horse.birth_year ? ` · ${horse.birth_year}` : ""}
-                            {horse.microchip_number ? ` · Chip ${horse.microchip_number}` : ""}
-                            {horse.passport_number ? ` · HC ${horse.passport_number}` : ""} · {horse.owner_name ?? "Chưa có chủ"}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="mt-1 text-xs text-slate-500">Nếu hồ sơ đã có chủ, yêu cầu sẽ cần chủ hiện tại xác nhận.</p>
-                    </label>
-                  )}
+                  </div>
 
-                  <label className="block">
-                    <span className="field-label">Ghi chú duyệt / Lý do từ chối</span>
-                    <textarea
-                      className="field-control min-h-[42px] max-h-32 px-3 py-2 bg-white"
-                      name="reviewNote"
-                      maxLength={1000}
-                      rows={2}
-                      placeholder="Nhập lý do khi yêu cầu bổ sung hoặc từ chối..."
-                    />
-                  </label>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-slate-200">
-                  <button
-                    type="button"
-                    className="soft-button !min-h-[36px] !px-4 !text-xs !border-rose-200 !bg-rose-50 !text-rose-700 hover:!bg-rose-100"
-                    disabled={busy}
-                    onClick={(event) => {
-                      const form = event.currentTarget.form;
-                      if (form) onReview(request.id, "REJECT", form);
-                    }}
-                  >
-                    <XCircle size={14} /> Từ chối hồ sơ
-                  </button>
-                  <button
-                    type="button"
-                    className="soft-button !min-h-[36px] !px-4 !text-xs !border-sky-200 !bg-sky-50 !text-sky-700 hover:!bg-sky-100"
-                    disabled={busy}
-                    onClick={(event) => {
-                      const form = event.currentTarget.form;
-                      if (form) onReview(request.id, "REQUEST_INFORMATION", form);
-                    }}
-                  >
-                    <AlertCircle size={14} /> Yêu cầu bổ sung
-                  </button>
-                  <button
-                    type="button"
-                    className="gold-button !min-h-[36px] !px-4 !text-xs"
-                    disabled={busy || (request.request_type === "REGISTER" ? !stables.length : !candidateHorses.length)}
-                    onClick={(event) => {
-                      const form = event.currentTarget.form;
-                      if (form) onReview(request.id, "APPROVE", form);
-                    }}
-                  >
-                    <CheckCircle2 size={14} /> Duyệt và {request.request_type === "LINK" ? "liên kết hồ sơ" : "tạo hồ sơ"}
-                  </button>
-                </div>
-              </form>
+                  <div className="flex flex-wrap items-center justify-end gap-2.5 pt-2 border-t border-slate-200">
+                    <button
+                      type="button"
+                      className="soft-button !min-h-[36px] !px-4 !text-xs !border-rose-200 !bg-rose-50 !text-rose-700 hover:!bg-rose-100"
+                      disabled={busy}
+                      onClick={(event) => {
+                        const form = event.currentTarget.form;
+                        if (form) requestDecision(request, "REJECT", form);
+                      }}
+                    >
+                      <XCircle size={14} /> Từ chối hồ sơ
+                    </button>
+                    <button
+                      type="button"
+                      className="soft-button !min-h-[36px] !px-4 !text-xs !border-sky-200 !bg-sky-50 !text-sky-700 hover:!bg-sky-100"
+                      disabled={busy}
+                      onClick={(event) => {
+                        const form = event.currentTarget.form;
+                        if (form) void onReview(request.id, "REQUEST_INFORMATION", form);
+                      }}
+                    >
+                      <AlertCircle size={14} /> Yêu cầu bổ sung
+                    </button>
+                    <button
+                      type="button"
+                      className="gold-button !min-h-[36px] !px-4 !text-xs"
+                      disabled={busy || (request.request_type === "REGISTER" && !stables.length)}
+                      onClick={(event) => {
+                        const form = event.currentTarget.form;
+                        if (form) requestDecision(request, "APPROVE", form);
+                      }}
+                    >
+                      <CheckCircle2 size={14} /> Duyệt và {request.request_type === "LINK" ? "liên kết hồ sơ" : "tạo hồ sơ"}
+                    </button>
+                  </div>
+                </form>
+              )}
             </article>
           );
         })}
         {!requests.length && (
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 p-8 text-center text-sm text-slate-500">
             <CheckCircle2 size={24} className="mx-auto text-emerald-500 mb-2" />
-            <p className="font-semibold text-slate-700">Tất cả yêu cầu đã được xử lý</p>
-            <p className="mt-1 text-xs text-slate-400">Không có yêu cầu đăng ký hồ sơ ngựa nào đang chờ duyệt.</p>
+            <p className="font-semibold text-slate-700">Không có yêu cầu nào ở bộ lọc này</p>
+            <p className="mt-1 text-xs text-slate-400">Chọn trạng thái khác phía trên để xem các hồ sơ đã xử lý hoặc đang chờ bổ sung.</p>
           </div>
         )}
       </div>
+
+      {confirmState && (
+        <Modal
+          title={confirmState.action === "REJECT" ? "Xác nhận từ chối hồ sơ" : "Xác nhận phê duyệt hồ sơ"}
+          busy={busy}
+          onClose={() => setConfirmState(null)}
+        >
+          <div className="space-y-4">
+            <p className="text-sm leading-relaxed text-slate-700">{confirmState.summary}</p>
+            <div className="flex justify-end gap-2.5 border-t border-slate-100 pt-3">
+              <button type="button" className="soft-button !text-xs" disabled={busy} onClick={() => setConfirmState(null)}>
+                Quay lại
+              </button>
+              <button
+                type="button"
+                className={confirmState.action === "REJECT" ? "danger-button !text-xs" : "gold-button !text-xs"}
+                disabled={busy}
+                onClick={async () => {
+                  const current = confirmState;
+                  setConfirmState(null);
+                  await onReview(current.request.id, current.action, current.form);
+                }}
+              >
+                {busy ? "Đang xử lý…" : confirmState.action === "REJECT" ? "Xác nhận từ chối" : "Xác nhận duyệt"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </Panel>
   );
+}
+
+function registrationHistoryLabel(action: string) {
+  switch (action) {
+    case "SUBMITTED": return "Chủ ngựa đã gửi hồ sơ";
+    case "RESUBMITTED": return "Chủ ngựa đã gửi bổ sung";
+    case "NEEDS_INFORMATION": return "Club Manager yêu cầu bổ sung";
+    case "REVIEW_APPROVED": return "Club Manager đã xác minh";
+    case "REJECTED": return "Đã từ chối hồ sơ";
+    case "OWNER_CONSENT": return "Chủ hiện tại đã đồng ý chuyển quyền";
+    case "OWNER_DECLINED": return "Chủ hiện tại từ chối chuyển quyền";
+    default: return action;
+  }
 }
 
 

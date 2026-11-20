@@ -181,6 +181,56 @@ export function getHorseOwnershipHistory(id: string) {
   return horseRequest<OwnershipHistoryEntry[]>(`/${id}/ownership-history`);
 }
 
+export function getHorseDocumentUrl(horseId: string, docId: string, download = false) {
+  return horseRequest<{ url: string; expiresIn: number }>(
+    `/${encodeURIComponent(horseId)}/documents/${encodeURIComponent(docId)}/url?download=${download ? "true" : "false"}`,
+  );
+}
+
+export async function openFreshDocument(
+  fetchUrl: () => Promise<{ url: string }>,
+  fallbackUrl: string,
+  downloadFilename?: string,
+) {
+  if (downloadFilename) {
+    let targetUrl = fallbackUrl;
+    try {
+      const result = await fetchUrl();
+      if (result.url) targetUrl = result.url;
+    } catch {
+      // Fallback to existing signed URL if fresh signing fails.
+    }
+    if (!targetUrl) return;
+    const anchor = document.createElement("a");
+    anchor.href = targetUrl;
+    anchor.download = downloadFilename;
+    anchor.rel = "noopener noreferrer";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    return;
+  }
+
+  const win = window.open("", "_blank");
+  if (win) win.opener = null;
+  let targetUrl = fallbackUrl;
+  try {
+    const result = await fetchUrl();
+    if (result.url) targetUrl = result.url;
+  } catch {
+    // Fallback to existing signed URL if fresh signing fails.
+  }
+  if (!targetUrl) {
+    win?.close();
+    return;
+  }
+  if (win && !win.closed) {
+    win.location.replace(targetUrl);
+  } else {
+    window.open(targetUrl, "_blank", "noopener,noreferrer");
+  }
+}
+
 export async function getHorseStables() {
   const now = Date.now();
   const cached = horseStablesCache.get("all");

@@ -11,8 +11,10 @@ import {
   deleteHorse,
   errorMessage,
   getHorse,
+  getHorseDocumentUrl,
   getHorseDeletionWarnings,
   getHorseOwnershipHistory,
+  openFreshDocument,
   type Horse,
   type OwnershipHistoryEntry,
   type Warnings,
@@ -138,15 +140,15 @@ export default function HorseDetailPage() {
             <ArrowLeft size={16} /> Quay lại danh sách
           </button>
           <div className="flex flex-wrap gap-2">
-            {(user.roleName === "CLUB_MANAGER" || user.roleName === "HEAD_TRAINER") && (
-              <Link className="gold-button" href={Routes.horseEdit(horse.id)}>
-                <Pencil size={15} /> Chỉnh sửa hồ sơ
-              </Link>
-            )}
             {user.roleName === "CLUB_MANAGER" && (
-              <button type="button" className="soft-button !border-red-200 !text-red-700 hover:!bg-red-50" onClick={() => void openDeleteDialog()}>
-                <Trash2 size={15} /> Xóa hồ sơ
-              </button>
+              <>
+                <Link className="gold-button" href={Routes.horseEdit(horse.id)}>
+                  <Pencil size={15} /> Chỉnh sửa hồ sơ
+                </Link>
+                <button type="button" className="soft-button !border-red-200 !text-red-700 hover:!bg-red-50" onClick={() => void openDeleteDialog()}>
+                  <Trash2 size={15} /> Xóa hồ sơ
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -279,7 +281,7 @@ export default function HorseDetailPage() {
                   <MapPin size={17} className="text-teal-700" />
                   <h2 className="font-sans text-lg font-bold">Chuồng trại & quản lý</h2>
                 </div>
-                {(user.roleName === "CLUB_MANAGER" || user.roleName === "HEAD_TRAINER") && (
+                {user.roleName === "CLUB_MANAGER" && (
                   <Link className="soft-button !min-h-[34px] !px-3 !text-xs" href={Routes.horseEdit(horse.id)}>
                     <MapPin size={13} /> Cập nhật vị trí chuồng
                   </Link>
@@ -314,21 +316,20 @@ export default function HorseDetailPage() {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <a
+                        <button
+                          type="button"
                           className="soft-button !min-h-[32px] !px-3 !text-xs"
-                          href={document.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          onClick={() => void openFreshDocument(() => getHorseDocumentUrl(horse.id, document.id, false), document.url)}
                         >
                           Xem <ExternalLink size={13} />
-                        </a>
-                        <a
+                        </button>
+                        <button
+                          type="button"
                           className="gold-button !min-h-[32px] !px-3 !text-xs"
-                          href={document.download_url}
-                          download={document.name}
+                          onClick={() => void openFreshDocument(() => getHorseDocumentUrl(horse.id, document.id, true), document.download_url, document.name)}
                         >
                           <Download size={13} /> Tải về
-                        </a>
+                        </button>
                       </div>
                     </article>
                   ))}

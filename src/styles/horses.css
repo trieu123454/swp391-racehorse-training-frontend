@@ -803,25 +803,6 @@ progress::-moz-progress-bar {
   }
 }
 
-/* ============================================================
-   FUNCTIONAL WORKSPACE TYPOGRAPHY: ZERO BOLD TEXT / REGULAR WEIGHT
-   Enforces regular (400) font-weight across all functional pages
-   ============================================================ */
-.horse-app,
-.horse-app *,
-.dashboard-workspace,
-.dashboard-workspace *,
-.horse-dialog,
-.horse-dialog *,
-.horse-sidebar,
-.horse-sidebar *,
-.horse-topbar,
-.horse-topbar *,
-.workspace-role,
-.workspace-role * {
-  font-weight: 400 !important;
-}
-
 .stable-yard-stall {
   overflow: hidden;
   border: 1px solid #d8c7ad;

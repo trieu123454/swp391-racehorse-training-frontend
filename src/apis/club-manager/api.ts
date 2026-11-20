@@ -180,8 +180,32 @@ export function handleRoleChange(id: string, action: "approve" | "reject") {
   return request(`/role-change-requests/${id}`, { method: "PATCH", body: JSON.stringify({ action }) });
 }
 
+export type HorseRegistrationStatusFilter =
+  | "PENDING"
+  | "NEEDS_INFORMATION"
+  | "AWAITING_OWNER_CONSENT"
+  | "APPROVED"
+  | "REJECTED"
+  | "ALL";
+
+export function listHorseRegistrationRequests(status: HorseRegistrationStatusFilter = "PENDING") {
+  return request<ManagerHorseRegistrationRequest[]>(
+    `/horse-registration-requests?status=${encodeURIComponent(status)}`,
+  );
+}
+
 export function listPendingHorseRegistrationRequests() {
-  return request<ManagerHorseRegistrationRequest[]>("/horse-registration-requests");
+  return listHorseRegistrationRequests("PENDING");
+}
+
+export function getPendingHorseRegistrationCount() {
+  return request<{ count: number }>("/horse-registration-requests/pending-count");
+}
+
+export function getManagerRegistrationDocumentUrl(requestId: string, docId: string, download = false) {
+  return request<{ url: string; expiresIn: number }>(
+    `/horse-registration-requests/${encodeURIComponent(requestId)}/documents/${encodeURIComponent(docId)}/url?download=${download ? "true" : "false"}`,
+  );
 }
 
 export function reviewHorseRegistrationRequest(id: string, input: {
