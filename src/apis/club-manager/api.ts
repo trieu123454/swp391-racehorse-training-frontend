@@ -236,6 +236,123 @@ export function reviewHorseRegistrationRequest(id: string, input: {
   });
 }
 
+export type OfficialRace = {
+  id: string;
+  race_name: string;
+  grade: string | null;
+  distance_category: string | null;
+  distance_meters: number | null;
+  race_date: string;
+  location: string | null;
+  description: string | null;
+  status: "Scheduled" | "Completed" | "Cancelled" | string;
+  cancel_reason: string | null;
+  registered_count: number;
+  blocked_count: number;
+  completed_count: number;
+  cancelled_count: number;
+  total_prize_amount: number;
+};
+
+export type OfficialRaceEntry = {
+  entry_id: string;
+  horse_id: string;
+  horse_name: string;
+  current_status: string;
+  readiness_status: string;
+  is_training_locked: boolean;
+  owner_name: string | null;
+  registered_by_name: string | null;
+  status: "Registered" | "Blocked" | "Completed" | "Cancelled" | string;
+  cancel_reason: string | null;
+  result_position: number | null;
+  prize_amount: number | null;
+  created_at: string;
+};
+
+export type CompetitionLeaderboardItem = {
+  horse_id: string;
+  horse_name: string;
+  completed_races: number;
+  wins: number;
+  podiums: number;
+  best_position: number | null;
+  total_prize: number;
+};
+
+export type CompetitionReport = {
+  from: string;
+  to: string;
+  summary: {
+    total_races: number;
+    registered: number;
+    blocked: number;
+    completed: number;
+    cancelled: number;
+    wins: number;
+    podiums: number;
+    total_prize: number;
+  };
+  leaderboard: CompetitionLeaderboardItem[];
+  recent_results: {
+    entry_id: string;
+    horse_id: string;
+    horse_name: string;
+    race_id: string;
+    race_name: string;
+    grade: string | null;
+    race_date: string;
+    location: string | null;
+    result_position: number;
+    prize_amount: number | null;
+  }[];
+};
+
+export function listOfficialRaces() {
+  return request<{ data: OfficialRace[] }>("/races");
+}
+
+export function updateOfficialRace(raceId: string, input: {
+  race_name?: string;
+  race_date?: string;
+  grade?: string | null;
+  distance_category?: string | null;
+  distance_meters?: number | null;
+  location?: string | null;
+  description?: string | null;
+}) {
+  return request<OfficialRace>(`/races/${encodeURIComponent(raceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function cancelOfficialRace(raceId: string, reason: string) {
+  return request<OfficialRace>(`/races/${encodeURIComponent(raceId)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function listOfficialRaceEntries(raceId: string) {
+  return request<{ race: OfficialRace; data: OfficialRaceEntry[] }>(`/races/${encodeURIComponent(raceId)}/entries`);
+}
+
+export function cancelOfficialRaceEntry(entryId: string, reason: string) {
+  return authenticatedRequest<Record<string, unknown>>(`/api/race-entries/${encodeURIComponent(entryId)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function getCompetitionReport(from?: string, to?: string) {
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<CompetitionReport>(`/competition-report${suffix}`);
+}
+
 export const clubManagerError = (error: unknown) => {
   if (error instanceof ApiRequestError && error.status === 401) {
     return "Phiên đăng nhập không còn hợp lệ. Vui lòng đăng xuất rồi đăng nhập lại.";
