@@ -6,9 +6,14 @@ import { horseRequest, horseStatus, type Horse } from "@/api/horses/api";
 import { APP_MUTATION_COMPLETED_EVENT } from "@/api/client";
 
 export function HorseImage({ horse, preview }: { horse?: Horse; preview?: string }) {
-  const [url, setUrl] = useState<string>();
-  const [loaded, setLoaded] = useState(false);
+  const directUrl = preview || horse?.image_signed_url || (horse?.image_url && (horse.image_url.startsWith("http://") || horse.image_url.startsWith("https://") || horse.image_url.startsWith("/") || horse.image_url.startsWith("blob:")) ? horse.image_url : undefined);
+  const [url, setUrl] = useState<string | undefined>(directUrl);
+  const [loaded, setLoaded] = useState(Boolean(directUrl));
   useEffect(() => {
+    if (directUrl) {
+      setUrl(directUrl);
+      return;
+    }
     setUrl(undefined);
     setLoaded(false);
     // Role-specific lists may omit image_url. The horse ID is the shared source
@@ -44,13 +49,14 @@ export function HorseImage({ horse, preview }: { horse?: Horse; preview?: string
       document.removeEventListener("visibilitychange", refresh);
       window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, onMutation);
     };
-  }, [horse?.id, horse?.image_url, preview]);
+  }, [horse?.id, horse?.image_url, directUrl, preview]);
   const [broken, setBroken] = useState(false);
   useEffect(() => { setBroken(false); setLoaded(false); }, [preview, url]);
-  return (preview || url) && !broken
+  const finalSrc = preview || directUrl || url;
+  return finalSrc && !broken
     // Signed URLs expire and are authorized per user; do not cache them in Next's image optimizer.
     // eslint-disable-next-line @next/next/no-img-element
-    ? <img className={`horse-photo ${loaded ? "is-loaded" : ""}`} src={preview || url} alt={horse?.horse_name || "Ảnh ngựa đã chọn"} onLoad={() => setLoaded(true)} onError={() => setBroken(true)} />
+    ? <img className={`horse-photo ${loaded ? "is-loaded" : ""}`} src={finalSrc} alt={horse?.horse_name || "Ảnh ngựa đã chọn"} onLoad={() => setLoaded(true)} onError={() => setBroken(true)} />
     : <div className="horse-placeholder"><Shield size={36} strokeWidth={1.4} /><span>EQUINE</span><small>Chưa có ảnh hồ sơ</small></div>;
 }
 

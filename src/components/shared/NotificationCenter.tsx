@@ -1,9 +1,13 @@
 "use client";
 
-import { Bell, CheckCheck, ChevronDown, RefreshCw } from "lucide-react";
+import { ArrowUpRight, Bell, CheckCheck, ChevronDown, RefreshCw } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { Notice } from "@/components/horses/HorseUI";
 import { APP_MUTATION_COMPLETED_EVENT, authenticatedRequest, NOTIFICATION_COUNT_CHANGED_EVENT } from "@/api/client";
+import { getUser } from "@/lib/session";
+import { Routes } from "@/routes/Routes";
+import type { RoleName } from "@/types/auth";
 
 type AppNotification = {
   id: string;
@@ -23,6 +27,32 @@ export default function NotificationCenter() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
+  const [roleName, setRoleName] = useState<RoleName | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    setRoleName(getUser()?.roleName ?? null);
+  }, []);
+
+  function openRegistrationTarget() {
+    if (roleName === "CLUB_MANAGER") {
+      const managerPath = Routes.dashboardRole("club-manager");
+      const targetHref = Routes.dashboardTab(managerPath, "horse-requests");
+      if (pathname === managerPath) {
+        if (`${window.location.pathname}${window.location.search}` !== targetHref) {
+          window.history.pushState(null, "", targetHref);
+        }
+        window.dispatchEvent(new Event("workspace-tab-change"));
+        return;
+      }
+      router.push(targetHref);
+      return;
+    }
+    if (roleName === "HORSE_OWNER") {
+      router.push(Routes.horses);
+    }
+  }
 
   const load = useCallback(async () => {
     setError("");
@@ -148,16 +178,27 @@ export default function NotificationCenter() {
                       {item.is_read ? " · Đã đọc" : " · Chưa đọc"}
                     </p>
                   </div>
-                  {!item.is_read && (
-                    <button
-                      type="button"
-                      className="soft-button h-8 shrink-0 px-3 text-xs"
-                      disabled={busy}
-                      onClick={() => void markRead(item.id)}
-                    >
-                      Đã đọc
-                    </button>
-                  )}
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {item.related_table === "horse_registration_requests" && (roleName === "CLUB_MANAGER" || roleName === "HORSE_OWNER") && (
+                      <button
+                        type="button"
+                        className="soft-button h-8 px-3 text-xs"
+                        onClick={openRegistrationTarget}
+                      >
+                        Mở xử lý <ArrowUpRight size={13} />
+                      </button>
+                    )}
+                    {!item.is_read && (
+                      <button
+                        type="button"
+                        className="soft-button h-8 px-3 text-xs"
+                        disabled={busy}
+                        onClick={() => void markRead(item.id)}
+                      >
+                        Đã đọc
+                      </button>
+                    )}
+                  </div>
                 </article>
               ))}
             </div>

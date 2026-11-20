@@ -8,6 +8,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { Activity, ArrowUpRight, Bell, BookOpen, Boxes, CalendarDays, CheckCircle2, ChevronDown, ClipboardList, FilePlus2, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, Warehouse, X } from "lucide-react";
 import { Brand } from "@/components/shared/Brand";
 import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, NOTIFICATION_COUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT, authenticatedRequest, logout, validateSession } from "@/api/client";
+import { getPendingHorseRegistrationCount } from "@/api/club-manager/api";
 import { clearSession, getLogoutRefreshToken, getUser } from "@/lib/session";
 import { roleLabels, routeForRole } from "@/lib/roles";
 import type { AuthUser } from "@/lib/types";
@@ -21,6 +22,7 @@ export function useWorkspaceToast() { return useContext(WorkspaceToastContext); 
 
 export default function HorseShell({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [checkedCache, setCheckedCache] = useState(false);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [open, setOpen] = useState(false);
@@ -28,6 +30,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [pendingHorseRequestCount, setPendingHorseRequestCount] = useState(0);
   const [todayLabel, setTodayLabel] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const profileRef = useRef<HTMLDivElement>(null);
@@ -100,7 +103,15 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     } catch {
       // Keep the last known count when notifications are temporarily unavailable.
     }
-  }, []);
+    if (user?.roleName === "CLUB_MANAGER") {
+      try {
+        const pending = await getPendingHorseRegistrationCount();
+        setPendingHorseRequestCount(pending.count);
+      } catch {
+        // Keep the last known count when pending registration count is unavailable.
+      }
+    }
+  }, [user?.roleName]);
   useEffect(() => {
     if (!user) return;
     void loadUnreadNotificationCount();
@@ -142,13 +153,20 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     try {
       cachedUser = getUser();
       if (cachedUser?.mustChangePassword) {
+        setCheckedCache(true);
         router.replace(Routes.changePassword);
         return () => { active = false; };
       }
-      if (cachedUser?.status === "APPROVED") setUser(cachedUser);
+      if (
+        cachedUser?.status === "APPROVED" &&
+        ["CLUB_MANAGER", "HEAD_TRAINER", "VETERINARIAN", "HEAD_VETERINARIAN", "GROOM", "HORSE_OWNER"].includes(cachedUser.roleName)
+      ) {
+        setUser(cachedUser);
+      }
     } catch {
       cachedUser = null;
     }
+    setCheckedCache(true);
     setError("");
     validateSession().then(current => {
       if (!active) return;
@@ -184,13 +202,31 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     if (token) void logout(token).catch(() => {});
   }
 
-  if (!user) return <main className="horse-access">{error ? <><Notice error>{error}</Notice><button className="navy-button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button><Link href={Routes.dashboard}>Về bảng điều khiển</Link></> : <p role="status">Đang xác thực quyền truy cập…</p>}</main>;
+  if (!user) {
+    return (
+      <main className="horse-access" aria-busy={!error}>
+        {error ? (
+          <>
+            <Notice error>{error}</Notice>
+            <button className="navy-button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button>
+            <Link href={Routes.dashboard}>Về bảng điều khiển</Link>
+          </>
+        ) : checkedCache ? (
+          <p role="status">Đang xác thực quyền truy cập…</p>
+        ) : null}
+      </main>
+    );
+  }
 
   const icons: Record<string, typeof Activity> = { overview: LayoutDashboard, stables: Warehouse, plans: BookOpen, calendar: CalendarDays, simulation: Activity, analysis: Activity, races: Trophy, incidents: Shield, care: ClipboardList, inventory: Boxes, finance: Wallet, audit: History, exams: Stethoscope, medical: HeartPulse, diet: Utensils, injuries: HeartPulse, notifications: Bell, horses: BookOpen, health: HeartPulse, training: CalendarDays };
   const dashboardRoute = routeForRole(user.roleName);
   const isDashboard = pathname === dashboardRoute;
   const navigation = workspaceNavigation[user.roleName];
-  const currentLabel = isDashboard ? navigation.find(item => item.id === activeTab)?.label ?? navigation[0].label : pathname?.startsWith(Routes.horses) ? "Hồ sơ ngựa" : "Quản lý tài khoản";
+  const currentLabel = isDashboard
+    ? navigation.find(item => item.id === activeTab)?.label ?? navigation[0].label
+    : pathname?.startsWith(Routes.horses)
+      ? (user.roleName === "HORSE_OWNER" ? "Yêu cầu hồ sơ" : "Hồ sơ ngựa")
+      : "Quản lý tài khoản";
 
   function openNotifications() {
     const targetTab = navigation.find(item => item.id === "notifications")?.id ?? "overview";
@@ -228,7 +264,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
               event.preventDefault();
               if (window.location.pathname + window.location.search !== href) window.history.pushState(null, "", href);
               window.dispatchEvent(new Event("workspace-tab-change"));
-            }}><Icon size={18} /><span>{item.label}</span></Link>;
+            }}><Icon size={18} /><span>{item.label}</span>{user.roleName === "CLUB_MANAGER" && item.id === "horse-requests" && pendingHorseRequestCount > 0 && <span className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${selected ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800"}`}>{pendingHorseRequestCount > 99 ? "99+" : pendingHorseRequestCount}</span>}</Link>;
           })}
         </nav>
         <p className="horse-nav-label">QUẢN LÝ CHUNG</p>

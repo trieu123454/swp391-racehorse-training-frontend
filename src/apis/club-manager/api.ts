@@ -180,9 +180,17 @@ export function handleRoleChange(id: string, action: "approve" | "reject") {
   return request(`/role-change-requests/${id}`, { method: "PATCH", body: JSON.stringify({ action }) });
 }
 
-export async function listPendingHorseRegistrationRequests() {
+export type HorseRegistrationStatusFilter =
+  | "PENDING"
+  | "NEEDS_INFORMATION"
+  | "AWAITING_OWNER_CONSENT"
+  | "APPROVED"
+  | "REJECTED"
+  | "ALL";
+
+export async function listHorseRegistrationRequests(status: HorseRegistrationStatusFilter = "PENDING") {
   try {
-    const response = await request<unknown>("/horse-registration-requests");
+    const response = await request<unknown>(`/horse-registration-requests?status=${encodeURIComponent(status)}`);
     if (Array.isArray(response)) return response as ManagerHorseRegistrationRequest[];
     if (response && typeof response === "object") {
       if ("items" in response && Array.isArray(response.items)) {
@@ -199,6 +207,21 @@ export async function listPendingHorseRegistrationRequests() {
     }
     throw error;
   }
+}
+
+
+export function listPendingHorseRegistrationRequests() {
+  return listHorseRegistrationRequests("PENDING");
+}
+
+export function getPendingHorseRegistrationCount() {
+  return request<{ count: number }>("/horse-registration-requests/pending-count");
+}
+
+export function getManagerRegistrationDocumentUrl(requestId: string, docId: string, download = false) {
+  return request<{ url: string; expiresIn: number }>(
+    `/horse-registration-requests/${encodeURIComponent(requestId)}/documents/${encodeURIComponent(docId)}/url?download=${download ? "true" : "false"}`,
+  );
 }
 
 export function reviewHorseRegistrationRequest(id: string, input: {

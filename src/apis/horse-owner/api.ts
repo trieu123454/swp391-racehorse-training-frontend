@@ -1,4 +1,4 @@
-import { authenticatedRequest } from "@/api/client";
+import { authenticatedRequest, authenticatedUploadWithProgress } from "@/api/client";
 import type { Horse } from "@/api/horses/api";
 
 export type OwnerHorse = Horse & {
@@ -137,6 +137,7 @@ export type HorseRegistrationHistory = {
 
 export type HorseRegistrationRequest = {
   id: string;
+  owner_id?: number;
   request_type: "REGISTER" | "LINK";
   horse_name: string;
   horse_image_url: string | null;
@@ -171,6 +172,8 @@ export type HorseRegistrationSubmission = {
   microchipNumber?: string | null;
   passportNumber?: string | null;
   ownerNote?: string | null;
+  removeHorseImage?: boolean;
+  removeDocumentIds?: string[];
 };
 
 export type OwnershipTransferRequest = {
@@ -202,17 +205,28 @@ export function getHorseRegistrationRequests() {
   return requestOwnerList<HorseRegistrationRequest>("/api/horse-owner/horse-registration-requests");
 }
 
-export async function submitHorseRegistrationRequest(input: HorseRegistrationSubmission, horseImage: File | null, documents: File[], documentTypes: string[]) {
-  if (horseImage || documents.length || documentTypes.length) {
+export function getOwnerRegistrationDocumentUrl(requestId: string, docId: string, download = false) {
+  return authenticatedRequest<{ url: string; expiresIn: number }>(
+    `/api/horse-owner/horse-registration-requests/${encodeURIComponent(requestId)}/documents/${encodeURIComponent(docId)}/url?download=${download ? "true" : "false"}`,
+  );
+}
+
+export async function submitHorseRegistrationRequest(
+  input: HorseRegistrationSubmission,
+  horseImage: File | null,
+  documents: File[],
+  documentTypes: string[],
+  onUploadProgress?: (fraction: number) => void,
+) {
+  if (horseImage || documents.length || documentTypes.length || input.requestType === "LINK") {
     const form = new FormData();
     form.append("request", new Blob([JSON.stringify(input)], { type: "application/json" }));
     if (horseImage) form.append("horseImage", horseImage);
     documents.forEach((file) => form.append("documents", file));
     if (documents.length) form.append("documentTypes", new Blob([JSON.stringify(documentTypes)], { type: "application/json" }));
-    const result = await authenticatedRequest<HorseRegistrationRequest>("/api/horse-owner/horse-registration-requests", {
-      method: "POST",
-      body: form,
-    });
+    const result = onUploadProgress
+      ? await authenticatedUploadWithProgress<HorseRegistrationRequest>("/api/horse-owner/horse-registration-requests", "POST", form, onUploadProgress)
+      : await authenticatedRequest<HorseRegistrationRequest>("/api/horse-owner/horse-registration-requests", { method: "POST", body: form });
     return { ...result, documents: result.documents ?? [], history: result.history ?? [] };
   }
   if (input.requestType !== "REGISTER") {
@@ -226,16 +240,25 @@ export async function submitHorseRegistrationRequest(input: HorseRegistrationSub
   return { ...result, documents: result.documents ?? [], history: result.history ?? [] };
 }
 
-export async function resubmitHorseRegistrationRequest(id: string, input: HorseRegistrationSubmission, horseImage: File | null, documents: File[], documentTypes: string[]) {
+export async function resubmitHorseRegistrationRequest(
+  id: string,
+  input: HorseRegistrationSubmission,
+  horseImage: File | null,
+  documents: File[],
+  documentTypes: string[],
+  onUploadProgress?: (fraction: number) => void,
+) {
   const form = new FormData();
   form.append("request", new Blob([JSON.stringify(input)], { type: "application/json" }));
   if (horseImage) form.append("horseImage", horseImage);
   documents.forEach((file) => form.append("documents", file));
   if (documents.length) form.append("documentTypes", new Blob([JSON.stringify(documentTypes)], { type: "application/json" }));
-  return authenticatedRequest<HorseRegistrationRequest>(`/api/horse-owner/horse-registration-requests/${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    body: form,
-  });
+  return authenticatedUploadWithProgress<HorseRegistrationRequest>(
+    `/api/horse-owner/horse-registration-requests/${encodeURIComponent(id)}`,
+    "PATCH",
+    form,
+    onUploadProgress,
+  );
 }
 
 export function getOwnershipTransferRequests() {

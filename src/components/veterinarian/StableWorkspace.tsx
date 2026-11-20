@@ -1,15 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import { RefreshCw } from "lucide-react";
 import type { VetHorse } from "@/api/veterinarian/api";
 import { statusLabels, type Horse } from "@/api/horses/api";
 import HorseStableYard from "./HorseStableYard";
 import { HorseImage } from "@/components/horses/HorseUI";
 
-export default function StableWorkspace({ horses, loading, onRefresh, onOpen, onSelectHorse }: {
+export default function StableWorkspace({ horses, loading, onRefresh, onOpen, onSelectHorse, stables, onGoToExam, onUpdateStatus }: {
   horses: VetHorse[]; loading: boolean; onRefresh: () => void; onOpen: (id: string) => void; onSelectHorse: (id: string) => void;
-}) {
+} & Pick<ComponentProps<typeof HorseStableYard>, "stables" | "onGoToExam" | "onUpdateStatus">) {
   const [view, setView] = useState<"map" | "list">("map");
   const [section, setSection] = useState("");
   const [injured, setInjured] = useState(false);
@@ -40,6 +40,6 @@ export default function StableWorkspace({ horses, loading, onRefresh, onOpen, on
       {(search || section || injured) && <button type="button" onClick={() => { setSearch(""); setSection(""); setInjured(false); }} className="text-xs font-medium text-equine-navy underline">Xóa bộ lọc</button>}
     </div>
     <p role="status" className="mb-3 text-xs text-slate-500">{filtered.length}/{horses.length} ngựa · {groups.size} chuồng có ngựa phù hợp</p>
-    {loading && horses.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">Đang tải chuồng trại…</p> : filtered.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">Không có ngựa phù hợp. Thử thay đổi bộ lọc.</p> : view === "map" ? <HorseStableYard horses={filtered} onSelectHorse={onSelectHorse} /> : <div className="overflow-x-auto"><table className="w-full min-w-[600px] text-left text-sm"><thead className="bg-slate-50"><tr>{["Ngựa", "Chuồng", "Khu", "Trạng thái"].map((label) => <th key={label} scope="col" className="px-3 py-3 font-semibold text-equine-navy">{label}</th>)}</tr></thead><tbody className="divide-y divide-equine-line">{filtered.map((horse) => <tr key={horse.id} className="hover:bg-slate-50"><td className="px-3 py-3">{identity(horse)}</td><td className="px-3 py-3">{horse.stable_box?.box_code ?? "Chưa xếp"}</td><td className="px-3 py-3">{horse.stable_box?.section ?? "—"}</td><td className="px-3 py-3">{status(horse)}</td></tr>)}</tbody></table></div>}
+    {loading && horses.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">Đang tải chuồng trại…</p> : filtered.length === 0 ? <p className="py-8 text-center text-sm text-slate-500">Không có ngựa phù hợp. Thử thay đổi bộ lọc.</p> : view === "map" ? <HorseStableYard horses={filtered} stables={stables} onSelectHorse={onSelectHorse} onGoToExam={onGoToExam} onUpdateStatus={onUpdateStatus} /> : <div className="overflow-x-auto"><table className="w-full min-w-[600px] text-left text-sm"><thead className="bg-slate-50"><tr>{["Ngựa", "Chuồng", "Khu", "Trạng thái"].map((label) => <th key={label} scope="col" className="px-3 py-3 font-semibold text-equine-navy">{label}</th>)}</tr></thead><tbody className="divide-y divide-equine-line">{filtered.map((horse) => <tr key={horse.id} className="hover:bg-slate-50"><td className="px-3 py-3">{identity(horse)}</td><td className="px-3 py-3">{horse.stable_box?.box_code ?? "Chưa xếp"}</td><td className="px-3 py-3">{horse.stable_box?.section ?? "—"}</td><td className="px-3 py-3">{status(horse)}</td></tr>)}</tbody></table></div>}
   </section>;
 }

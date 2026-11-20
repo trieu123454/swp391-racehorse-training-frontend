@@ -34,6 +34,8 @@ function paginationPages(currentPage: number, totalPages: number): (number | "el
 
 export default function HorsesPage() {
   const user = useHorseUser();
+  const isOwner = user.roleName === "HORSE_OWNER";
+  const [ownerView, setOwnerView] = useState<"requests" | "horses">("requests");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -47,6 +49,18 @@ export default function HorsesPage() {
   const [error, setError] = useState("");
   const [deleteHorse, setDeleteHorse] = useState<Horse | null>(null);
   const [deleteWarning, setDeleteWarning] = useState<{ scheduledTraining: number; medicalRecords: number; activePrescriptions: number } | null>(null);
+
+  useEffect(() => {
+    const syncTab = () => {
+      if (new URLSearchParams(window.location.search).get("tab") === "horses") {
+        setOwnerView("horses");
+      }
+    };
+    syncTab();
+    const handleOwnerChange = () => setReloadKey((current) => current + 1);
+    window.addEventListener("horse-owner-horses-changed", handleOwnerChange);
+    return () => window.removeEventListener("horse-owner-horses-changed", handleOwnerChange);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -65,7 +79,7 @@ export default function HorsesPage() {
       page: pageNumber,
       size: PAGE_SIZE,
       search: search || undefined,
-      stableBoxId: stableFilter === "ALL" ? undefined : stableFilter,
+      stableBoxId: isOwner || stableFilter === "ALL" ? undefined : stableFilter,
       currentStatus: statusFilter === "ALL" ? undefined : statusFilter,
     }).then((result) => {
       if (!active) return;
@@ -83,9 +97,10 @@ export default function HorsesPage() {
       if (active && !outOfRange) setLoading(false);
     });
     return () => { active = false; };
-  }, [pageNumber, reloadKey, search, stableFilter, statusFilter]);
+  }, [isOwner, pageNumber, reloadKey, search, stableFilter, statusFilter]);
 
   useEffect(() => {
+    if (isOwner) return;
     let active = true;
     getHorseStables().then((stables) => {
       if (active) setStableOptions(stables);
@@ -93,7 +108,7 @@ export default function HorsesPage() {
       if (active) setError(errorMessage(reason));
     });
     return () => { active = false; };
-  }, []);
+  }, [isOwner]);
 
   async function handleDeleteConfirm() {
     if (!deleteHorse) return;
@@ -144,65 +159,92 @@ export default function HorsesPage() {
             )}
           </div>
 
-          {user.roleName === "HORSE_OWNER" && <div className="mb-6"><HorseRegistrationPanel /></div>}
-
-          {/* Filter Bar */}
-          <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-xs font-normal uppercase tracking-wider text-slate-500">Bộ lọc tìm kiếm</span>
-              {(searchInput || statusFilter !== "ALL" || stableFilter !== "ALL") && (
-                <button
-                  type="button"
-                  className="text-xs font-normal text-teal-700 hover:underline"
-                  onClick={() => { setSearchInput(""); setSearch(""); setStatusFilter("ALL"); setStableFilter("ALL"); setPageNumber(1); }}
-                >
-                  Xóa bộ lọc
-                </button>
-              )}
+          {isOwner && (
+            <div className="mb-6 flex flex-wrap gap-2" role="tablist" aria-label="Quản lý hồ sơ ngựa của bạn">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={ownerView === "requests"}
+                onClick={() => setOwnerView("requests")}
+                className={ownerView === "requests" ? "workspace-tab is-active" : "workspace-tab"}
+              >
+                Đăng ký & theo dõi yêu cầu
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={ownerView === "horses"}
+                onClick={() => setOwnerView("horses")}
+                className={ownerView === "horses" ? "workspace-tab is-active" : "workspace-tab"}
+              >
+                Danh sách ngựa của bạn ({total})
+              </button>
             </div>
-            <div className="grid gap-3 md:grid-cols-3">
-              <label className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus-within:border-slate-800 focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-800/10">
-                <Search size={16} className="text-slate-400 shrink-0" />
-                <input
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
-                  placeholder="Tìm theo tên hoặc giống..."
-                />
-              </label>
+          )}
 
-              <label className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus-within:border-slate-800 focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-800/10">
-                <Filter size={16} className="text-slate-400 shrink-0" />
-                <select
-                  value={statusFilter}
-                  onChange={(event) => { setStatusFilter(event.target.value); setPageNumber(1); }}
-                  className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none cursor-pointer"
-                >
-                  <option value="ALL">Tất cả trạng thái</option>
-                  <option value="Healthy">Khỏe mạnh</option>
-                  <option value="Monitoring">Cần theo dõi</option>
-                  <option value="Quarantine">Cách ly</option>
-                  <option value="Injured">Chấn thương</option>
-                </select>
-              </label>
+          {isOwner && ownerView === "requests" && <div className="mb-6"><HorseRegistrationPanel /></div>}
 
-              <label className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus-within:border-slate-800 focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-800/10">
-                <ShieldAlert size={16} className="text-slate-400 shrink-0" />
-                <select
-                  value={stableFilter}
-                  onChange={(event) => { setStableFilter(event.target.value); setPageNumber(1); }}
-                  className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none cursor-pointer"
-                >
-                  <option value="ALL">Tất cả chuồng</option>
-                  {stableOptions.map((stable) => (
-                    <option key={stable.id} value={stable.id}>
-                      {stable.box_code} - {stable.section}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </div>
+          {(!isOwner || ownerView === "horses") && (
+            <>
+              {/* Filter Bar */}
+              <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Bộ lọc tìm kiếm</span>
+                  {(searchInput || statusFilter !== "ALL" || (!isOwner && stableFilter !== "ALL")) && (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-teal-700 hover:underline"
+                      onClick={() => { setSearchInput(""); setSearch(""); setStatusFilter("ALL"); setStableFilter("ALL"); setPageNumber(1); }}
+                    >
+                      Xóa bộ lọc
+                    </button>
+                  )}
+                </div>
+                <div className={`grid gap-3 ${isOwner ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+                  <label className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus-within:border-slate-800 focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-800/10">
+                    <Search size={16} className="text-slate-400 shrink-0" />
+                    <input
+                      value={searchInput}
+                      onChange={(event) => setSearchInput(event.target.value)}
+                      className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+                      placeholder="Tìm theo tên, giống, chip hoặc hộ chiếu..."
+                    />
+                  </label>
+
+                  <label className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus-within:border-slate-800 focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-800/10">
+                    <Filter size={16} className="text-slate-400 shrink-0" />
+                    <select
+                      value={statusFilter}
+                      onChange={(event) => { setStatusFilter(event.target.value); setPageNumber(1); }}
+                      className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none cursor-pointer"
+                    >
+                      <option value="ALL">Tất cả trạng thái</option>
+                      <option value="Healthy">Khỏe mạnh</option>
+                      <option value="Monitoring">Cần theo dõi</option>
+                      <option value="Quarantine">Cách ly</option>
+                      <option value="Injured">Chấn thương</option>
+                    </select>
+                  </label>
+
+                  {!isOwner && (
+                    <label className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus-within:border-slate-800 focus-within:bg-white focus-within:ring-2 focus-within:ring-slate-800/10">
+                      <ShieldAlert size={16} className="text-slate-400 shrink-0" />
+                      <select
+                        value={stableFilter}
+                        onChange={(event) => { setStableFilter(event.target.value); setPageNumber(1); }}
+                        className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none cursor-pointer"
+                      >
+                        <option value="ALL">Tất cả chuồng</option>
+                        {stableOptions.map((stable) => (
+                          <option key={stable.id} value={stable.id}>
+                            {stable.box_code} - {stable.section}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
+              </div>
 
           <div className="mb-4 flex items-center justify-between">
             <p className="text-xs font-normal text-slate-500">
@@ -325,6 +367,8 @@ export default function HorsesPage() {
                 Sau
               </button>
             </nav>
+          )}
+            </>
           )}
 
         </div>

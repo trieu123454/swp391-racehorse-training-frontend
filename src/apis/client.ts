@@ -49,6 +49,24 @@ type ApiError = {
   };
 };
 
+function extractApiErrorMessage(error: ApiError, statusText: string): string {
+  const rawError = error.error;
+  const message = (typeof rawError === "string" ? rawError : rawError?.message) || error.message || statusText || "Request failed";
+  let details = Array.isArray(error.error?.details)
+    ? error.error.details
+      ?.map((item) => [item.field, item.message].filter(Boolean).join(": "))
+      .filter(Boolean)
+      .join(" · ")
+    : "";
+  if (!details && error.error?.details && typeof error.error.details === "object") {
+    const conflicts = (error.error.details as { conflicts?: { event_type?: string; event_date?: string; start_time?: string; end_time?: string; horse_name?: string }[] }).conflicts;
+    if (conflicts?.length) {
+      details = conflicts.map((item) => [item.event_type, item.horse_name, item.event_date, item.start_time && item.end_time ? `${item.start_time}–${item.end_time}` : "cả ngày"].filter(Boolean).join(" · ")).join("; ");
+    }
+  }
+  return details ? `${message}: ${details}` : message;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const multipart = typeof FormData !== "undefined" && options.body instanceof FormData;
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -66,30 +84,69 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       error = { message: response.statusText };
     }
-
-    const rawError = error.error;
-    const message = (typeof rawError === "string" ? rawError : rawError?.message) || error.message || response.statusText || "Request failed";
-    let details = Array.isArray(error.error?.details)
-      ? error.error.details
-      ?.map((item) => [item.field, item.message].filter(Boolean).join(": "))
-      .filter(Boolean)
-      .join(" · ")
-      : "";
-    if (!details && error.error?.details && typeof error.error.details === "object") {
-      const conflicts = (error.error.details as { conflicts?: { event_type?: string; event_date?: string; start_time?: string; end_time?: string; horse_name?: string }[] }).conflicts;
-      if (conflicts?.length) {
-        details = conflicts.map((item) => [item.event_type, item.horse_name, item.event_date, item.start_time && item.end_time ? `${item.start_time}–${item.end_time}` : "cả ngày"].filter(Boolean).join(" · ")).join("; ");
-      }
-    }
-    throw new ApiRequestError(details ? `${message}: ${details}` : message, response.status);
+    throw new ApiRequestError(extractApiErrorMessage(error, response.statusText), response.status);
   }
 
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
-/** Use the current signed-in session for role-protected API endpoints. */
-export async function authenticatedRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+function sendFormDataWithProgress<T>(
+  path: string,
+  method: "POST" | "PATCH",
+  formData: FormData,
+  token: string,
+  onUploadProgress?: (fraction: number) => void,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, `${API_BASE_URL}${path}`);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.timeout = 90_000;
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onUploadProgress?.(Math.min(1, event.loaded / event.total));
+      }
+    };
+    xhr.upload.onload = () => {
+      onUploadProgress?.(1);
+    };
+    xhr.onerror = () => {
+      reject(new ApiRequestError("Không kết nối được máy chủ. Vui lòng thử lại.", 0));
+    };
+    xhr.ontimeout = () => {
+      reject(new ApiRequestError("Tải hồ sơ quá thời gian chờ. Vui lòng thử lại.", 408));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        if (xhr.status === 204 || !xhr.responseText) {
+          resolve(undefined as T);
+          return;
+        }
+        try {
+          resolve(JSON.parse(xhr.responseText) as T);
+        } catch {
+          reject(new ApiRequestError("Phản hồi từ máy chủ không hợp lệ.", xhr.status));
+        }
+        return;
+      }
+      let parsed: ApiError = {};
+      try {
+        parsed = JSON.parse(xhr.responseText) as ApiError;
+      } catch {
+        parsed = { message: xhr.statusText };
+      }
+      reject(new ApiRequestError(extractApiErrorMessage(parsed, xhr.statusText), xhr.status));
+    };
+    xhr.send(formData);
+  });
+}
+
+async function runWithAuthRetry<T>(
+  execute: (token: string) => Promise<T>,
+  path: string,
+  method: string,
+): Promise<T> {
   let accessToken = getAccessToken();
   if (!accessToken) {
     await validateSession();
@@ -110,13 +167,9 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
     accessToken = getAccessToken();
     if (!accessToken) throw expiredSession();
   }
-  const withToken = (token: string) => ({
-    ...options,
-    headers: { ...(options.headers ?? {}), Authorization: `Bearer ${token}` },
-  });
   try {
-    const result = await request<T>(path, withToken(accessToken));
-    announceMutationCompleted(path, options.method ?? "GET");
+    const result = await execute(accessToken);
+    announceMutationCompleted(path, method);
     return result;
   } catch (error) {
     if (!(error instanceof ApiRequestError) || error.status !== 401) throw error;
@@ -131,8 +184,8 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
     const refreshed = getAccessToken();
     if (!refreshed) throw expiredSession();
     try {
-      const result = await request<T>(path, withToken(refreshed));
-      announceMutationCompleted(path, options.method ?? "GET");
+      const result = await execute(refreshed);
+      announceMutationCompleted(path, method);
       return result;
     } catch (retryError) {
       // If a newly issued token is also rejected, this session belongs to a
@@ -144,6 +197,33 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
       throw retryError;
     }
   }
+}
+
+/** Use the current signed-in session for role-protected API endpoints. */
+export async function authenticatedRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  return runWithAuthRetry(
+    (token) =>
+      request<T>(path, {
+        ...options,
+        headers: { ...(options.headers ?? {}), Authorization: `Bearer ${token}` },
+      }),
+    path,
+    options.method ?? "GET",
+  );
+}
+
+/** Upload multipart FormData with real XHR upload progress tracking and auth retry. */
+export async function authenticatedUploadWithProgress<T>(
+  path: string,
+  method: "POST" | "PATCH",
+  formData: FormData,
+  onUploadProgress?: (fraction: number) => void,
+): Promise<T> {
+  return runWithAuthRetry(
+    (token) => sendFormDataWithProgress<T>(path, method, formData, token, onUploadProgress),
+    path,
+    method,
+  );
 }
 
 export function login(email: string, password: string) {
@@ -203,7 +283,7 @@ export function logout(refreshToken: string) {
 
 let sessionCheck: Promise<AuthUser> | null = null;
 let refreshAfterUnauthorizedCheck: Promise<void> | null = null;
-const SESSION_CACHE_TTL_MS = 60_000;
+const SESSION_CACHE_TTL_MS = 300_000;
 let validatedSession: {
   accessToken: string | null;
   refreshToken: string | null;

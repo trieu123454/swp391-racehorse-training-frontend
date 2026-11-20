@@ -19,8 +19,10 @@ import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import {
   getOwnerHorseDashboard,
   getOwnerHorses,
+  getOwnershipTransferRequests,
   type OwnerDashboard,
   type OwnerHorse,
+  type OwnershipTransferRequest,
 } from "@/api/horse-owner/api";
 
 type Tab = "overview" | "health" | "training" | "races" | "finance";
@@ -42,27 +44,35 @@ export default function HorseOwnerWorkspace() {
   const [year, setYear] = useState(new Date().getFullYear());
   const [loadingHorses, setLoadingHorses] = useState(true);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
+  const [transferRequests, setTransferRequests] = useState<OwnershipTransferRequest[]>([]);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     let active = true;
-    const refreshHorses = () => getOwnerHorses()
-      .then((result) => {
-        if (!active) return;
-        setHorses(result.items);
-        setSelectedId((current) => result.items.some((horse) => horse.id === current)
-          ? current
-          : result.items[0]?.id || "");
-      })
-      .catch((reason) => { if (active) setError(errorMessage(reason)); })
-      .finally(() => { if (active) setLoadingHorses(false); });
+    const refreshHorses = () => {
+      void getOwnershipTransferRequests()
+        .then((items) => { if (active) setTransferRequests(items); })
+        .catch(() => {});
+      return getOwnerHorses()
+        .then((result) => {
+          if (!active) return;
+          setHorses(result.items);
+          setSelectedId((current) => result.items.some((horse) => horse.id === current)
+            ? current
+            : result.items[0]?.id || "");
+        })
+        .catch((reason) => { if (active) setError(errorMessage(reason)); })
+        .finally(() => { if (active) setLoadingHorses(false); });
+    };
     const handleUpdate = () => { void refreshHorses(); };
     window.addEventListener("horse-owner-horses-changed", handleUpdate);
+    window.addEventListener("focus", handleUpdate);
     void refreshHorses();
     return () => {
       active = false;
       window.removeEventListener("horse-owner-horses-changed", handleUpdate);
+      window.removeEventListener("focus", handleUpdate);
     };
   }, []);
 
@@ -113,9 +123,25 @@ export default function HorseOwnerWorkspace() {
 
       {error && <Notice error>{error}</Notice>}
       <NotificationCenter />
+      {transferRequests.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-950 shadow-sm">
+          <div>
+            <p className="font-semibold">Bạn có {transferRequests.length} yêu cầu chuyển quyền sở hữu đang chờ xác nhận</p>
+            <p className="mt-0.5 text-xs text-amber-800">
+              {transferRequests.map((item) => item.horse_name).join(", ")} · Club Manager đã xem xét hồ sơ và cần bạn xác nhận đồng ý hoặc từ chối.
+            </p>
+          </div>
+          <Link href={Routes.horses} className="gold-button !min-h-[36px] !px-3.5 !text-xs">
+            Mở Yêu cầu hồ sơ để xác nhận
+          </Link>
+        </div>
+      )}
       {loadingHorses ? <Notice>Đang tải ngựa thuộc sở hữu của bạn...</Notice> : horses.length === 0 ? (
         <div className="rounded-lg border border-equine-line bg-white p-6 shadow-sm">
-          <Notice>Bạn chưa có ngựa được liên kết. Mở mục Hồ sơ ngựa ở thanh bên để gửi yêu cầu đăng ký hoặc liên kết.</Notice>
+          <Notice>Bạn chưa có ngựa được liên kết. Mở mục Yêu cầu hồ sơ để gửi yêu cầu đăng ký mới hoặc liên kết hồ sơ ngựa có sẵn.</Notice>
+          <div className="mt-4">
+            <Link href={Routes.horses} className="gold-button">Mở Yêu cầu hồ sơ</Link>
+          </div>
         </div>
       ) : (
         <>

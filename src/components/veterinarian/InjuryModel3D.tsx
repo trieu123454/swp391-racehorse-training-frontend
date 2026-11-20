@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { GLTFLoader, type GLTFParser } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkinnedModel } from "three/addons/utils/SkeletonUtils.js";
 import type { InjuryMarker } from "@/api/veterinarian/api";
 import MuscleAnatomyPanel from "./MuscleAnatomyPanel";
@@ -77,9 +77,48 @@ type ViewerActions = {
 
 let horseModelPromise: Promise<THREE.Group> | null = null;
 
+function createHorseGltfLoader(): GLTFLoader {
+  const loader = new GLTFLoader();
+  loader.register((parser: GLTFParser) => ({
+    name: "KHR_materials_pbrSpecularGlossiness",
+    extendMaterialParams(materialIndex: number, materialParams: Record<string, unknown>) {
+      const json = parser.json as {
+        materials?: Array<{
+          name?: string;
+          extensions?: {
+            KHR_materials_pbrSpecularGlossiness?: {
+              diffuseFactor?: number[];
+              diffuseTexture?: { index: number; texCoord?: number; extensions?: unknown };
+              glossinessFactor?: number;
+            };
+          };
+        }>;
+      };
+      const matDef = json.materials?.[materialIndex];
+      const ext = matDef?.extensions?.KHR_materials_pbrSpecularGlossiness;
+      if (!ext) return Promise.resolve();
+      const pending: Promise<unknown>[] = [];
+      if (Array.isArray(ext.diffuseFactor)) {
+        materialParams.color = new THREE.Color(ext.diffuseFactor[0] ?? 1, ext.diffuseFactor[1] ?? 1, ext.diffuseFactor[2] ?? 1);
+        materialParams.opacity = ext.diffuseFactor[3] ?? 1;
+      }
+      const isEye = /eye/i.test(matDef?.name ?? "");
+      const isHair = /hair|mane/i.test(matDef?.name ?? "");
+      const isSaddle = /saddle/i.test(matDef?.name ?? "");
+      materialParams.metalness = isSaddle ? 0.08 : 0.03;
+      materialParams.roughness = isEye ? 0.14 : isHair ? 0.78 : isSaddle ? 0.52 : 0.56;
+      if (ext.diffuseTexture !== undefined) {
+        pending.push(parser.assignTexture(materialParams, "map", ext.diffuseTexture, THREE.SRGBColorSpace));
+      }
+      return Promise.all(pending);
+    },
+  }));
+  return loader;
+}
+
 function loadHorseModel() {
   if (!horseModelPromise) {
-    horseModelPromise = new GLTFLoader().loadAsync("/models/injury-horse.glb")
+    horseModelPromise = createHorseGltfLoader().loadAsync("/models/injury-horse.glb")
       .then((model) => model.scene)
       .catch((error: unknown) => {
         horseModelPromise = null;

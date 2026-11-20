@@ -48,6 +48,9 @@ export type TrainingSession = {
   horse_id: string;
   horse_name: string;
   image_url?: string | null;
+  box_code?: string | null;
+  section?: string | null;
+  trainer_review?: string | null;
   training_plan_id?: string | null;
   plan_stage_name?: string | null;
   plan_objective?: string | null;
@@ -66,6 +69,7 @@ export type TrainingSession = {
   assigned_groom_id?: number | null;
   groom_name?: string | null;
   metrics?: TrainingMetric[];
+  latest_metric?: TrainingMetric | null;
 };
 
 export type TrainerIncident = {
@@ -183,7 +187,31 @@ export type Simulation = {
   horses: SimulationHorse[];
 };
 
-type Page<T> = { data: T[]; total: number; page: number; limit: number };
+export type CareCalendarEvent = {
+  event_id: string;
+  event_type: string;
+  title?: string | null;
+  event_date: string;
+  due_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  status: string;
+  source_table: string;
+  source_id: string;
+  horse_id: string;
+  horse_name: string;
+  box_code?: string | null;
+  section?: string | null;
+  care_type?: string | null;
+  assigned_doctor_id?: number | null;
+  doctor_name?: string | null;
+  task_type?: string | null;
+  groom_id?: number | null;
+  groom_name?: string | null;
+  is_periodic_due?: boolean;
+};
+
+type Page<T> = { data: T[]; care_events?: CareCalendarEvent[]; total: number; page: number; limit: number };
 
 function query(values: Record<string, string | number | boolean | undefined>) {
   const params = new URLSearchParams();
@@ -252,6 +280,12 @@ export const headTrainerApi = {
   },
   grooms() {
     return call<{ data: { user_id: number; full_name: string; email: string }[] }>("/api/head-trainer/grooms");
+  },
+  resetCleanData() {
+    return call<{ deleted_plans: number; deleted_schedules: number; created_plans: number; created_schedules: number }>(
+      "/api/head-trainer/reset-clean-data",
+      "POST",
+    );
   },
   assignGroom(id: string, groomId: number) {
     return call<TrainingSession>(`/api/training-schedules/${id}/assign-groom`, "PATCH", { groom_id: groomId });
