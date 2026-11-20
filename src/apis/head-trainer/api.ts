@@ -1,4 +1,4 @@
-import { authenticatedRequest } from "@/api/client";
+import { ApiRequestError, authenticatedRequest } from "@/api/client";
 
 export type TrainingMetric = {
   id?: string;
@@ -281,12 +281,20 @@ export const headTrainerApi = {
   grooms() {
     return call<{ data: { user_id: number; full_name: string; email: string }[] }>("/api/head-trainer/grooms");
   },
-  resetCleanData() {
-    return call<{ deleted_plans: number; deleted_schedules: number; created_plans: number; created_schedules: number }>(
-      "/api/head-trainer/reset-clean-data",
-      "POST",
-    );
+  async resetCleanData() {
+    try {
+      return await call<{ deleted_plans: number; deleted_schedules: number; created_plans: number; created_schedules: number }>(
+        "/api/head-trainer/reset-clean-data",
+        "POST",
+      );
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 404) {
+        throw new Error("Backend chưa hỗ trợ chức năng làm sạch và tạo lại dữ liệu huấn luyện. Vui lòng cập nhật backend.");
+      }
+      throw error;
+    }
   },
+
   assignGroom(id: string, groomId: number) {
     return call<TrainingSession>(`/api/training-schedules/${id}/assign-groom`, "PATCH", { groom_id: groomId });
   },
