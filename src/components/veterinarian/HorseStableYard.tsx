@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { ArrowUpRight, X, Stethoscope, ShieldAlert, HeartPulse, FileText, Sparkles } from "lucide-react";
 import { Routes } from "@/routes/Routes";
@@ -10,7 +10,7 @@ import type { Horse } from "@/api/horses/api";
 import HorseIllustration, { type HorseCoat } from "./Horse";
 
 type MotionState = "walk" | "trot" | "graze" | "idle";
-type HorseAgent = { id: string; x: number; direction: -1 | 1; motion: MotionState; remainingMs: number; speed: number };
+type HorseAgent = { id: string; x: number; y: number; drift: number; direction: -1 | 1; motion: MotionState; remainingMs: number; speed: number };
 type StableHorse = { horse: VetHorse; colorIndex: number };
 type StableGroup = {
   id: string;
@@ -31,7 +31,7 @@ export type YardStableBox = {
   occupied: number;
 };
 
-const HORSE_WIDTH = 150;
+const HORSE_WIDTH = 120;
 const FRAME_MS = 1000 / 60;
 function randomBetween(min: number, max: number) {
   return min + Math.random() * (max - min);
@@ -39,14 +39,13 @@ function randomBetween(min: number, max: number) {
 
 function randomMotion(): MotionState {
   const choice = Math.random();
-  return choice < 0.18 ? "graze" : choice < 0.26 ? "trot" : "walk";
+  return choice < 0.15 ? "idle" : choice < 0.3 ? "graze" : "walk";
 }
 
 function nextMotion(current: MotionState): MotionState {
   const choice = Math.random();
-  if (current === "walk") return choice < 0.45 ? "graze" : "trot";
-  if (current === "trot") return choice < 0.78 ? "walk" : "graze";
-  return choice < 0.8 ? "walk" : "trot";
+  if (current === "walk" || current === "trot") return choice < 0.7 ? "idle" : "graze";
+  return choice < 0.15 ? "idle" : choice < 0.3 ? "graze" : "walk";
 }
 
 function motionDuration(motion: MotionState) {
@@ -57,13 +56,8 @@ function motionDuration(motion: MotionState) {
 
 function motionSpeed(motion: MotionState) {
   if (motion === "trot") return randomBetween(1.3, 1.8);
-  if (motion === "walk") return randomBetween(0.35, 0.6);
+  if (motion === "walk") return randomBetween(0.24, 0.4);
   return 0;
-}
-
-function sceneHeightForHorseCount(count: number) {
-  const laneCount = Math.min(2, Math.max(1, count));
-  return Math.max(260, 230 + Math.ceil(count / laneCount) * 40);
 }
 
 function healthDotClass(status: string) {
@@ -145,7 +139,7 @@ export default function HorseStableYard({
     });
   }, [horses, stables]);
 
-  const sceneHeight = Math.max(260, ...groups.map((group) => sceneHeightForHorseCount(group.horses.length)));
+  const sceneHeight = 280;
 
   const selectHorse = useCallback((horse: VetHorse) => {
     setActionError("");
@@ -187,7 +181,7 @@ export default function HorseStableYard({
         </div>
 
         {/* Lưới các chuồng 2D */}
-        <div className="grid grid-cols-1 gap-3.5 p-3.5 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
           {groups.map((group) => {
             const isQuarantine = group.box_type === "Quarantine" || group.section.toLowerCase().includes("cách ly");
             const isInjury = group.box_type === "Injury" || group.section.toLowerCase().includes("chấn thương");
@@ -253,7 +247,7 @@ export default function HorseStableYard({
 
                 {/* Nội dung bên trong chuồng */}
                 {isEmpty ? (
-                  <div className="flex min-h-[240px] flex-col items-center justify-center p-6 text-center">
+                  <div className="flex flex-col items-center justify-center p-6 text-center" style={{ height: sceneHeight }}>
                     {isQuarantine ? (
                       <div className="max-w-sm space-y-2">
                         <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-rose-100 text-rose-700 border border-rose-300">
@@ -431,7 +425,17 @@ function StablePen({
 }) {
   const sceneRef = useRef<HTMLDivElement>(null);
   const horseNodesRef = useRef(new Map<string, HTMLButtonElement>());
-  const laneCount = Math.min(2, Math.max(1, horses.length));
+  const [sceneWidth, setSceneWidth] = useState(400);
+  const maxColumns = Math.max(1, Math.floor(sceneWidth / (HORSE_WIDTH + 16)));
+  const columns = Math.max(1, Math.ceil(horses.length / Math.ceil(Math.max(1, horses.length) / maxColumns)));
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    const observer = new ResizeObserver(([entry]) => setSceneWidth(entry.contentRect.width));
+    observer.observe(scene);
+    return () => observer.disconnect();
+  }, []);
 
   const registerHorseNode = useCallback((id: string, node: HTMLButtonElement | null) => {
     if (node) horseNodesRef.current.set(id, node);
@@ -445,6 +449,8 @@ function StablePen({
     const agents: HorseAgent[] = horses.map(({ horse }) => ({
       id: horse.id,
       x: 0,
+      y: 0,
+      drift: randomBetween(-0.12, 0.12),
       direction: Math.random() < 0.5 ? -1 : 1,
       motion: "idle",
       remainingMs: 0,
@@ -463,20 +469,24 @@ function StablePen({
       if (figure) figure.style.transform = agent.direction < 0 ? "scaleX(-1)" : "scaleX(1)";
     };
 
+    const positionHorse = (agent: HorseAgent, node: HTMLButtonElement) => {
+      node.style.transform = `translate3d(${agent.x}px, ${-agent.y}px, 0)`;
+      node.dataset.depth = agent.y > 32 ? "far" : "near";
+      node.style.zIndex = String(80 - Math.round(agent.y));
+    };
+
     const initialize = () => {
-      const maxX = Math.max(0, scene.clientWidth - HORSE_WIDTH - 8);
-      const perLane = Math.ceil(horses.length / laneCount);
       agents.forEach((agent, index) => {
         const node = horseNodesRef.current.get(agent.id);
         if (!node) return;
-        const laneIndex = Math.floor(index / laneCount);
-        const laneWidth = maxX / Math.max(perLane, 1);
-        agent.x = Math.min(maxX, laneIndex * laneWidth + randomBetween(0, Math.max(0, laneWidth - 8)));
+        const cellWidth = scene.clientWidth / columns;
+        agent.x = (index % columns) * cellWidth + Math.max(0, (cellWidth - HORSE_WIDTH) / 2);
+        agent.y = horses.length === 1 ? 20 : index / Math.max(1, horses.length - 1) * 64;
         agent.direction = Math.random() < 0.5 ? -1 : 1;
         agent.motion = reducedMotion.matches ? "idle" : randomMotion();
         agent.remainingMs = motionDuration(agent.motion);
         agent.speed = motionSpeed(agent.motion);
-        node.style.transform = `translate3d(${agent.x}px, 0, 0)`;
+        positionHorse(agent, node);
         setMotion(agent, node);
       });
     };
@@ -485,13 +495,14 @@ function StablePen({
       if (!running) return;
       const deltaFrames = lastFrameTime ? Math.min((now - lastFrameTime) / FRAME_MS, 3) : 1;
       lastFrameTime = now;
-      const maxX = Math.max(0, scene.clientWidth - HORSE_WIDTH - 8);
       const elapsedMs = deltaFrames * FRAME_MS;
 
       agents.forEach((agent) => {
+        const minX = 4;
+        const maxX = Math.max(minX, scene.clientWidth - HORSE_WIDTH - 4);
         const node = horseNodesRef.current.get(agent.id);
         if (!node) return;
-        agent.x = Math.max(0, Math.min(agent.x, maxX));
+        agent.x = Math.max(minX, Math.min(agent.x, maxX));
         agent.remainingMs -= elapsedMs;
         if (agent.remainingMs <= 0) {
           agent.motion = nextMotion(agent.motion);
@@ -501,9 +512,14 @@ function StablePen({
           setMotion(agent, node);
         }
 
-        if (agent.speed > 0) agent.x += agent.direction * agent.speed * deltaFrames;
-        if (agent.x <= 0) {
-          agent.x = 0;
+        if (agent.speed > 0) {
+          agent.x += agent.direction * agent.speed * deltaFrames;
+          agent.y += agent.drift * deltaFrames;
+          if (agent.y <= 0 || agent.y >= 64) agent.drift *= -1;
+          agent.y = Math.max(0, Math.min(64, agent.y));
+        }
+        if (agent.x <= minX) {
+          agent.x = minX;
           if (agent.direction < 0) {
             agent.direction = 1;
             setMotion(agent, node);
@@ -515,7 +531,7 @@ function StablePen({
             setMotion(agent, node);
           }
         }
-        node.style.transform = `translate3d(${agent.x}px, 0, 0)`;
+        positionHorse(agent, node);
       });
       frameId = window.requestAnimationFrame(tick);
     };
@@ -557,10 +573,11 @@ function StablePen({
       document.removeEventListener("visibilitychange", handleVisibility);
       reducedMotion.removeEventListener("change", handleMotionPreference);
     };
-  }, [horses, laneCount]);
+  }, [horses, columns, sceneWidth]);
 
   return (
     <div ref={sceneRef} className="stable-yard-scene" style={{ height: `${sceneHeight}px` }} aria-label={`Khu vực ${label}`}>
+      <div className="stable-yard-stage" style={{ height: `${sceneHeight - 12}px`, "--stable-floor": "150px" } as CSSProperties}>
       <div className="stable-yard-architecture" aria-hidden="true">
         <div className="stable-yard-ceiling">
           <span />
@@ -572,6 +589,10 @@ function StablePen({
           <i />
           <i />
         </div>
+        <div className="stable-yard-window stable-yard-window--left">
+          <i />
+          <i />
+        </div>
         <div className="stable-yard-pillar stable-yard-pillar--left" />
         <div className="stable-yard-pillar stable-yard-pillar--right" />
         <div className="stable-yard-led-lights">
@@ -580,16 +601,16 @@ function StablePen({
           <i />
         </div>
         <div className="stable-yard-straw" />
+        <div className="stable-yard-daylight" />
+        <div className="stable-yard-trough" />
       </div>
       <div className="stable-yard-hay" aria-hidden="true">
         <span />
         <span />
         <span />
       </div>
-      {horses.map((item, index) => {
-        const lane = index % laneCount;
-        const depth = laneCount === 1 || lane === laneCount - 1 ? "near" : "far";
-        const bottom = laneCount === 1 || lane === laneCount - 1 ? 4 : 28;
+      <div className="stable-yard-hay-roll" aria-hidden="true" />
+      {horses.map((item) => {
         const coats: HorseCoat[] = ["bay", "chestnut", "black", "gray", "palomino"];
         return (
           <button
@@ -602,23 +623,34 @@ function StablePen({
             title={`${item.horse.horse_name} - Bấm để vào bàn khám hoặc chuyển chuồng`}
             className="stable-yard-horse group cursor-pointer"
             data-motion="idle"
-            data-depth={depth}
-            style={{ bottom: `${bottom}px` }}
-            onClick={() => onSelectHorse(item.horse)}
+            data-depth="near"
+            style={{ bottom: "10px" }}
+            onClick={(event) => {
+              const figure = event.currentTarget.querySelector<HTMLElement>(".stable-yard-figure-wrap");
+              if (figure && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+                figure.getAnimations().forEach((animation) => animation.cancel());
+                figure.animate([
+                  { translate: "0 0", scale: "1", filter: "brightness(1)" },
+                  { translate: "0 -3px", scale: "1.035", filter: "brightness(1.12)" },
+                  { translate: "0 0", scale: "1", filter: "brightness(1)" },
+                ], { duration: 460, easing: "ease-out" });
+              }
+              onSelectHorse(item.horse);
+            }}
           >
             <span className="stable-yard-horse__visual">
-              <span className="stable-yard-horse__name-pill group-hover:scale-105 transition shadow-md" title={item.horse.horse_name}>
+              <span className="stable-yard-horse__name-pill transition" title={item.horse.horse_name}>
                 <i className={`stable-yard-horse__health-dot ${healthDotClass(item.horse.current_status)}`} aria-hidden="true" />
-                <span className="font-bold">{item.horse.horse_name}</span>
-                <span className="ml-1 text-[9px] text-indigo-600 bg-indigo-50 px-1 rounded font-bold">🩺</span>
+                <span className="stable-yard-horse__label">{item.horse.horse_name}</span>
               </span>
               <span className="stable-yard-figure-wrap">
-                <HorseIllustration className="stable-yard-figure" coatColor={coats[item.colorIndex % coats.length]} hasStar={item.colorIndex % 3 === 0} socks={item.colorIndex % 2 === 0 ? ["frontLeft", "hindRight"] : []} size={142} />
+                <HorseIllustration className="stable-yard-figure" coatColor={coats[item.colorIndex % coats.length]} hasStar={item.colorIndex % 3 === 0} socks={item.colorIndex % 2 === 0 ? ["frontLeft", "hindRight"] : []} groundContact size={114} />
               </span>
             </span>
           </button>
         );
       })}
+      </div>
     </div>
   );
 }

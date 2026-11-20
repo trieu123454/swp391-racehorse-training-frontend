@@ -1940,7 +1940,7 @@ function isEventOverdue(event: CalendarCareItem, schedule?: CareSchedule): boole
 }
 
 function isScheduleOverdue(schedule: CareSchedule): boolean {
-  if (schedule.event_status === "Completed" && !schedule.frequency_days) return false;
+  if (!isActiveCareSchedule(schedule)) return false;
   if (schedule.is_overdue) return true;
 
   const curDate = today();
@@ -1960,6 +1960,10 @@ function isScheduleOverdue(schedule: CareSchedule): boolean {
   }
 
   return false;
+}
+
+function isActiveCareSchedule(schedule: CareSchedule): boolean {
+  return Boolean(schedule.frequency_days) || !["Completed", "Cancelled"].includes(schedule.event_status ?? "");
 }
 
 function isAssignedDoctor(
@@ -2026,12 +2030,13 @@ function CarePanel({
   viewMode?: "dispatch" | "care";
   onSwitchView?: (nextView: "dispatch" | "care") => void;
 }) {
-  const [schedules, setSchedules] = useState<CareSchedule[]>([]);
+  const [rawSchedules, setSchedules] = useState<CareSchedule[]>([]);
   const [events, setEvents] = useState<CareEvent[]>([]);
   const [contextEvents, setContextEvents] = useState<CareEvent[]>([]);
-  const [doctors, setDoctors] = useState<{ id: number | string; name: string; email: string }[]>([]);
-  const [workloads, setWorkloads] = useState<{ id: number | string; name: string; email: string; role_name?: string; total_schedules: number; overdue_count: number; today_count: number }[]>([]);
+  const [doctors, setDoctors] = useState<{ id: number | string; name: string; email: string; role_name?: string }[]>([]);
   const [reassignTarget, setReassignTarget] = useState<CareSchedule | null>(null);
+  const [workloadsLoading, setWorkloadsLoading] = useState(true);
+  const [workloadsError, setWorkloadsError] = useState("");
   const [reassignDoctorId, setReassignDoctorId] = useState<string>("");
   const [dispatchSubTab, setDispatchSubTab] = useState<"coverage" | "rules">("coverage");
   const [coverageFilter, setCoverageFilter] = useState<"all" | "uncovered" | "overdue" | "covered">("all");
@@ -2048,6 +2053,29 @@ function CarePanel({
   const [moveId, setMoveId] = useState("");
   const [completeId, setCompleteId] = useState("");
   const currentUser = useMemo(() => getUser(), []);
+  const schedules = useMemo(() => rawSchedules.map((schedule) => {
+    const doctorId = schedule.assigned_doctor_id ?? schedule.assigned_doctor?.id;
+    const doctor = doctors.find((item) => doctorId != null && String(item.id) === String(doctorId));
+    const name = doctor?.name ?? schedule.assigned_doctor?.name ?? schedule.doctor_name;
+    return {
+      ...schedule,
+      doctor_name: name,
+      assigned_doctor: doctorId != null ? { id: doctorId, name } : schedule.assigned_doctor,
+    };
+  }), [rawSchedules, doctors]);
+  const workloads = useMemo(() => doctors.map((doctor) => {
+    const assigned = schedules.filter((schedule) =>
+      String(schedule.assigned_doctor_id ?? schedule.assigned_doctor?.id ?? "") === String(doctor.id)
+      && isActiveCareSchedule(schedule));
+    return {
+      ...doctor,
+      role_name: doctor.role_name ?? (String(doctor.id) === String(currentUser?.id) ? currentUser?.roleName : undefined),
+      total_schedules: assigned.length,
+      today_count: assigned.filter((schedule) => (schedule.event?.event_date ?? schedule.next_due_date) === today()
+        && !["Completed", "Cancelled"].includes(schedule.event_status ?? "")).length,
+      overdue_count: assigned.filter(isScheduleOverdue).length,
+    };
+  }), [doctors, schedules, currentUser]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -2275,7 +2303,7 @@ function CarePanel({
   const load = useCallback(async () => {
     setLoading(true); setError("");
     const [scheduleResult, calendarResult] = await Promise.allSettled([
-      veterinarianApi.schedules(), veterinarianApi.calendar(from, to, includeContext, scope),
+      veterinarianApi.allSchedules(), veterinarianApi.calendar(from, to, includeContext, scope),
     ]);
     const failures: string[] = [];
     if (scheduleResult.status === "fulfilled") setSchedules(scheduleResult.value.data);
@@ -2288,33 +2316,23 @@ function CarePanel({
   }, [from, includeContext, scope, to]);
   useEffect(() => { void load(); }, [load]);
 
-  useEffect(() => {
-    let active = true;
-    veterinarianApi
-      .veterinarians()
-      .then((res) => {
-        if (active && Array.isArray(res)) setDoctors(res);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const loadWorkloads = useCallback(async () => {
+    setWorkloadsLoading(true);
+    setWorkloadsError("");
     try {
-      const res = await veterinarianApi.workloads();
-      if (Array.isArray(res)) setWorkloads(res);
-    } catch {
-      // Workload loading is non-blocking
+      const res = await veterinarianApi.veterinarians();
+      if (!Array.isArray(res)) throw new Error("Dữ liệu danh sách bác sĩ không hợp lệ.");
+      setDoctors(res);
+    } catch (reason) {
+      setWorkloadsError(veterinarianError(reason));
+    } finally {
+      setWorkloadsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (isHeadVet) {
-      void loadWorkloads();
-    }
-  }, [isHeadVet, loadWorkloads]);
+    void loadWorkloads();
+  }, [loadWorkloads]);
 
   async function handleReassign(scheduleId: string, doctorId: string) {
     if (!doctorId) return;
@@ -2440,7 +2458,8 @@ function CarePanel({
 
   const dispatchFilteredRules = useMemo(() => {
     return [...filteredSchedules]
-      .filter((s) => doctorFilter === "all" || String(s.assigned_doctor_id ?? "") === doctorFilter)
+      .filter(isActiveCareSchedule)
+      .filter((s) => doctorFilter === "all" || String(s.assigned_doctor_id ?? s.assigned_doctor?.id ?? "") === doctorFilter)
       .sort((left, right) => left.next_due_date.localeCompare(right.next_due_date));
   }, [filteredSchedules, doctorFilter]);
 
@@ -2683,7 +2702,7 @@ function CarePanel({
         </div>
 
         {/* Doctor Workloads Grid */}
-        {workloads.length > 0 && (
+        {isHeadVet && (
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -2702,6 +2721,13 @@ function CarePanel({
                 <span className="text-xs text-slate-500">Bấm vào thẻ bác sĩ để lọc nhanh các ca phụ trách</span>
               )}
             </div>
+            <p className="mb-3 text-xs text-slate-500">Thống kê và danh sách phân công tính các quy tắc còn hiệu lực; lịch một lần đã hoàn thành hoặc hủy được xem trong Lịch chăm sóc.</p>
+            {(workloadsLoading || loading) && <Notice>Đang tải phân bổ công việc bác sĩ...</Notice>}
+            {workloadsError && <div role="alert" className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+              <p>Không tải được phân bổ công việc bác sĩ: {workloadsError}</p>
+              <button type="button" className="soft-button mt-2" disabled={workloadsLoading} onClick={() => void loadWorkloads()}>Thử lại</button>
+            </div>}
+            {!workloadsLoading && !workloadsError && workloads.length === 0 && <Notice>Chưa có dữ liệu phân bổ công việc bác sĩ.</Notice>}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {workloads.map((doc) => {
                 const isMe = currentUser?.id && String(doc.id) === String(currentUser.id);
