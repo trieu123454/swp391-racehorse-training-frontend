@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
+
 import { Activity, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, Ban, Bot, CalendarDays, Check, ChevronDown, CircleHelp, ClipboardList, Clock, Flag, Gauge, HeartPulse, MapPin, Medal, MessageSquare, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, Send, Sparkles, Trash2, User, Users, Utensils, Wand2, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { HorseImage, Modal, Notice } from "@/components/horses/HorseUI";
@@ -7,9 +9,14 @@ import SessionTargetsEditor from "./SessionTargetsEditor";
 import TrainingAnalysisPanel from "./TrainingAnalysisPanel";
 import SensorTimeline from "./SensorTimeline";
 import RaceTrackVisualization from "./RaceTrackVisualization";
-import RaceTrackScene3D, { type RaceTrackRunner } from "./RaceTrackScene3D";
-import NotificationCenter from "@/components/shared/NotificationCenter";
+import dynamic from "next/dynamic";
+import type { RaceTrackRunner } from "./RaceTrackScene3D";
+const RaceTrackScene3D = dynamic(() => import("./RaceTrackScene3D"), {
+  ssr: false,
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải mô hình 3D…</p>,
+});
 import { listHorses, type Horse } from "@/api/horses/api";
+import { useLinkedNotificationHorse } from "@/hooks/use-notification-target";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import {
   headTrainerApi,
@@ -75,7 +82,7 @@ function mondayOfWeek(date: string) {
 }
 function metricDate(value?: string | null) {
   if (!value) return "Chưa có dữ liệu";
-  return new Date(value).toLocaleString("vi-VN", { dateStyle: "medium", timeStyle: "short" });
+  return new Date(value).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 export type RegimenLevel =
@@ -529,6 +536,7 @@ export default function HeadTrainerWorkspace() {
   const [grooms, setGrooms] = useState<Groom[]>([]);
   const [races, setRaces] = useState<RaceOption[]>([]);
   const [horseId, setHorseId] = useState("");
+  useLinkedNotificationHorse(horses, setHorseId);
   const [horseSearch, setHorseSearch] = useState("");
   const [horseSelectorOpen, setHorseSelectorOpen] = useState(false);
   const [plans, setPlans] = useState<TrainingPlan[]>([]);
@@ -556,6 +564,17 @@ export default function HeadTrainerWorkspace() {
   const [to, setTo] = useState(() => today());
   const [calendarFrom, setCalendarFrom] = useState(() => mondayOfWeek(today()));
   const [calendarTo, setCalendarTo] = useState(() => plusDays(mondayOfWeek(today()), 6));
+  useEffect(() => {
+    const sync = () => {
+      const params = new URLSearchParams(window.location.search), date = params.get("date");
+      if (params.has("notificationTarget") && date?.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        const monday = mondayOfWeek(date); setCalendarFrom(monday); setCalendarTo(plusDays(monday, 6));
+      }
+    };
+    sync(); window.addEventListener("workspace-tab-change", sync);
+    return () => window.removeEventListener("workspace-tab-change", sync);
+  }, []);
+
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1149,7 +1168,7 @@ export default function HeadTrainerWorkspace() {
       </aside>
     </div>
     {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
-    <div className="mt-4"><NotificationCenter /></div>
+
     <div className="mt-5 space-y-4">
       {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} />
         : !horses.length ? <Notice>Chưa có hồ sơ ngựa đang hoạt động.</Notice> : <>
@@ -1249,7 +1268,7 @@ function TrainerIncidentsPanel({ incidents, busy, onSubmit }: {
       : <div className="space-y-3">{incidents.map((incident) => <article key={incident.id} className={`rounded-lg border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/40" : "border-equine-line bg-white"}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h3 className="font-semibold text-equine-navy">{incident.horse_name}</h3>
-            <p className="mt-1 text-xs text-slate-500">{incident.groom_name ?? "Groom"} · {new Date(incident.created_at).toLocaleString("vi-VN")}</p>
+            <p className="mt-1 text-xs text-slate-500">{incident.groom_name ?? "Groom"} · {formatDisplayDate(incident.created_at, true)}</p>
           </div>
           <div className="flex gap-2"><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold">{incident.status === "InProgress" ? "Đang xử lý" : "Chờ Club Manager đóng"}</span>
             {incident.is_emergency && <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-800">KHẨN CẤP</span>}
@@ -1389,7 +1408,7 @@ function formatChartValue(value: number) {
 }
 
 function chartDateLabel(value: string) {
-  return new Date(value + "T12:00:00").toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "2-digit" });
+  return new Date(value + "T12:00:00").toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function ComparisonChart({ compare, metricKey }: {
@@ -3649,7 +3668,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                               ? "bg-slate-200 text-slate-700"
                               : "bg-blue-100 text-blue-900";
                             return (
-                              <div key={session.training_schedule_id} className={`rounded-lg border p-2 shadow-xs transition hover:shadow-sm ${cardStyle}`}>
+                              <div data-notification-target={session.horse_id} key={session.training_schedule_id} className={`rounded-lg border p-2 shadow-xs transition hover:shadow-sm ${cardStyle}`}>
                                 <div className="flex items-start justify-between gap-1">
                                   <button
                                     type="button"
@@ -3863,7 +3882,7 @@ function TrainingSessionDetail({ session, grooms, busy, nowMs, showMetrics, onAs
   const hasSimulationMetrics = session.status === "Completed" || Boolean(session.latest_metric || session.metrics?.length);
   return <article className="mt-4 rounded-xl border border-blue-300 bg-white p-4 shadow-sm" aria-label={`Chi tiết buổi tập của ${session.horse_name}`}>
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><div className="flex flex-wrap items-center gap-2"><h3 className="text-lg font-black text-slate-950">{session.horse_name}</h3><span className="rounded bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{sessionTypeLabel(session.session_type)}</span><span className="rounded bg-blue-50 px-2 py-1 text-xs font-bold text-blue-900">{scheduleStatusLabel(session.status)}</span></div><p className="mt-1 text-sm font-semibold text-slate-700">{new Date(`${session.event_date}T12:00:00`).toLocaleDateString("vi-VN", { dateStyle: "full" })} · {session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? `–${session.end_time.slice(0, 5)}` : ""} · {session.track_surface || "Chưa chọn mặt sân"}</p></div>
+      <div><div className="flex flex-wrap items-center gap-2"><h3 className="text-lg font-black text-slate-950">{session.horse_name}</h3><span className="rounded bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{sessionTypeLabel(session.session_type)}</span><span className="rounded bg-blue-50 px-2 py-1 text-xs font-bold text-blue-900">{scheduleStatusLabel(session.status)}</span></div><p className="mt-1 text-sm font-semibold text-slate-700">{new Date(`${session.event_date}T12:00:00`).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })} · {session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? `–${session.end_time.slice(0, 5)}` : ""} · {session.track_surface || "Chưa chọn mặt sân"}</p></div>
       <button type="button" className="soft-button" onClick={onToggleMetrics} disabled={!hasSimulationMetrics} title={!hasSimulationMetrics ? "Chỉ số sẽ tự động có sau khi hoàn thành mô phỏng buổi tập" : undefined}><HeartPulse size={14} /> {showMetrics ? "Ẩn chỉ số mô phỏng" : "Xem chỉ số mô phỏng & đánh giá"}</button>
     </div>
     <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><p><span className="block text-xs text-slate-500">Giáo án</span><strong>{session.plan_stage_name ?? "Chưa gắn"}</strong></p><p><span className="block text-xs text-slate-500">Groom</span><strong>{session.groom_name ?? "Chưa phân công"}</strong></p><p><span className="block text-xs text-slate-500">Mục tiêu</span><strong>{session.plan_objective ?? "Chưa có mô tả"}</strong></p><p><span className="block text-xs text-slate-500">Chỉ tiêu</span><strong>{session.plan_target_distance_meters != null ? `${session.plan_target_distance_meters.toLocaleString("vi-VN")} m` : "—"}{session.plan_target_intensity ? ` · ${session.plan_target_intensity}` : ""}</strong></p></div>
@@ -4025,7 +4044,7 @@ function formatIsoDateVi(value?: string | null) {
   const parsed = new Date(`${value.slice(0, 10)}T00:00:00`);
   return Number.isNaN(parsed.getTime())
     ? value
-    : new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(parsed);
+    : new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(parsed);
 }
 
 function conflictTypeLabel(eventType: string) {

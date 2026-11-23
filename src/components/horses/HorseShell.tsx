@@ -5,9 +5,11 @@ import { Routes } from "@/routes/Routes";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { Activity, ArrowUpRight, Bell, BookOpen, Boxes, CalendarDays, CheckCircle2, ChevronDown, ClipboardList, FilePlus2, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, Warehouse, X } from "lucide-react";
+import { Network, Bone, Activity, ArrowUpRight, Bell, BookOpen, Boxes, CalendarDays, CheckCircle2, ChevronDown, ClipboardList, FilePlus2, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, Warehouse, X } from "lucide-react";
+import { useNotificationTarget } from "@/hooks/use-notification-target";
+import NotificationBell from "@/components/shared/NotificationBell";
 import { Brand } from "@/components/shared/Brand";
-import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, NOTIFICATION_COUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT, authenticatedRequest, logout, validateSession } from "@/api/client";
+import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, NOTIFICATION_COUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT, logout, validateSession } from "@/api/client";
 import { getPendingHorseRegistrationCount } from "@/api/club-manager/api";
 import { clearSession, getLogoutRefreshToken, getUser } from "@/lib/session";
 import { roleLabels, routeForRole } from "@/lib/roles";
@@ -29,15 +31,27 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   const [signingOut, setSigningOut] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
-  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [pendingHorseRequestCount, setPendingHorseRequestCount] = useState(0);
   const [todayLabel, setTodayLabel] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const profileRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const accountFooterRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const sidebar = sidebarRef.current;
+    const footer = accountFooterRef.current;
+    if (!sidebar || !footer) return;
+    const measure = () => sidebar.style.setProperty("--horse-account-height", `${footer.getBoundingClientRect().height}px`);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(footer);
+    return () => observer.disconnect();
+  }, [user?.id]);
   const toastTimerRef = useRef<number | null>(null);
   const router = useRouter();
   const pathname = usePathname();
   const currentPathname = pathname ?? "";
+  useNotificationTarget(pathname);
 
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
@@ -96,13 +110,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   useEffect(() => () => {
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
   }, []);
-  const loadUnreadNotificationCount = useCallback(async () => {
-    try {
-      const result = await authenticatedRequest<{ unread_count: number }>("/api/notifications?page=1&limit=1");
-      setUnreadNotificationCount(result.unread_count);
-    } catch {
-      // Keep the last known count when notifications are temporarily unavailable.
-    }
+  const loadHeaderCounts = useCallback(async () => {
     if (user?.roleName === "CLUB_MANAGER") {
       try {
         const pending = await getPendingHorseRegistrationCount();
@@ -113,9 +121,9 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     }
   }, [user?.roleName]);
   useEffect(() => {
-    if (!user) return;
-    void loadUnreadNotificationCount();
-    const refresh = () => void loadUnreadNotificationCount();
+    if (user?.roleName !== "CLUB_MANAGER") return;
+    void loadHeaderCounts();
+    const refresh = () => void loadHeaderCounts();
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") refresh();
     };
@@ -131,7 +139,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [loadUnreadNotificationCount, user]);
+  }, [loadHeaderCounts, user]);
   useEffect(() => {
     if (!profileOpen) return;
     function closeProfile(event: PointerEvent) {
@@ -193,6 +201,21 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     return () => { active = false; };
   }, [router, attempt]);
 
+  useEffect(() => {
+    if (!user) return;
+    const legacy = () => {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("tab") !== "notifications" && !url.pathname.endsWith("/notifications")) return;
+      const href = `${routeForRole(user.roleName)}?notifications=open`;
+      if (url.pathname === routeForRole(user.roleName)) {
+        window.history.replaceState(null, "", href);
+        window.dispatchEvent(new Event("workspace-tab-change"));
+      } else router.replace(href);
+    };
+    legacy(); window.addEventListener("workspace-tab-change", legacy); window.addEventListener("popstate", legacy);
+    return () => { window.removeEventListener("workspace-tab-change", legacy); window.removeEventListener("popstate", legacy); };
+  }, [user, pathname, router]);
+
   function signOut() {
     if (signingOut) return;
     setSigningOut(true);
@@ -218,7 +241,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const icons: Record<string, typeof Activity> = { overview: LayoutDashboard, stables: Warehouse, plans: BookOpen, calendar: CalendarDays, simulation: Activity, analysis: Activity, races: Trophy, incidents: Shield, care: ClipboardList, inventory: Boxes, finance: Wallet, audit: History, exams: Stethoscope, medical: HeartPulse, diet: Utensils, injuries: HeartPulse, notifications: Bell, horses: BookOpen, health: HeartPulse, training: CalendarDays };
+  const icons: Record<string, typeof Activity> = { dispatch: Network, overview: LayoutDashboard, stables: Warehouse, plans: BookOpen, calendar: CalendarDays, simulation: Activity, analysis: Activity, races: Trophy, incidents: Shield, care: ClipboardList, inventory: Boxes, finance: Wallet, audit: History, exams: Stethoscope, medical: HeartPulse, diet: Utensils, injuries: Bone, notifications: Bell, horses: BookOpen, health: HeartPulse, training: CalendarDays };
   const dashboardRoute = routeForRole(user.roleName);
   const isDashboard = pathname === dashboardRoute;
   const navigation = workspaceNavigation[user.roleName];
@@ -228,29 +251,14 @@ export default function HorseShell({ children }: { children: ReactNode }) {
       ? (user.roleName === "HORSE_OWNER" ? "Yêu cầu hồ sơ" : "Hồ sơ ngựa")
       : "Quản lý tài khoản";
 
-  function openNotifications() {
-    const targetTab = navigation.find(item => item.id === "notifications")?.id ?? "overview";
-    const targetHref = Routes.dashboardTab(dashboardRoute, targetTab);
-    if (pathname === dashboardRoute) {
-      if (`${window.location.pathname}${window.location.search}` === targetHref) {
-        document.getElementById("notification-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
-        return;
-      }
-      window.history.pushState(null, "", targetHref);
-      window.dispatchEvent(new Event("workspace-tab-change"));
-      return;
-    }
-    router.push(targetHref);
-  }
 
   return <UserContext.Provider value={user}><WorkspaceToastContext.Provider value={showToast}><div className="horse-app" data-role={user.roleName}>
     <a className="skip-link" href="#workspace-content">Đến nội dung chính</a>
     {open && <button className="horse-nav-overlay" aria-label="Đóng menu" onClick={() => setOpen(false)} />}
-    <aside className={`horse-sidebar ${open ? "is-open" : ""}`}>
+    <aside ref={sidebarRef} className={`horse-sidebar ${open ? "is-open" : ""}`}>
       <div className="horse-sidebar-header shrink-0">
         <Link href={Routes.home} className="horse-brand" aria-label="Equine - Về trang chủ"><Brand /></Link>
         <button className="horse-mobile-close horse-icon-button" aria-label="Đóng menu" onClick={() => setOpen(false)}><X /></button>
-        <div className="workspace-role"><strong>{roleLabels[user.roleName]}</strong></div>
       </div>
       <div className="horse-sidebar-scroll flex-1 min-h-0 overflow-y-auto">
         <p className="horse-nav-label">CÔNG VIỆC</p>
@@ -282,7 +290,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
           <Link href={Routes.home}><House size={18} />Trang chủ</Link>
         </nav>
       </div>
-      <div className="horse-sidebar-footer shrink-0 mt-auto">
+      <div ref={accountFooterRef} className="horse-sidebar-footer shrink-0 mt-auto">
         <div className="horse-account"><span className="horse-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span><div><strong>{user.fullName}</strong><small>{roleLabels[user.roleName]}</small></div><button aria-label={signingOut ? "Đang đăng xuất" : "Đăng xuất"} title={signingOut ? "Đang đăng xuất" : "Đăng xuất"} disabled={signingOut} onClick={signOut}><LogOut size={18} /></button></div>
       </div>
     </aside>
@@ -294,10 +302,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
         </div>
         <div className="horse-topbar-actions">
           <span className="horse-date-pill"><CalendarDays size={16} /><span>{todayLabel || "Hôm nay"}</span></span>
-          <button type="button" onClick={openNotifications} className="relative grid h-10 w-10 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-equine-navy transition-colors hover:bg-slate-50" aria-label={`Thông báo: ${unreadNotificationCount} chưa đọc`} title="Mở thông báo">
-            <Bell size={18} />
-            <span aria-hidden="true" className={`absolute -right-1 -top-1 min-w-5 rounded-full px-1 text-center text-[10px] font-bold leading-5 ${unreadNotificationCount > 0 ? "bg-rose-600 text-white" : "bg-slate-200 text-slate-600"}`}>{unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}</span>
-          </button>
+          <NotificationBell key={user.id} user={user} />
           <div className="horse-profile-menu" ref={profileRef}>
             <button type="button" className="horse-profile-trigger" aria-expanded={profileOpen} onClick={() => setProfileOpen(value => !value)}>
               <span className="horse-profile-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span>

@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
+
 import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
@@ -874,7 +876,7 @@ export default function HorseRegistrationPanel() {
         {transferRequests.length > 0 && <section className="mb-5 rounded-lg border border-amber-200 bg-amber-50/70 p-4" aria-labelledby="ownership-consent-title">
           <h3 id="ownership-consent-title" className="font-semibold text-equine-navy">Yêu cầu chuyển quyền cần bạn xác nhận</h3>
           <div className="mt-3 space-y-3">
-            {transferRequests.map((request) => <article key={request.id} className="rounded-lg border border-amber-200 bg-white p-4">
+            {transferRequests.map((request) => <article data-notification-target={request.id} key={request.id} className="rounded-lg border border-amber-200 bg-white p-4">
               <p className="font-semibold text-equine-navy">{request.horse_name}</p>
               <p className="mt-1 text-sm text-slate-600">Mã ngựa {request.horse_id.slice(0, 8)} · {request.requester_name ?? "Horse Owner"} đề nghị nhận quyền sở hữu. Club Manager đã xem xét hồ sơ.</p>
               {request.owner_note && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-600">Ghi chú: {request.owner_note}</p>}
@@ -1268,7 +1270,7 @@ export default function HorseRegistrationPanel() {
           </div>
           <div className="space-y-4">
             {requests.map((request) => (
-              <article key={request.id} className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm transition hover:shadow-md">
+              <article data-notification-target={request.id} key={request.id} className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm transition hover:shadow-md">
                 {/* Header */}
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
                   <div className="min-w-0">
@@ -1280,7 +1282,7 @@ export default function HorseRegistrationPanel() {
                     </div>
                     <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
                       <Clock size={12} className="text-slate-400" />
-                      Ngày gửi: {new Date(request.created_at).toLocaleDateString("vi-VN")} · {new Date(request.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+                      Ngày gửi: {new Date(request.created_at).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })} · {new Date(request.created_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
                     </p>
                   </div>
 
@@ -1477,7 +1479,7 @@ export default function HorseRegistrationPanel() {
                           <li key={entry.id} className="relative">
                             <span className="absolute -left-[17px] top-1 size-2 rounded-full bg-teal-600 ring-2 ring-white" />
                             <p className="font-semibold text-slate-800">{historyActionLabel(entry.action)}</p>
-                            <p className="text-[11px] text-slate-400">{new Date(entry.created_at).toLocaleString("vi-VN")}</p>
+                            <p className="text-[11px] text-slate-400">{formatDisplayDate(entry.created_at, true)}</p>
                             {entry.note && (
                               <p className="mt-1 rounded bg-white p-2 border border-slate-100 text-slate-600 leading-relaxed whitespace-pre-wrap">
                                 {entry.note}

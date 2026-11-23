@@ -7,6 +7,89 @@
   color: #101732;
 }
 
+.care-calendar-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 12px 20px;
+  background: #FFFFFF;
+  border-bottom: 1px solid #E2E8F0;
+  box-shadow: 0 3px 6px rgb(15 23 42 / 5%);
+}
+
+.care-calendar-navigation,
+.care-calendar-filters,
+.care-calendar-display-options {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+
+.care-calendar-week-picker {
+  display: grid;
+  grid-template-columns: auto minmax(170px, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.care-calendar-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 144px;
+  min-width: 0;
+}
+
+.care-calendar-display-options {
+  align-items: center;
+  border-left: 1px solid #E2E8F0;
+  padding-left: 12px;
+}
+
+@media (max-width: 1199px) {
+  .care-calendar-navigation,
+  .care-calendar-filters {
+    flex-basis: 100%;
+  }
+  .care-calendar-display-options {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}
+
+@media (max-width: 639px) {
+  .care-calendar-toolbar {
+    padding: 12px;
+  }
+  .care-calendar-navigation,
+  .care-calendar-filters {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .care-calendar-week-picker {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .care-calendar-filter {
+    width: 100%;
+  }
+  .care-calendar-display-options {
+    order: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    border-left: 0;
+    border-top: 1px solid #E2E8F0;
+    padding: 12px 0 0;
+  }
+}
+
 .horse-access > * {
   max-width: 520px;
   width: 100%;
@@ -57,11 +140,17 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
+  padding-bottom: var(--horse-account-height, 96px);
+  scroll-padding-bottom: var(--horse-account-height, 96px);
   margin-right: -4px;
   scrollbar-width: thin;
 }
 
 .horse-sidebar-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: #FFFFFF;
   margin-top: auto;
   flex-shrink: 0;
   padding-top: 12px;
@@ -766,7 +855,7 @@ progress::-moz-progress-bar {
 }
 
 @media (max-width: 700px) {
-  .horse-date-pill {
+  .horse-topbar .horse-date-pill {
     display: none;
   }
 

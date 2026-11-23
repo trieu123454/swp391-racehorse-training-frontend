@@ -1,11 +1,12 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
+
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Activity, AlertTriangle, CalendarDays, Check, ClipboardCheck, Package, Plus, RefreshCw, Utensils } from "lucide-react";
 import { Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
-import NotificationCenter from "@/components/shared/NotificationCenter";
 import {
   completeGroomTrainingSession,
   completeGroomTask,
@@ -188,7 +189,7 @@ export default function GroomWorkspace() {
       </div>
     </div>
     {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
-    <NotificationCenter />
+
 <div className="workspace-stats"><div><span>Ngựa được giao</span><strong>{horses.length}</strong></div><div><span>Việc chăm sóc</span><strong>{careTasks.length}</strong></div><div><span>Buổi tập hỗ trợ</span><strong>{trainingEvents.length}</strong></div><div><span>Sự cố đang xử lý</span><strong>{activeIncidentCount}</strong></div></div>
     <section hidden={tab !== "horses"} id="groom-horses" className="scroll-mt-24 rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5">
       <h3 className="mb-3 font-sans text-lg font-semibold text-equine-navy">Chuồng phụ trách</h3>
@@ -275,7 +276,7 @@ export default function GroomWorkspace() {
     </div>
     <section hidden={tab !== "incidents"} id="reported-incidents" className="scroll-mt-24 rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5">
       <h3 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><AlertTriangle size={18} /> Sự cố đã báo cáo / được giao</h3>
-      <div className="grid gap-3 sm:grid-cols-2">{incidents.map((item) => <article key={item.id} className="rounded-lg border border-equine-line p-3">
+      <div className="grid gap-3 sm:grid-cols-2">{incidents.map((item) => <article data-notification-target={item.id} key={item.id} className="rounded-lg border border-equine-line p-3">
         <div className="flex justify-between gap-2"><p className="font-semibold text-equine-navy">{item.horse_name}</p><span className="text-xs text-slate-500">{item.status}</span></div>
         {item.is_emergency && <p className="mt-2 inline-flex rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-800">KHẨN CẤP · Đã báo bác sĩ thú y</p>}
         <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{item.issue_description}</p>
@@ -287,7 +288,7 @@ export default function GroomWorkspace() {
           <label className="block"><span className="field-label">Kết quả xử lý</span><textarea className="field-control min-h-20 px-3 py-2" name="result_note" maxLength={2000} required /></label>
           <button className="soft-button" disabled={busy}>Gửi kết quả cho Club Manager</button>
         </form>}
-        <p className="mt-2 text-[11px] text-slate-400">{new Date(item.created_at).toLocaleString("vi-VN")}</p>
+        <p className="mt-2 text-[11px] text-slate-400">{formatDisplayDate(item.created_at, true)}</p>
       </article>)}{!incidents.length && <p className="text-sm text-slate-500">Chưa có sự cố được báo cáo hoặc giao cho bạn.</p>}</div>
     </section>
   </section>;

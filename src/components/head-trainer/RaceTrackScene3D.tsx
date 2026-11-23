@@ -501,8 +501,19 @@ export default function RaceTrackScene3D({
     }
     drawRef.current = () => draw();
 
+    let inViewport = true;
+    const visibilityObserver = new IntersectionObserver(([entry]) => {
+      inViewport = entry.isIntersecting;
+      if (inViewport) startLoopRef.current();
+    });
+    visibilityObserver.observe(mount);
+    const resumeWhenVisible = () => {
+      if (!document.hidden) startLoopRef.current();
+    };
+    document.addEventListener("visibilitychange", resumeWhenVisible);
+
     function animate() {
-      if (disposed) {
+      if (disposed || document.hidden || !inViewport || !runningRef.current) {
         frameId = 0;
         return;
       }
@@ -510,7 +521,7 @@ export default function RaceTrackScene3D({
       draw();
     }
     startLoopRef.current = () => {
-      if (!disposed && !frameId) {
+      if (!disposed && !document.hidden && inViewport && runningRef.current && !frameId) {
         lastAnimTick = performance.now();
         frameId = window.requestAnimationFrame(animate);
       }
@@ -672,6 +683,8 @@ export default function RaceTrackScene3D({
       disposed = true;
       window.cancelAnimationFrame(frameId);
       resizeObserver?.disconnect();
+      visibilityObserver.disconnect();
+      document.removeEventListener("visibilitychange", resumeWhenVisible);
       controls?.dispose();
       scene.traverse((node) => {
         if (node instanceof THREE.InstancedMesh) {
