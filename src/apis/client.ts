@@ -19,10 +19,83 @@ export class ApiRequestError extends Error {
 export const SESSION_EXPIRED_EVENT = "racehorse:session-expired";
 export const APP_MUTATION_COMPLETED_EVENT = "racehorse:mutation-completed";
 export const NOTIFICATION_COUNT_CHANGED_EVENT = "racehorse:notification-count-changed";
+export const SWR_CACHE_UPDATED_EVENT = "racehorse:swr-updated";
+
+const GET_FRESH_TTL_MS = 15_000;
+const GET_STALE_TTL_MS = 300_000;
+const GET_STORAGE_PREFIX = "racehorse:api-get:v2:";
+type CacheEntry = { value: unknown; freshUntil: number; staleUntil: number };
+const getResponseCache = new Map<string, CacheEntry>();
+const inFlightGets = new Map<string, Promise<unknown>>();
+let swrNotifyTimer: number | null = null;
+
+function scheduleSwrNotify() {
+  if (typeof window === "undefined") return;
+  if (swrNotifyTimer !== null) window.clearTimeout(swrNotifyTimer);
+  swrNotifyTimer = window.setTimeout(() => {
+    swrNotifyTimer = null;
+    window.dispatchEvent(new Event(SWR_CACHE_UPDATED_EVENT));
+  }, 60);
+}
+
+export function clearApiGetCache() {
+  getResponseCache.clear();
+  inFlightGets.clear();
+  if (typeof window === "undefined") return;
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i++) {
+      const k = window.sessionStorage.key(i);
+      if (k && (k.startsWith(GET_STORAGE_PREFIX) || k.startsWith("racehorse:api-get:v1:"))) keys.push(k);
+    }
+    keys.forEach((k) => window.sessionStorage.removeItem(k));
+  } catch { /* ignore storage errors */ }
+}
+
+function isCacheableGet(path: string, method: string, options: RequestInit): boolean {
+  if (method.toUpperCase() !== "GET") return false;
+  if (options.cache === "no-store" || options.signal) return false;
+  if (path.startsWith("/api/auth/") || path.includes("/simulations")) return false;
+  return true;
+}
+
+function readGetCache<T>(cacheKey: string, now: number): { value: T; isStale: boolean } | undefined {
+  const mem = getResponseCache.get(cacheKey);
+  if (mem && now < mem.staleUntil) {
+    return { value: mem.value as T, isStale: now >= mem.freshUntil };
+  }
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.sessionStorage.getItem(GET_STORAGE_PREFIX + cacheKey);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as CacheEntry;
+    if (parsed && typeof parsed.staleUntil === "number" && now < parsed.staleUntil) {
+      getResponseCache.set(cacheKey, parsed);
+      return { value: parsed.value as T, isStale: now >= parsed.freshUntil };
+    }
+  } catch { /* ignore */ }
+  return undefined;
+}
+
+function writeGetCache(cacheKey: string, value: unknown, now: number) {
+  const entry: CacheEntry = {
+    value,
+    freshUntil: now + GET_FRESH_TTL_MS,
+    staleUntil: now + GET_STALE_TTL_MS,
+  };
+  getResponseCache.set(cacheKey, entry);
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(GET_STORAGE_PREFIX + cacheKey, JSON.stringify(entry));
+  } catch { /* ignore quota errors */ }
+}
 
 function announceMutationCompleted(path: string, method: string) {
-  if (typeof window === "undefined") return;
   const normalizedMethod = method.toUpperCase();
+  if (!["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) {
+    clearApiGetCache();
+  }
+  if (typeof window === "undefined") return;
   if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) return;
   if (path.startsWith("/api/notifications/")) return;
   window.dispatchEvent(new CustomEvent(APP_MUTATION_COMPLETED_EVENT, {
@@ -31,7 +104,9 @@ function announceMutationCompleted(path: string, method: string) {
 }
 
 function expiredSession(): ApiRequestError {
+  clearApiGetCache();
   clearSession();
+  validatedSession = null;
   if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
     window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
   }
@@ -97,9 +172,15 @@ function sendFormDataWithProgress<T>(
   formData: FormData,
   token: string,
   onUploadProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
 ): Promise<T> {
+  if (signal?.aborted) {
+    return Promise.reject(new DOMException("Đã hủy tải lên", "AbortError"));
+  }
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    signal?.addEventListener("abort", abort, { once: true });
     xhr.open(method, `${API_BASE_URL}${path}`);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     xhr.timeout = 90_000;
@@ -111,8 +192,14 @@ function sendFormDataWithProgress<T>(
     xhr.upload.onload = () => {
       onUploadProgress?.(1);
     };
+    xhr.onloadend = () => {
+      signal?.removeEventListener("abort", abort);
+    };
     xhr.onerror = () => {
       reject(new ApiRequestError("Không kết nối được máy chủ. Vui lòng thử lại.", 0));
+    };
+    xhr.onabort = () => {
+      reject(new DOMException("Đã hủy tải lên", "AbortError"));
     };
     xhr.ontimeout = () => {
       reject(new ApiRequestError("Tải hồ sơ quá thời gian chờ. Vui lòng thử lại.", 408));
@@ -149,10 +236,20 @@ async function runWithAuthRetry<T>(
 ): Promise<T> {
   let accessToken = getAccessToken();
   if (!accessToken) {
-    await validateSession();
+    try {
+      await validateSession();
+    } catch (validationError) {
+      if (validationError instanceof ApiRequestError && [400, 401, 403].includes(validationError.status)) {
+        throw expiredSession();
+      }
+      throw validationError;
+    }
     accessToken = getAccessToken();
   }
   if (!accessToken) {
+    throw expiredSession();
+  }
+  if (!isRemembered() && accessTokenExpired(accessToken)) {
     throw expiredSession();
   }
   if (isRemembered() && accessTokenExpiresSoon(accessToken)) {
@@ -201,6 +298,46 @@ async function runWithAuthRetry<T>(
 
 /** Use the current signed-in session for role-protected API endpoints. */
 export async function authenticatedRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const method = (options.method ?? "GET").toUpperCase();
+  const canCache = isCacheableGet(path, method, options);
+  const tokenPrefix = (getAccessToken() ?? "").slice(-16);
+  const cacheKey = `${tokenPrefix}|${path}`;
+
+  const fetchAndCache = (notifyOnUpdate: boolean): Promise<T> => {
+    const existing = inFlightGets.get(cacheKey);
+    if (existing) return existing as Promise<T>;
+    const promise = runWithAuthRetry(
+      (token) =>
+        request<T>(path, {
+          ...options,
+          headers: { ...(options.headers ?? {}), Authorization: `Bearer ${token}` },
+        }),
+      path,
+      method,
+    );
+    inFlightGets.set(cacheKey, promise);
+    return promise
+      .then((result) => {
+        writeGetCache(cacheKey, result, Date.now());
+        if (notifyOnUpdate) scheduleSwrNotify();
+        return result;
+      })
+      .finally(() => {
+        inFlightGets.delete(cacheKey);
+      });
+  };
+
+  if (canCache) {
+    const cached = readGetCache<T>(cacheKey, Date.now());
+    if (cached !== undefined) {
+      if (cached.isStale) {
+        void fetchAndCache(true).catch(() => {});
+      }
+      return cached.value;
+    }
+    return fetchAndCache(false);
+  }
+
   return runWithAuthRetry(
     (token) =>
       request<T>(path, {
@@ -208,7 +345,7 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
         headers: { ...(options.headers ?? {}), Authorization: `Bearer ${token}` },
       }),
     path,
-    options.method ?? "GET",
+    method,
   );
 }
 
@@ -218,9 +355,10 @@ export async function authenticatedUploadWithProgress<T>(
   method: "POST" | "PATCH",
   formData: FormData,
   onUploadProgress?: (fraction: number) => void,
+  signal?: AbortSignal,
 ): Promise<T> {
   return runWithAuthRetry(
-    (token) => sendFormDataWithProgress<T>(path, method, formData, token, onUploadProgress),
+    (token) => sendFormDataWithProgress<T>(path, method, formData, token, onUploadProgress, signal),
     path,
     method,
   );
@@ -291,13 +429,24 @@ let validatedSession: {
   user: AuthUser;
 } | null = null;
 
+export function hasValidAccessToken(): boolean {
+  const token = getAccessToken();
+  return Boolean(token && !accessTokenExpiresSoon(token));
+}
+
 // Share validation across dashboard mounts (including React Strict Mode).
 export function validateSession(force = false): Promise<AuthUser> {
   const accessToken = getAccessToken();
   const refreshToken = getRefreshToken();
+  if (!accessToken && !refreshToken) {
+    validatedSession = null;
+    return Promise.reject(new ApiRequestError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", 401));
+  }
   if (force) validatedSession = null;
   if (
     validatedSession &&
+    accessToken &&
+    !accessTokenExpiresSoon(accessToken) &&
     Date.now() - validatedSession.validatedAt < SESSION_CACHE_TTL_MS &&
     validatedSession.accessToken === accessToken &&
     validatedSession.refreshToken === refreshToken
@@ -307,12 +456,15 @@ export function validateSession(force = false): Promise<AuthUser> {
   if (sessionCheck) return sessionCheck;
   sessionCheck = restoreSession()
     .then((user) => {
-      validatedSession = {
-        accessToken: getAccessToken(),
-        refreshToken: getRefreshToken(),
-        validatedAt: Date.now(),
-        user,
-      };
+      const latestAccess = getAccessToken();
+      validatedSession = latestAccess
+        ? {
+            accessToken: latestAccess,
+            refreshToken: getRefreshToken(),
+            validatedAt: Date.now(),
+            user,
+          }
+        : null;
       return user;
     })
     .finally(() => {
@@ -322,57 +474,91 @@ export function validateSession(force = false): Promise<AuthUser> {
 }
 
 async function restoreSession(): Promise<AuthUser> {
-  const accessToken = getAccessToken();
-  const refreshToken = getRefreshToken();
   const remember = isRemembered();
   try {
     if (refreshAfterUnauthorizedCheck) {
       await refreshAfterUnauthorizedCheck;
       const refreshedAccessToken = getAccessToken();
-      if (refreshedAccessToken) {
-        return await request<AuthUser>("/api/auth/me", {
+      if (refreshedAccessToken && !accessTokenExpiresSoon(refreshedAccessToken)) {
+        const user = await request<AuthUser>("/api/auth/me", {
           headers: { Authorization: `Bearer ${refreshedAccessToken}` },
         });
+        if (!getAccessToken()) throw new ApiRequestError("Phiên đăng nhập đã kết thúc.", 401);
+        return user;
+      }
+      if (!getAccessToken() && !getRefreshToken()) {
+        throw new ApiRequestError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", 401);
       }
     }
-    if (accessToken) {
+    const accessToken = getAccessToken();
+    if (accessToken && !accessTokenExpiresSoon(accessToken)) {
       try {
-        return await request<AuthUser>("/api/auth/me", {
+        const user = await request<AuthUser>("/api/auth/me", {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
+        if (!getAccessToken()) throw new ApiRequestError("Phiên đăng nhập đã kết thúc.", 401);
+        return user;
+      } catch (error) {
+        if (!(error instanceof ApiRequestError) || error.status !== 401)
+          throw error;
+      }
+    } else if (accessToken && !remember && !accessTokenExpired(accessToken)) {
+      try {
+        const user = await request<AuthUser>("/api/auth/me", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!getAccessToken()) throw new ApiRequestError("Phiên đăng nhập đã kết thúc.", 401);
+        return user;
       } catch (error) {
         if (!(error instanceof ApiRequestError) || error.status !== 401)
           throw error;
       }
     }
+    const refreshToken = getRefreshToken();
     if (!refreshToken) throw new ApiRequestError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", 401);
     const auth = await request<AuthResponse>("/api/auth/refresh", {
       method: "POST",
       body: JSON.stringify({ refreshToken }),
     });
+    if (getRefreshToken() !== refreshToken) {
+      throw new ApiRequestError("Phiên đăng nhập đã thay đổi. Vui lòng đăng nhập lại.", 401);
+    }
     saveSession(auth, remember);
     return auth.user;
   } catch (error) {
     if (
       error instanceof ApiRequestError &&
       [400, 401, 403].includes(error.status)
-    )
+    ) {
       clearSession();
+      validatedSession = null;
+      throw new ApiRequestError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", 401);
+    }
     throw error;
   }
 }
 
-function accessTokenExpiresSoon(token: string): boolean {
+function tokenExpirationMs(token: string): number | null {
   try {
     const payload = token.split(".")[1];
-    if (!payload || typeof atob !== "function") return false;
+    if (!payload || typeof atob !== "function") return null;
     const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
     const decoded = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
     const expiresAt = (JSON.parse(decoded) as { exp?: unknown }).exp;
-    return typeof expiresAt === "number" && expiresAt * 1000 <= Date.now() + 30_000;
+    return typeof expiresAt === "number" ? expiresAt * 1000 : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+function accessTokenExpired(token: string): boolean {
+  const expMs = tokenExpirationMs(token);
+  return expMs !== null && expMs <= Date.now();
+}
+
+function accessTokenExpiresSoon(token: string): boolean {
+  const expMs = tokenExpirationMs(token);
+  return expMs !== null && expMs <= Date.now() + 30_000;
 }
 
 /** Refresh a stale credential once for all requests using it. */

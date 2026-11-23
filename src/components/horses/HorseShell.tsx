@@ -5,11 +5,12 @@ import { Routes } from "@/routes/Routes";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { Activity, ArrowUpRight, Bell, BookOpen, Boxes, CalendarDays, CheckCircle2, ChevronDown, ClipboardList, FilePlus2, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, Warehouse, X } from "lucide-react";
+import { Activity, Bell, BookOpen, Boxes, CalendarDays, CheckCircle2, ChevronDown, ClipboardList, FilePlus2, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, Warehouse, X } from "lucide-react";
 import { Brand } from "@/components/shared/Brand";
-import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, NOTIFICATION_COUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT, authenticatedRequest, logout, validateSession } from "@/api/client";
+import NotificationCenter from "@/components/shared/NotificationCenter";
+import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, NOTIFICATION_COUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT, authenticatedRequest, hasValidAccessToken, logout, validateSession } from "@/api/client";
 import { getPendingHorseRegistrationCount } from "@/api/club-manager/api";
-import { clearSession, getLogoutRefreshToken, getUser } from "@/lib/session";
+import { clearSession, getAccessToken, getLogoutRefreshToken, getUser } from "@/lib/session";
 import { roleLabels, routeForRole } from "@/lib/roles";
 import type { AuthUser } from "@/lib/types";
 import { workspaceNavigation } from "@/lib/workspace-navigation";
@@ -28,12 +29,14 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [pendingHorseRequestCount, setPendingHorseRequestCount] = useState(0);
   const [todayLabel, setTodayLabel] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const profileRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
   const toastTimerRef = useRef<number | null>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -54,8 +57,8 @@ export default function HorseShell({ children }: { children: ReactNode }) {
       setOpen(false);
       if (event && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         document.querySelector(".horse-main")?.animate(
-          [{ opacity: 0, transform: "translateY(48px)" }, { opacity: 1, transform: "translateY(0)" }],
-          { duration: 200, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+          [{ opacity: 0.85, transform: "translateY(6px)" }, { opacity: 1, transform: "translateY(0)" }],
+          { duration: 140, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
         );
       }
     };
@@ -97,13 +100,15 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
   }, []);
   const loadUnreadNotificationCount = useCallback(async () => {
+    if (!getAccessToken()) return;
     try {
       const result = await authenticatedRequest<{ unread_count: number }>("/api/notifications?page=1&limit=1");
       setUnreadNotificationCount(result.unread_count);
-    } catch {
+    } catch (reason) {
+      if ((reason instanceof ApiRequestError && reason.status === 401) || !getAccessToken()) return;
       // Keep the last known count when notifications are temporarily unavailable.
     }
-    if (user?.roleName === "CLUB_MANAGER") {
+    if (user?.roleName === "CLUB_MANAGER" && getAccessToken()) {
       try {
         const pending = await getPendingHorseRegistrationCount();
         setPendingHorseRequestCount(pending.count);
@@ -133,20 +138,24 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     };
   }, [loadUnreadNotificationCount, user]);
   useEffect(() => {
-    if (!profileOpen) return;
-    function closeProfile(event: PointerEvent) {
-      if (!profileRef.current?.contains(event.target as Node)) setProfileOpen(false);
+    if (!profileOpen && !notifOpen) return;
+    function closeMenus(event: PointerEvent) {
+      if (profileOpen && !profileRef.current?.contains(event.target as Node)) setProfileOpen(false);
+      if (notifOpen && !notifRef.current?.contains(event.target as Node)) setNotifOpen(false);
     }
     function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setProfileOpen(false);
+      if (event.key === "Escape") {
+        setProfileOpen(false);
+        setNotifOpen(false);
+      }
     }
-    document.addEventListener("pointerdown", closeProfile);
+    document.addEventListener("pointerdown", closeMenus);
     document.addEventListener("keydown", closeOnEscape);
     return () => {
-      document.removeEventListener("pointerdown", closeProfile);
+      document.removeEventListener("pointerdown", closeMenus);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [profileOpen]);
+  }, [profileOpen, notifOpen]);
   useEffect(() => {
     let active = true;
     let cachedUser: AuthUser | null = null;
@@ -158,6 +167,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
         return () => { active = false; };
       }
       if (
+        hasValidAccessToken() &&
         cachedUser?.status === "APPROVED" &&
         ["CLUB_MANAGER", "HEAD_TRAINER", "VETERINARIAN", "HEAD_VETERINARIAN", "GROOM", "HORSE_OWNER"].includes(cachedUser.roleName)
       ) {
@@ -183,10 +193,11 @@ export default function HorseShell({ children }: { children: ReactNode }) {
       setUser(current);
     }).catch(reason => {
       if (!active) return;
-      if (reason instanceof ApiRequestError && reason.status === 401) {
+      if (reason instanceof ApiRequestError && [400, 401, 403].includes(reason.status)) {
         setUser(null);
         router.replace(Routes.login);
-      } else if (!cachedUser) {
+      } else if (!cachedUser || !hasValidAccessToken()) {
+        setUser(null);
         setError("Không thể xác thực quyền truy cập. Vui lòng kiểm tra kết nối và thử lại.");
       }
     });
@@ -197,6 +208,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     if (signingOut) return;
     setSigningOut(true);
     const token = getLogoutRefreshToken();
+    setUser(null);
     clearSession();
     router.replace(Routes.login);
     if (token) void logout(token).catch(() => {});
@@ -218,29 +230,22 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const icons: Record<string, typeof Activity> = { overview: LayoutDashboard, stables: Warehouse, plans: BookOpen, calendar: CalendarDays, simulation: Activity, analysis: Activity, races: Trophy, incidents: Shield, care: ClipboardList, inventory: Boxes, finance: Wallet, audit: History, exams: Stethoscope, medical: HeartPulse, diet: Utensils, injuries: HeartPulse, notifications: Bell, horses: BookOpen, health: HeartPulse, training: CalendarDays };
+  const icons: Record<string, typeof Activity> = { overview: LayoutDashboard, stables: Warehouse, plans: BookOpen, calendar: CalendarDays, simulation: Activity, analysis: Activity, races: Trophy, incidents: Shield, care: ClipboardList, inventory: Boxes, finance: Wallet, audit: History, exams: Stethoscope, medical: HeartPulse, diet: Utensils, injuries: HeartPulse, notifications: Bell, horses: BookOpen, health: HeartPulse, training: CalendarDays, "horse-requests": FilePlus2 };
   const dashboardRoute = routeForRole(user.roleName);
   const isDashboard = pathname === dashboardRoute;
   const navigation = workspaceNavigation[user.roleName];
+  const isVetRole = user.roleName === "VETERINARIAN" || user.roleName === "HEAD_VETERINARIAN";
   const currentLabel = isDashboard
-    ? navigation.find(item => item.id === activeTab)?.label ?? navigation[0].label
+    ? (activeTab === "notifications" && isVetRole
+      ? "Thông báo"
+      : navigation.find(item => item.id === activeTab)?.label ?? navigation[0].label)
     : pathname?.startsWith(Routes.horses)
-      ? (user.roleName === "HORSE_OWNER" ? "Yêu cầu hồ sơ" : "Hồ sơ ngựa")
+      ? "Hồ sơ ngựa"
       : "Quản lý tài khoản";
 
-  function openNotifications() {
-    const targetTab = navigation.find(item => item.id === "notifications")?.id ?? "overview";
-    const targetHref = Routes.dashboardTab(dashboardRoute, targetTab);
-    if (pathname === dashboardRoute) {
-      if (`${window.location.pathname}${window.location.search}` === targetHref) {
-        document.getElementById("notification-center")?.scrollIntoView({ behavior: "smooth", block: "start" });
-        return;
-      }
-      window.history.pushState(null, "", targetHref);
-      window.dispatchEvent(new Event("workspace-tab-change"));
-      return;
-    }
-    router.push(targetHref);
+  function toggleNotifications() {
+    setProfileOpen(false);
+    setNotifOpen(value => !value);
   }
 
   return <UserContext.Provider value={user}><WorkspaceToastContext.Provider value={showToast}><div className="horse-app" data-role={user.roleName}>
@@ -257,7 +262,10 @@ export default function HorseShell({ children }: { children: ReactNode }) {
         <nav aria-label="Điều hướng quản lý">
           {navigation.map(item => {
             const Icon = icons[item.id] ?? LayoutDashboard;
-            const selected = isDashboard && (navigation.some(entry => entry.id === activeTab) ? activeTab : "overview") === item.id;
+            const resolvedTab = navigation.some(entry => entry.id === activeTab)
+              ? activeTab
+              : (activeTab === "notifications" && isVetRole ? "notifications" : "overview");
+            const selected = isDashboard && resolvedTab === item.id;
             const href = Routes.dashboardTab(dashboardRoute, item.id);
             return <Link key={item.id} href={href} className={selected ? "active" : ""} aria-current={selected ? "page" : undefined} onClick={event => {
               if (!isDashboard || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
@@ -269,21 +277,12 @@ export default function HorseShell({ children }: { children: ReactNode }) {
         </nav>
         <p className="horse-nav-label">QUẢN LÝ CHUNG</p>
         <nav aria-label="Hồ sơ và hệ thống">
-          {user.roleName === "HORSE_OWNER" ? (
-            <Link href={Routes.horses} className={`owner-registration-nav ${currentPathname.startsWith(Routes.horses) ? "active" : ""}`} aria-current={currentPathname.startsWith(Routes.horses) ? "page" : undefined}>
-              <span className="owner-registration-nav-icon"><FilePlus2 size={17} /></span>
-              <span className="owner-registration-nav-copy"><strong>Yêu cầu hồ sơ</strong></span>
-              <ArrowUpRight className="owner-registration-nav-arrow" size={15} />
-            </Link>
-          ) : (
+          {user.roleName !== "HORSE_OWNER" && (
             <Link href={Routes.horses} className={currentPathname.startsWith(Routes.horses) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.horses) ? "page" : undefined}><BookOpen size={18} />Hồ sơ ngựa</Link>
           )}
           {user.roleName === "CLUB_MANAGER" && <Link href={Routes.clubManagerUsers} className={currentPathname.startsWith(Routes.clubManagerUsers) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.clubManagerUsers) ? "page" : undefined}><Users size={18} />Quản lý tài khoản</Link>}
           <Link href={Routes.home}><House size={18} />Trang chủ</Link>
         </nav>
-      </div>
-      <div className="horse-sidebar-footer shrink-0 mt-auto">
-        <div className="horse-account"><span className="horse-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span><div><strong>{user.fullName}</strong><small>{roleLabels[user.roleName]}</small></div><button aria-label={signingOut ? "Đang đăng xuất" : "Đăng xuất"} title={signingOut ? "Đang đăng xuất" : "Đăng xuất"} disabled={signingOut} onClick={signOut}><LogOut size={18} /></button></div>
       </div>
     </aside>
     <div className="horse-workspace">
@@ -294,12 +293,23 @@ export default function HorseShell({ children }: { children: ReactNode }) {
         </div>
         <div className="horse-topbar-actions">
           <span className="horse-date-pill"><CalendarDays size={16} /><span>{todayLabel || "Hôm nay"}</span></span>
-          <button type="button" onClick={openNotifications} className="relative grid h-10 w-10 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-equine-navy transition-colors hover:bg-slate-50" aria-label={`Thông báo: ${unreadNotificationCount} chưa đọc`} title="Mở thông báo">
-            <Bell size={18} />
-            <span aria-hidden="true" className={`absolute -right-1 -top-1 min-w-5 rounded-full px-1 text-center text-[10px] font-bold leading-5 ${unreadNotificationCount > 0 ? "bg-rose-600 text-white" : "bg-slate-200 text-slate-600"}`}>{unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}</span>
-          </button>
+          <div className="relative" ref={notifRef}>
+            <button type="button" onClick={toggleNotifications} aria-expanded={notifOpen} className="relative grid h-10 w-10 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-equine-navy transition-colors hover:bg-slate-50" aria-label={`Thông báo: ${unreadNotificationCount} chưa đọc`} title="Thông báo">
+              <Bell size={18} />
+              {unreadNotificationCount > 0 && (
+                <span aria-hidden="true" className="absolute -right-1 -top-1 min-w-5 rounded-full bg-rose-600 px-1 text-center text-[10px] font-bold leading-5 text-white">
+                  {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                </span>
+              )}
+            </button>
+            {notifOpen && (
+              <div className="absolute right-0 top-full z-50 mt-2 w-[min(92vw,420px)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                <NotificationCenter embedded onNavigate={() => setNotifOpen(false)} />
+              </div>
+            )}
+          </div>
           <div className="horse-profile-menu" ref={profileRef}>
-            <button type="button" className="horse-profile-trigger" aria-expanded={profileOpen} onClick={() => setProfileOpen(value => !value)}>
+            <button type="button" className="horse-profile-trigger" aria-expanded={profileOpen} onClick={() => { setNotifOpen(false); setProfileOpen(value => !value); }}>
               <span className="horse-profile-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span>
               <span className="horse-profile-copy"><strong>{user.fullName}</strong><small>{roleLabels[user.roleName]}</small></span>
               <ChevronDown size={16} />

@@ -51,7 +51,7 @@ export function HorseImage({ horse, preview }: { horse?: Horse; preview?: string
     };
   }, [horse?.id, horse?.image_url, directUrl, preview]);
   const [broken, setBroken] = useState(false);
-  useEffect(() => { setBroken(false); setLoaded(false); }, [preview, url]);
+  useEffect(() => { setBroken(false); setLoaded(true); }, [preview, url]);
   const finalSrc = preview || directUrl || url;
   return finalSrc && !broken
     // Signed URLs expire and are authorized per user; do not cache them in Next's image optimizer.

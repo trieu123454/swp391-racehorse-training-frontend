@@ -6,17 +6,15 @@ const footerGroups = [
   {
     title: "Về Equine",
     links: [
-      ["Giới thiệu chung", Routes.homeSection("gioi-thieu")],
-      ["Tầm nhìn & Sứ mệnh", Routes.homeSection("tam-nhin")],
-      ["Giá trị cốt lõi", Routes.homeSection("gia-tri")],
+      ["Giới thiệu & Trụ cột", Routes.homeSection("gioi-thieu")],
+      ["Tiêu chuẩn an toàn y tế", Routes.homeSection("an-toan")],
     ],
   },
   {
     title: "Hệ sinh thái vận hành",
     links: [
-      ["5 Vai trò chuyên biệt", Routes.homeSection("vai-tro")],
+      ["6 Vai trò chuyên biệt", Routes.homeSection("vai-tro")],
       ["6 Phân hệ nghiệp vụ", Routes.homeSection("van-hanh")],
-      ["Tiêu chuẩn an toàn y tế", Routes.homeSection("an-toan")],
     ],
   },
   {
@@ -48,14 +46,14 @@ export function SiteFooter() {
               className={idx === 1 ? "lg:col-span-3" : "lg:col-span-2"}
               key={group.title}
             >
-              <h2 className="text-sm font-medium text-[#1F2125]">
+              <h2 className="text-sm font-semibold text-[#101732]">
                 {group.title}
               </h2>
               <ul className="mt-4 space-y-3 text-sm font-normal">
                 {group.links.map(([label, href]) => (
                   <li key={label}>
                     <Link
-                      className="text-[#475569] transition-colors hover:text-[#1464F4]"
+                      className="text-[#475569] transition-colors hover:text-[#1040C5]"
                       href={href}
                     >
                       {label}
@@ -72,7 +70,7 @@ export function SiteFooter() {
           <div className="flex flex-wrap items-center gap-3">
             <span>Hệ thống nội bộ CLB</span>
             <span aria-hidden="true">·</span>
-            <span>Phân quyền 5 cấp độ</span>
+            <span>Phân quyền 6 vai trò</span>
           </div>
         </div>
       </div>

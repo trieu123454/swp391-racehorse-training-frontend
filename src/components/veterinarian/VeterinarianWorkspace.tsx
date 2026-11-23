@@ -1,5 +1,7 @@
 "use client";
 
+import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
+
 import {
   Activity,
   AlertTriangle,
@@ -250,8 +252,8 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
   const [autoOpenExam, setAutoOpenExam] = useState(false);
   const [linkedScheduleId, setLinkedScheduleId] = useState<string | undefined>(undefined);
 
-  const loadOverview = useCallback(async () => {
-    setLoading(true);
+  const loadOverview = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError("");
     try {
       const result = await veterinarianApi.overview();
@@ -261,23 +263,15 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
         : result.horses[0]?.id ?? "");
       return result;
     } catch (reason) {
-      setError(veterinarianError(reason));
+      if (!silent) setError(veterinarianError(reason));
       return null;
     } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const loadUnread = useCallback(async () => {
-    try {
-      const result = await veterinarianApi.notifications(true);
-      setUnread(result.unread_count);
-    } catch {
-      // The notifications view reports its own loading and error state.
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => { void loadOverview(); }, [loadOverview]);
+  useAutoRefresh(() => loadOverview(true), { intervalMs: 25_000 });
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(VET_ACTIVITY_SESSION_KEY);
@@ -308,11 +302,6 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
       // Activity notices still remain visible until this workspace is closed.
     }
   }, [activityHistoryReady, recentActivities]);
-  useEffect(() => {
-    void loadUnread();
-    const timer = window.setInterval(() => void loadUnread(), 60_000);
-    return () => window.clearInterval(timer);
-  }, [loadUnread]);
   const horses = useMemo(() => overview?.horses ?? [], [overview]);
   const horse = horses.find((item) => item.id === selectedId) ?? null;
   const loadActionItems = useCallback(async (targetHorses: VetHorse[]) => {
@@ -338,11 +327,10 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
     const refreshAfterMutation = (event: Event) => {
       const path = (event as CustomEvent<{ path?: string }>).detail?.path ?? "";
       if (path.includes("/api/notifications")) return;
-      void loadUnread();
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         void (async () => {
-          const refreshedOverview = await loadOverview();
+          const refreshedOverview = await loadOverview(true);
           await loadActionItems(refreshedOverview?.horses ?? horses);
         })();
       }, 180);
@@ -352,7 +340,7 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
       window.clearTimeout(timer);
       window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
     };
-  }, [horses, loadActionItems, loadOverview, loadUnread]);
+  }, [horses, loadActionItems, loadOverview]);
   const visibleHorses = horses.filter((item) => {
     const query = search.trim().toLocaleLowerCase("vi");
     return item.horse_name.toLocaleLowerCase("vi").includes(query)
@@ -479,7 +467,7 @@ function SectionCard({ title, description, icon: Icon, children, action }: { tit
   return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{description && <details className="relative text-slate-500"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100" aria-label={`Giải thích ${title}`} title={`Giải thích ${title}`}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{description}</p></details>}</div></div></div>{action}</div>{children}</section>;
 }
 
-function Field({ label, name, type = "text", required = false, defaultValue, maxLength, min, max, step, placeholder, disabled }: { label: string; name: string; type?: string; required?: boolean; defaultValue?: string | number | null; maxLength?: number; min?: number; max?: number; step?: string; placeholder?: string; disabled?: boolean }) {
+function Field({ label, name, type = "text", required = false, defaultValue, maxLength, min, max, step, placeholder, disabled }: { label: string; name: string; type?: string; required?: boolean; defaultValue?: string | number | null; maxLength?: number; min?: number | string; max?: number | string; step?: string; placeholder?: string; disabled?: boolean }) {
   const isTime = type === "time";
   return <label className="block"><span className="field-label">{label}{required && <span className="text-rose-600"> *</span>}</span><input name={name} type={isTime ? "text" : type} required={required} maxLength={isTime ? 5 : maxLength} min={min} max={max} step={step} pattern={isTime ? "([01][0-9]|2[0-3]):[0-5][0-9]" : undefined} title={isTime ? "Nhập giờ theo dạng 24 giờ, ví dụ 08:30" : undefined} defaultValue={defaultValue ?? ""} placeholder={isTime ? "HH:mm" : placeholder} disabled={disabled} className="field-control px-3" /></label>;
 }
@@ -545,7 +533,8 @@ function HorseStatusPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (m
     const values = formValues(event.currentTarget);
     try {
       const status = String(values.current_status);
-      const readiness = String(values.readiness_status);
+      const rawReadiness = String(values.readiness_status);
+      const readiness = ["Injured", "Quarantine"].includes(status) && rawReadiness === "Ready" ? "NotReady" : rawReadiness;
       const result = await veterinarianApi.updateHealthStatus(horse.id, status, readiness, String(values.note ?? ""));
       setSuggestLock(["Injured", "Quarantine"].includes(status));
       setSessions(result.upcoming_sessions ?? []);
@@ -570,7 +559,7 @@ function HorseStatusPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (m
   }
   return <div className="space-y-4">
     <SectionCard title="Trạng thái sức khỏe" description="Cập nhật trạng thái sau khi khám. Trạng thái sức khỏe và khóa huấn luyện được quản lý riêng." icon={HeartPulse}>
-      <form onSubmit={updateStatus} className="grid gap-3 sm:grid-cols-2 sm:items-end"><SelectField label="Trạng thái mới" name="current_status" defaultValue={horse.current_status} required options={[{ value: "Healthy", label: "Khỏe mạnh" }, { value: "Monitoring", label: "Cần theo dõi" }, { value: "Injured", label: "Chấn thương" }, { value: "Quarantine", label: "Cách ly" }]} /><SelectField label="Sẵn sàng thi đấu" name="readiness_status" defaultValue={horse.readiness_status ?? "Unknown"} required options={[{ value: "Ready", label: "Sẵn sàng" }, { value: "NotReady", label: "Chưa sẵn sàng" }, { value: "Unknown", label: "Chưa đánh giá" }]} /><Field label="Ghi chú kiểm tra (không bắt buộc)" name="note" maxLength={500} placeholder="Lý do thay đổi..." /><button className="gold-button h-12" disabled={busy}><Check size={15} /> Lưu trạng thái</button></form>
+      <form key={horse.id} onSubmit={updateStatus} className="grid gap-3 sm:grid-cols-2 sm:items-end"><SelectField label="Trạng thái mới" name="current_status" defaultValue={horse.current_status} required options={[{ value: "Healthy", label: "Khỏe mạnh" }, { value: "Monitoring", label: "Cần theo dõi" }, { value: "Injured", label: "Chấn thương" }, { value: "Quarantine", label: "Cách ly" }]} /><SelectField label="Sẵn sàng thi đấu" name="readiness_status" defaultValue={horse.readiness_status ?? "Unknown"} required options={[{ value: "Ready", label: "Sẵn sàng" }, { value: "NotReady", label: "Chưa sẵn sàng" }, { value: "Unknown", label: "Chưa đánh giá" }]} /><Field label="Ghi chú kiểm tra (không bắt buộc)" name="note" maxLength={500} placeholder="Lý do thay đổi..." /><button className="gold-button h-12" disabled={busy}><Check size={15} /> Lưu trạng thái</button></form>
       {suggestLock && <p className="mt-3 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900"><AlertTriangle size={16} /> Trạng thái này tự động khóa lịch huấn luyện sắp tới. Hãy xử lý các lịch bị chặn trước khi mở khóa.</p>}
     </SectionCard>
     <SectionCard title="Khóa huấn luyện" description="Khóa sẽ chặn việc tạo lịch huấn luyện và thông báo cho các Huấn luyện viên trưởng đang hoạt động." icon={LockKeyhole}>
@@ -1113,7 +1102,7 @@ function DietPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message:
     <ErrorLine>{error}</ErrorLine>
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={includeHistory} onChange={(event) => setIncludeHistory(event.target.checked)} /> Hiện cả lịch sử</label>{!includeHistory && <label className="block"><span className="field-label">Đang hiệu lực vào ngày</span><input type="date" value={activeOn} onChange={(event) => setActiveOn(event.target.value)} className="field-control px-3" /></label>}</div>
     {(creating || editing) && <form key={editing?.id ?? "new-diet"} onSubmit={(event) => void save(event, editing ?? undefined)} className="mb-4 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">{editing ? "Chỉnh sửa khẩu phần" : "Thêm khẩu phần"}</h4><Field label="Loại thức ăn" name="feed_type" required maxLength={100} defaultValue={editing?.feed_type} /><Field label="Khối lượng (kg)" name="quantity_kg" type="number" required min={0.01} step="0.01" defaultValue={editing?.quantity_kg} /><Field label="Tần suất cho ăn" name="feeding_frequency" maxLength={50} defaultValue={editing?.feeding_frequency} /><Field label="Ngày bắt đầu hiệu lực" name="effective_date" type="date" required defaultValue={editing?.effective_date ?? today()} /><Field label="Ngày kết thúc" name="end_date" type="date" defaultValue={editing?.end_date} /><TextAreaField label="Hướng dẫn đặc biệt" name="special_instructions" defaultValue={editing?.special_instructions} rows={2} /><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>{editing ? "Lưu thay đổi" : "Tạo khẩu phần"}</button><button type="button" className="soft-button h-10 px-3" onClick={() => { setCreating(false); setEditing(null); }}>Hủy</button></div></form>}
-    {loading ? <Notice>Đang tải khẩu phần...</Notice> : error ? null : records.length === 0 ? <Empty>Không có khẩu phần trong khoảng thời gian này.</Empty> : <div className="space-y-2">{records.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-xl border border-equine-line p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-equine-navy">{item.feed_type} · {item.quantity_kg} kg</p><p className="mt-1 text-sm text-slate-600">{item.feeding_frequency || "Chưa ghi tần suất"} · {item.effective_date ?? "—"} → {item.end_date ?? "Đang áp dụng"}</p>{item.special_instructions && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{item.special_instructions}</p>}</div><div className="flex gap-2"><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => { setEditing(item); setCreating(false); }}>Sửa</button>{!item.end_date && <button type="button" className="soft-button h-9 border-amber-200 bg-amber-50 px-3 text-xs text-amber-900" disabled={busy} onClick={() => void endToday(item)}>Kết thúc hôm nay</button>}</div></article>)}</div>}
+    {loading ? <Notice>Đang tải khẩu phần...</Notice> : error ? null : records.length === 0 ? <Empty>Không có khẩu phần trong khoảng thời gian này.</Empty> : <div className="space-y-2">{records.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-xl border border-equine-line p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-equine-navy">{item.feed_type} · {item.quantity_kg} kg</p><p className="mt-1 text-sm text-slate-600">{item.feeding_frequency || "Chưa ghi tần suất"} · {item.effective_date ?? "—"} → {item.end_date ?? "Đang áp dụng"}</p>{item.special_instructions && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{item.special_instructions}</p>}</div><div className="flex gap-2"><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => { setEditing(item); setCreating(false); }}>Sửa</button>{!item.end_date && (!item.effective_date || item.effective_date <= today()) && <button type="button" className="soft-button h-9 border-amber-200 bg-amber-50 px-3 text-xs text-amber-900" disabled={busy} onClick={() => void endToday(item)}>Kết thúc hôm nay</button>}</div></article>)}</div>}
   </SectionCard>;
 }
 
@@ -1670,7 +1659,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
 
       {creating && <form onSubmit={(event) => void createInjury(event)} className="mt-4 grid gap-4 rounded-lg border border-equine-line bg-slate-50 p-4 sm:grid-cols-2">
         <h4 className="font-semibold text-equine-navy sm:col-span-2">Thông tin ca chấn thương mới</h4>
-        <label className="block"><span className="field-label">Vị trí cơ thể<span className="text-rose-600"> *</span></span><input name="body_part" required maxLength={100} placeholder="Chọn vị trí trên mô hình hoặc nhập tên" value={draftBodyPart} onChange={(event) => setDraftBodyPart(event.target.value)} className="field-control px-3" /></label>
+        <label className="block"><span className="field-label">Vị trí cơ thể<span className="text-rose-600"> *</span></span><input name="body_part" required maxLength={50} placeholder="Chọn vị trí trên mô hình hoặc nhập tên" value={draftBodyPart} onChange={(event) => setDraftBodyPart(event.target.value)} className="field-control px-3" /></label>
         <label className="block"><span className="field-label">Nhóm</span><select name="injury_group" required value={draftGroup} onChange={(event) => setDraftGroup(event.target.value as InjuryGroup)} className="field-control px-3">{Object.entries(injuryGroupLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <SelectField label="Mức độ" name="severity" required options={[{ value: "Mild", label: "Nhẹ" }, { value: "Moderate", label: "Vừa" }, { value: "Severe", label: "Nặng" }]} />
         <label className="block"><span className="field-label">Ngày bắt đầu<span className="text-rose-600"> *</span></span><input name="date" type="date" required defaultValue={todayValue} max={todayValue} className="field-control px-3" /></label>
@@ -3438,7 +3427,7 @@ function CarePanel({
                                         <span>Chốt ca lịch hẹn</span>
                                         <button type="button" className="text-[10px] text-slate-500 hover:text-slate-800" onClick={() => setBookId("")}>✕</button>
                                       </div>
-                                      <Field label="Ngày hẹn" name="event_date" type="date" required defaultValue={event.event_date} />
+                                      <Field label="Ngày hẹn" name="event_date" type="date" required min={today()} defaultValue={event.event_date && event.event_date >= today() ? event.event_date : today()} />
                                       <label className="block">
                                         <span className="field-label text-xs font-bold text-slate-800">Chọn ca làm việc <span className="text-rose-600">*</span></span>
                                         <select
@@ -3466,7 +3455,7 @@ function CarePanel({
                                         <span>Dời sang ca khác</span>
                                         <button type="button" className="text-[10px] text-slate-500 hover:text-slate-800" onClick={() => setMoveId("")}>✕</button>
                                       </div>
-                                      <Field label="Ngày mới" name="event_date" type="date" required defaultValue={event.event_date} />
+                                      <Field label="Ngày mới" name="event_date" type="date" required min={today()} defaultValue={event.event_date && event.event_date >= today() ? event.event_date : today()} />
                                       <label className="block">
                                         <span className="field-label text-xs font-bold text-slate-800">Chọn ca làm việc mới <span className="text-rose-600">*</span></span>
                                         <select

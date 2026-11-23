@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { Activity, AlertTriangle, CalendarDays, Check, ClipboardCheck, Package, Plus, RefreshCw, Utensils } from "lucide-react";
 import { Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
+import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import NotificationCenter from "@/components/shared/NotificationCenter";
 import {
@@ -75,6 +76,7 @@ export default function GroomWorkspace() {
   }, [date]);
 
   useEffect(() => { void load(); }, [load]);
+  useAutoRefresh(load, { enabled: !busy, intervalMs: 25_000 });
 
   async function markTaskComplete(id: string) {
     setBusy(true); setError(""); setNotice("");
@@ -107,6 +109,12 @@ export default function GroomWorkspace() {
     setBusy(true); setError(""); setNotice("");
     try {
       const selectedFile = values.get("image_file");
+      if (selectedFile instanceof File && selectedFile.size > 0) {
+        if (!["image/jpeg", "image/png", "image/webp"].includes(selectedFile.type) || selectedFile.size > 5 * 1024 * 1024) {
+          setError("Ảnh sự cố phải là JPG, PNG hoặc WebP và không vượt quá 5 MB.");
+          return;
+        }
+      }
       const imagePath = selectedFile instanceof File && selectedFile.size > 0
         ? (await uploadGroomIncidentImage(selectedFile)).imagePath
         : undefined;

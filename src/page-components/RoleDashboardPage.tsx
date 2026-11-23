@@ -35,7 +35,7 @@ export default function RoleDashboardPage() {
       })
       .catch((reason: unknown) => {
         if (!active) return;
-        if (reason instanceof ApiRequestError && reason.status === 401) {
+        if (reason instanceof ApiRequestError && [400, 401, 403].includes(reason.status)) {
           router.replace(Routes.login);
           return;
         }

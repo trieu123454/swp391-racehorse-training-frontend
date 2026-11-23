@@ -3,7 +3,7 @@ import { Routes } from "@/routes/Routes";
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, Dna, Download, ExternalLink, FileText, GitFork, MapPin, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarDays, Download, ExternalLink, FileText, MapPin, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useHorseUser } from "@/components/horses/HorseShell";
 import { HorseImage, Modal, Notice, StatusBadge } from "@/components/horses/HorseUI";
@@ -14,7 +14,10 @@ import {
   getHorseDocumentUrl,
   getHorseDeletionWarnings,
   getHorseOwnershipHistory,
+  horseGender,
+  horseStatus,
   openFreshDocument,
+  peekCachedHorse,
   type Horse,
   type OwnershipHistoryEntry,
   type Warnings,
@@ -25,35 +28,39 @@ export default function HorseDetailPage() {
   const user = useHorseUser();
   const params = useParams<{ id: string }>();
   const horseId = params?.id ?? "";
+  const initialHorse = peekCachedHorse(horseId);
   const [request, setRequest] = useState<{
     id: string | null;
     loading: boolean;
     horse: Horse | null;
     error: string;
-  }>({ id: null, loading: true, horse: null, error: "" });
+  }>({ id: initialHorse ? horseId : null, loading: !initialHorse, horse: initialHorse, error: "" });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [ownershipHistory, setOwnershipHistory] = useState<OwnershipHistoryEntry[]>([]);
   const [deleteWarnings, setDeleteWarnings] = useState<Warnings | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [deleting, setDeleting] = useState(false);
-  const [pedigreeView, setPedigreeView] = useState<"tree" | "genetics" | null>(null);
 
   useEffect(() => {
     let active = true;
     const id = horseId;
-    setRequest({ id, loading: true, horse: null, error: "" });
-    Promise.all([
-      getHorse(id),
-      user.roleName === "CLUB_MANAGER" ? getHorseOwnershipHistory(id) : Promise.resolve([] as OwnershipHistoryEntry[]),
-    ])
-      .then(([horse, history]) => {
+    const cached = peekCachedHorse(id);
+    setRequest({ id, loading: !cached, horse: cached, error: "" });
+    getHorse(id)
+      .then((horse) => {
         if (!active) return;
         setRequest({ id, loading: false, horse, error: "" });
-        setOwnershipHistory(history);
       })
       .catch((reason) => {
-        if (active) setRequest({ id, loading: false, horse: null, error: errorMessage(reason) });
+        if (active && !cached) setRequest({ id, loading: false, horse: null, error: errorMessage(reason) });
       });
+    if (user.roleName === "CLUB_MANAGER") {
+      getHorseOwnershipHistory(id)
+        .then((history) => { if (active) setOwnershipHistory(history); })
+        .catch(() => {});
+    } else {
+      setOwnershipHistory([]);
+    }
     return () => { active = false; };
   }, [horseId, user.roleName]);
 
@@ -171,6 +178,7 @@ export default function HorseDetailPage() {
               </div>
               <div className="mt-4 space-y-2 border-t border-slate-100 pt-3 text-xs text-slate-600">
                 <p><strong>Giống:</strong> {horse.breed ?? "Chưa cập nhật"}</p>
+                <p><strong>Giới tính:</strong> {horseGender(horse.gender) ?? "Chưa cập nhật"}</p>
                 <p><strong>Năm sinh:</strong> {horse.birth_year ?? "—"}</p>
                 <p><strong>Microchip:</strong> {horse.microchip_number ?? "Chưa cập nhật"}</p>
                 <p><strong>Hộ chiếu:</strong> {horse.passport_number ?? "Chưa cập nhật"}</p>
@@ -187,92 +195,15 @@ export default function HorseDetailPage() {
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 <InfoCard label="Tên cha (Sire)" value={horse.pedigree_father ?? "Chưa cập nhật"} />
                 <InfoCard label="Tên mẹ (Dam)" value={horse.pedigree_mother ?? "Chưa cập nhật"} />
+                <InfoCard label="Giới tính" value={horseGender(horse.gender) ?? "Chưa cập nhật"} />
+                <InfoCard label="Năm sinh" value={horse.birth_year == null ? "Chưa cập nhật" : String(horse.birth_year)} />
                 <InfoCard label="Microchip" value={horse.microchip_number ?? "Chưa cập nhật"} />
                 <InfoCard label="Hộ chiếu ngựa" value={horse.passport_number ?? "Chưa cập nhật"} />
                 <InfoCard label="Chiều cao vai" value={horse.height_cm == null ? "Chưa cập nhật" : `${horse.height_cm} cm`} />
                 <InfoCard label="Cân nặng gần nhất" value={horse.current_weight_kg == null ? "Chưa có dữ liệu" : `${horse.current_weight_kg} kg`} />
-                <InfoCard label="Trạng thái sức khỏe" value={horse.current_status} />
+                <InfoCard label="Trạng thái sức khỏe" value={horseStatus(horse.current_status)} />
                 <InfoCard label="Khóa huấn luyện" value={horse.is_training_locked ? "Đang khóa (Tạm ngừng)" : "Bình thường (Đang hoạt động)"} />
               </div>
-              <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
-                <button
-                  type="button"
-                  className={pedigreeView === "tree" ? "gold-button !min-h-[36px] !px-3.5 !text-xs" : "soft-button !min-h-[36px] !px-3.5 !text-xs"}
-                  aria-pressed={pedigreeView === "tree"}
-                  onClick={() => setPedigreeView((current) => current === "tree" ? null : "tree")}
-                >
-                  <GitFork size={14} /> Xem cây phả hệ đầy đủ
-                </button>
-                <button
-                  type="button"
-                  className={pedigreeView === "genetics" ? "gold-button !min-h-[36px] !px-3.5 !text-xs" : "soft-button !min-h-[36px] !px-3.5 !text-xs"}
-                  aria-pressed={pedigreeView === "genetics"}
-                  onClick={() => setPedigreeView((current) => current === "genetics" ? null : "genetics")}
-                >
-                  <Dna size={14} /> Phân tích di truyền
-                </button>
-              </div>
-              {pedigreeView === "tree" && (
-                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/90 p-4" role="region" aria-label="Cây phả hệ đầy đủ">
-                  <h3 className="text-sm font-bold text-slate-900">Sơ đồ phả hệ 3 thế hệ · {horse.horse_name}</h3>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-3 text-xs">
-                    <div className="flex flex-col justify-center rounded-lg border border-teal-200 bg-white p-3 shadow-sm">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-teal-700">Cá thể hiện tại (F0)</span>
-                      <strong className="mt-1 text-sm text-slate-900">{horse.horse_name}</strong>
-                      <span className="mt-0.5 text-slate-500">{horse.breed ?? "Thoroughbred"} · {horse.birth_year ?? "—"}</span>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="rounded-lg border border-slate-200 bg-white p-3">
-                        <span className="text-[10px] uppercase tracking-wider text-slate-400">Cha (Sire · F1)</span>
-                        <strong className="mt-0.5 block text-slate-800">{horse.pedigree_father ?? "Chưa ghi nhận"}</strong>
-                      </div>
-                      <div className="rounded-lg border border-slate-200 bg-white p-3">
-                        <span className="text-[10px] uppercase tracking-wider text-slate-400">Mẹ (Dam · F1)</span>
-                        <strong className="mt-0.5 block text-slate-800">{horse.pedigree_mother ?? "Chưa ghi nhận"}</strong>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="rounded-lg border border-dashed border-slate-200 bg-white/80 p-2.5">
-                        <span className="text-[10px] uppercase tracking-wider text-slate-400">Ông bà nội (Sire Line · F2)</span>
-                        <span className="mt-0.5 block font-medium text-slate-700">
-                          {horse.pedigree_father ? `Dòng ${horse.pedigree_father} (Sire) × Dam nội` : "Chưa cập nhật phả hệ F2"}
-                        </span>
-                      </div>
-                      <div className="rounded-lg border border-dashed border-slate-200 bg-white/80 p-2.5">
-                        <span className="text-[10px] uppercase tracking-wider text-slate-400">Ông bà ngoại (Dam Line · F2)</span>
-                        <span className="mt-0.5 block font-medium text-slate-700">
-                          {horse.pedigree_mother ? `Dòng ${horse.pedigree_mother} (Broodmare Sire)` : "Chưa cập nhật phả hệ F2"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              {pedigreeView === "genetics" && (
-                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/90 p-4" role="region" aria-label="Phân tích di truyền">
-                  <h3 className="text-sm font-bold text-slate-900">Báo cáo phân tích di truyền & thể chất · {horse.horse_name}</h3>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-3 text-xs">
-                    <div className="rounded-lg border border-slate-200 bg-white p-3">
-                      <span className="text-[10px] uppercase tracking-wider text-slate-400">Nhóm gen cự ly (MSTN)</span>
-                      <strong className="mt-1 block text-slate-800">
-                        {horse.height_cm && horse.height_cm >= 165 ? "C/T · Trung bình – Dài (1600m–2400m)" : "C/C · Tốc độ nước rút (1000m–1600m)"}
-                      </strong>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-white p-3">
-                      <span className="text-[10px] uppercase tracking-wider text-slate-400">Chỉ số thể hình di truyền</span>
-                      <strong className="mt-1 block text-slate-800">
-                        {horse.height_cm ? `${horse.height_cm} cm` : "Chưa đo"} · {horse.current_weight_kg ? `${horse.current_weight_kg} kg` : "Chưa cân"}
-                      </strong>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-white p-3">
-                      <span className="text-[10px] uppercase tracking-wider text-slate-400">Độ thuần chủng & phả hệ</span>
-                      <strong className="mt-1 block text-slate-800">
-                        {horse.pedigree_father && horse.pedigree_mother ? "Đã xác thực đủ Sire & Dam" : "Cần bổ sung thông tin cha/mẹ"}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-              )}
             </section>
 
             <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

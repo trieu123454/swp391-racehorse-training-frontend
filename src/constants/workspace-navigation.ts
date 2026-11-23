@@ -18,14 +18,14 @@ export const workspaceNavigation: Record<RoleName, readonly { id: string; label:
     { id: "exams", label: "Khám bệnh" },
     { id: "medical", label: "Điều trị" }, { id: "diet", label: "Dinh dưỡng" },
     { id: "injuries", label: "Chấn thương" }, { id: "care", label: "Lịch chăm sóc" },
-    { id: "incidents", label: "Sự cố" }, { id: "notifications", label: "Thông báo" },
+    { id: "incidents", label: "Sự cố" },
   ],
   HEAD_VETERINARIAN: [
     { id: "overview", label: "Sức khỏe" }, { id: "dispatch", label: "Điều phối" },
     { id: "care", label: "Lịch chăm sóc" }, { id: "stables", label: "Chuồng trại" },
     { id: "exams", label: "Khám bệnh" }, { id: "medical", label: "Điều trị" },
     { id: "diet", label: "Dinh dưỡng" }, { id: "injuries", label: "Chấn thương" },
-    { id: "incidents", label: "Sự cố" }, { id: "notifications", label: "Thông báo" },
+    { id: "incidents", label: "Sự cố" },
   ],
   GROOM: [
     { id: "overview", label: "Việc hôm nay" }, { id: "horses", label: "Ngựa phụ trách" },
@@ -35,6 +35,6 @@ export const workspaceNavigation: Record<RoleName, readonly { id: string; label:
   HORSE_OWNER: [
     { id: "overview", label: "Tổng quan" }, { id: "health", label: "Sức khỏe" },
     { id: "training", label: "Huấn luyện" }, { id: "races", label: "Thành tích" },
-    { id: "finance", label: "Chi phí" },
+    { id: "finance", label: "Chi phí" }, { id: "horse-requests", label: "Yêu cầu hồ sơ" },
   ],
 };

@@ -20,13 +20,19 @@ type AppNotification = {
 };
 type NotificationPage = { data: AppNotification[]; unread_count: number; total: number };
 
-export default function NotificationCenter() {
+export default function NotificationCenter({
+  embedded = false,
+  onNavigate,
+}: {
+  embedded?: boolean;
+  onNavigate?: () => void;
+} = {}) {
   const [items, setItems] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [roleName, setRoleName] = useState<RoleName | null>(null);
   const router = useRouter();
   const pathname = usePathname();
@@ -36,10 +42,11 @@ export default function NotificationCenter() {
   }, []);
 
   function openRegistrationTarget() {
-    if (roleName === "CLUB_MANAGER") {
-      const managerPath = Routes.dashboardRole("club-manager");
-      const targetHref = Routes.dashboardTab(managerPath, "horse-requests");
-      if (pathname === managerPath) {
+    if (roleName === "CLUB_MANAGER" || roleName === "HORSE_OWNER") {
+      const rolePath = Routes.dashboardRole(roleName === "CLUB_MANAGER" ? "club-manager" : "horse-owner");
+      const targetHref = Routes.dashboardTab(rolePath, "horse-requests");
+      onNavigate?.();
+      if (pathname === rolePath) {
         if (`${window.location.pathname}${window.location.search}` !== targetHref) {
           window.history.pushState(null, "", targetHref);
         }
@@ -47,10 +54,6 @@ export default function NotificationCenter() {
         return;
       }
       router.push(targetHref);
-      return;
-    }
-    if (roleName === "HORSE_OWNER") {
-      router.push(Routes.horses);
     }
   }
 
@@ -107,52 +110,68 @@ export default function NotificationCenter() {
     } finally { setBusy(false); }
   }
 
-  return (
-    <section id="notification-center" className="scroll-mt-24 rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => setOpen((prev) => !prev)}
-          className="flex items-center gap-2 font-sans text-lg font-normal text-equine-navy hover:text-primary transition-colors text-left"
-          aria-expanded={open}
-        >
-          <Bell size={18} className="text-equine-teal" />
-          <span>Thông báo</span>
-          {unread > 0 && (
-            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-normal text-rose-700">
-              {unread} chưa đọc
-            </span>
-          )}
-          <ChevronDown
-            size={16}
-            className={`text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-          />
-        </button>
+  const showBody = embedded || open;
 
-        {open && (
-          <div className="flex items-center gap-2">
+  return (
+    <section
+      id={embedded ? undefined : "notification-center"}
+      className={embedded ? "bg-white p-4" : "scroll-mt-24 rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {embedded ? (
+          <div className="flex items-center gap-2 text-sm font-semibold text-equine-navy">
+            <span>Thông báo</span>
+            {unread > 0 && (
+              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">
+                {unread} chưa đọc
+              </span>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setOpen((prev) => !prev)}
+            className="flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy hover:text-primary transition-colors text-left"
+            aria-expanded={open}
+          >
+            <Bell size={18} className="text-equine-teal" />
+            <span>Thông báo</span>
+            {unread > 0 && (
+              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">
+                {unread} chưa đọc
+              </span>
+            )}
+            <ChevronDown
+              size={16}
+              className={`text-slate-400 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+            />
+          </button>
+        )}
+
+        {showBody && (
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
-              className="soft-button h-8 px-3 text-xs"
+              className="soft-button !min-h-[30px] !px-2.5 !text-xs"
               onClick={() => void load()}
               disabled={loading || busy}
             >
-              <RefreshCw size={13} /> Làm mới
+              <RefreshCw size={12} /> Làm mới
             </button>
             <button
               type="button"
-              className="soft-button h-8 px-3 text-xs"
+              className="soft-button !min-h-[30px] !px-2.5 !text-xs"
               onClick={() => void markAllRead()}
               disabled={busy || unread === 0}
             >
-              <CheckCheck size={13} /> Đọc tất cả
+              <CheckCheck size={12} /> Đọc tất cả
             </button>
           </div>
         )}
       </div>
 
-      {open && (
-        <div className="mt-4 border-t border-equine-line pt-4">
+      {showBody && (
+        <div className={`mt-3 border-t border-equine-line pt-3 ${embedded ? "max-h-96 overflow-y-auto pr-1" : ""}`}>
           {error && <Notice error>{error}</Notice>}
           {loading ? (
             <Notice>Đang tải thông báo…</Notice>
@@ -165,33 +184,33 @@ export default function NotificationCenter() {
               {items.map((item) => (
                 <article
                   key={item.id}
-                  className={`flex flex-col gap-3 rounded-lg p-3 sm:flex-row sm:items-center sm:justify-between transition-colors ${
-                    item.is_read ? "bg-slate-50" : "bg-teal-50/70"
+                  className={`flex flex-col gap-2.5 rounded-lg p-3 sm:flex-row sm:items-center sm:justify-between transition-colors ${
+                    item.is_read ? "bg-slate-50" : "bg-blue-50/60"
                   }`}
                 >
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-normal text-equine-navy break-words">
+                    <p className="text-sm text-equine-navy break-words">
                       {item.message}
                     </p>
-                    <p className="mt-1 text-xs font-normal text-slate-500">
+                    <p className="mt-1 text-xs text-slate-500">
                       {new Date(item.scheduled_at ?? item.created_at).toLocaleString("vi-VN")}
                       {item.is_read ? " · Đã đọc" : " · Chưa đọc"}
                     </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                     {item.related_table === "horse_registration_requests" && (roleName === "CLUB_MANAGER" || roleName === "HORSE_OWNER") && (
                       <button
                         type="button"
-                        className="soft-button h-8 px-3 text-xs"
+                        className="soft-button !min-h-[28px] !px-2.5 !text-xs"
                         onClick={openRegistrationTarget}
                       >
-                        Mở xử lý <ArrowUpRight size={13} />
+                        Mở xử lý <ArrowUpRight size={12} />
                       </button>
                     )}
                     {!item.is_read && (
                       <button
                         type="button"
-                        className="soft-button h-8 px-3 text-xs"
+                        className="soft-button !min-h-[28px] !px-2.5 !text-xs"
                         disabled={busy}
                         onClick={() => void markRead(item.id)}
                       >

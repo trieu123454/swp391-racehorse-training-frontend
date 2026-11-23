@@ -2,19 +2,28 @@
 import { Routes } from "@/routes/Routes";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
 import {
   Activity,
+  ArrowLeft,
+  ArrowRight,
   CalendarDays,
+  Check,
+  ChevronDown,
   ClipboardList,
+  Filter,
   HeartPulse,
   RefreshCw,
+  Search,
+  Stethoscope,
   Trophy,
   Wallet,
+  X,
 } from "lucide-react";
 import { HorseImage, Notice, StatusBadge } from "@/components/horses/HorseUI";
-import NotificationCenter from "@/components/shared/NotificationCenter";
-import { errorMessage } from "@/api/horses/api";
+import HorseRegistrationPanel from "@/components/horse-owner/HorseRegistrationPanel";
+import { errorMessage, horseGender } from "@/api/horses/api";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import {
   getOwnerHorseDashboard,
@@ -25,16 +34,8 @@ import {
   type OwnershipTransferRequest,
 } from "@/api/horse-owner/api";
 
-type Tab = "overview" | "health" | "training" | "races" | "finance";
-const workspaceTabIds: readonly Tab[] = ["overview", "health", "training", "races", "finance"];
-
-const TABS: { id: Tab; label: string; icon: typeof Activity }[] = [
-  { id: "overview", label: "Tổng quan", icon: ClipboardList },
-  { id: "health", label: "Sức khỏe", icon: HeartPulse },
-  { id: "training", label: "Tập luyện & video", icon: CalendarDays },
-  { id: "races", label: "Thành tích", icon: Trophy },
-  { id: "finance", label: "Tài chính", icon: Wallet },
-];
+type Tab = "overview" | "health" | "training" | "races" | "finance" | "horse-requests";
+const workspaceTabIds: readonly Tab[] = ["overview", "health", "training", "races", "finance", "horse-requests"];
 
 export default function HorseOwnerWorkspace() {
   const [horses, setHorses] = useState<OwnerHorse[]>([]);
@@ -47,6 +48,27 @@ export default function HorseOwnerWorkspace() {
   const [transferRequests, setTransferRequests] = useState<OwnershipTransferRequest[]>([]);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [horseQuery, setHorseQuery] = useState("");
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!pickerOpen) return;
+    searchInputRef.current?.focus();
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!pickerRef.current?.contains(event.target as Node)) setPickerOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPickerOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [pickerOpen]);
 
   useEffect(() => {
     let active = true;
@@ -79,8 +101,7 @@ export default function HorseOwnerWorkspace() {
   const refreshDashboard = useCallback(async (silent = false) => {
     if (!selectedId) return;
     if (!silent) {
-      setLoadingDashboard(true);
-      setDashboard(null);
+      setLoadingDashboard((current) => dashboard?.horse.id === selectedId ? current : true);
     }
     setError("");
     try {
@@ -90,39 +111,41 @@ export default function HorseOwnerWorkspace() {
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
-      if (!silent) setLoadingDashboard(false);
+      setLoadingDashboard(false);
     }
-  }, [selectedId, year]);
+  }, [dashboard?.horse.id, selectedId, year]);
 
   useEffect(() => {
     void refreshDashboard();
-    const interval = window.setInterval(() => void refreshDashboard(true), 30_000);
-    return () => window.clearInterval(interval);
   }, [refreshDashboard]);
+  useAutoRefresh(() => refreshDashboard(true), { intervalMs: 25_000 });
 
   const currentHorse = dashboard?.horse.id === selectedId
     ? dashboard.horse
     : horses.find((horse) => horse.id === selectedId) ?? null;
+  const filteredHorses = useMemo(() => {
+    const q = horseQuery.trim().toLowerCase();
+    if (!q) return horses;
+    return horses.filter((horse) =>
+      [horse.horse_name, horse.breed, horse.box_code, horse.section, horse.microchip_number, horse.passport_number]
+        .some((field) => field?.toLowerCase().includes(q)),
+    );
+  }, [horses, horseQuery]);
   const recentMetrics = useMemo(() => dashboard?.training_metrics ?? [], [dashboard]);
   const latestWeight = recentMetrics.find((item) => item.body_weight_kg != null)?.body_weight_kg
     ?? currentHorse?.current_weight_kg
     ?? null;
-  const selectedTab = TABS.find((item) => item.id === tab)!;
-  const TabIcon = selectedTab.icon;
+  if (tab === "horse-requests") {
+    return (
+      <section className="space-y-5" aria-label="Yêu cầu hồ sơ ngựa">
+        <HorseRegistrationPanel />
+      </section>
+    );
+  }
 
   return (
-    <section className="mt-5 space-y-6" aria-label="Theo dõi ngựa">
-      <div className="flex justify-end border-b border-equine-line pb-5">
-        <div className="flex items-center gap-3 text-xs text-slate-500">
-          <span>{updatedAt ? `Cập nhật ${formatDateTime(updatedAt.toISOString())}` : "Tự cập nhật mỗi 30 giây"}</span>
-          <button type="button" className="soft-button h-10 px-3" disabled={!selectedId || loadingDashboard} onClick={() => void refreshDashboard()} aria-label="Làm mới thông tin">
-            <RefreshCw size={15} className={loadingDashboard ? "animate-spin" : ""} /> Làm mới
-          </button>
-        </div>
-      </div>
-
+    <section className="space-y-5" aria-label="Theo dõi ngựa">
       {error && <Notice error>{error}</Notice>}
-      <NotificationCenter />
       {transferRequests.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-950 shadow-sm">
           <div>
@@ -131,43 +154,142 @@ export default function HorseOwnerWorkspace() {
               {transferRequests.map((item) => item.horse_name).join(", ")} · Club Manager đã xem xét hồ sơ và cần bạn xác nhận đồng ý hoặc từ chối.
             </p>
           </div>
-          <Link href={Routes.horses} className="gold-button !min-h-[36px] !px-3.5 !text-xs">
+          <button type="button" onClick={() => selectTab("horse-requests")} className="gold-button !min-h-[36px] !px-3.5 !text-xs">
             Mở Yêu cầu hồ sơ để xác nhận
-          </Link>
+          </button>
         </div>
       )}
       {loadingHorses ? <Notice>Đang tải ngựa thuộc sở hữu của bạn...</Notice> : horses.length === 0 ? (
         <div className="rounded-lg border border-equine-line bg-white p-6 shadow-sm">
           <Notice>Bạn chưa có ngựa được liên kết. Mở mục Yêu cầu hồ sơ để gửi yêu cầu đăng ký mới hoặc liên kết hồ sơ ngựa có sẵn.</Notice>
           <div className="mt-4">
-            <Link href={Routes.horses} className="gold-button">Mở Yêu cầu hồ sơ</Link>
+            <button type="button" onClick={() => selectTab("horse-requests")} className="gold-button">Mở Yêu cầu hồ sơ</button>
           </div>
         </div>
+      ) : tab === "overview" ? (
+        <OwnerHorsesOverview
+          horses={horses}
+          onSelectHorse={(id) => {
+            setSelectedId(id);
+            selectTab("training");
+          }}
+        />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {horses.map((horse) => (
-              <button key={horse.id} type="button" onClick={() => { setSelectedId(horse.id); selectTab("overview"); }}
-                aria-pressed={selectedId === horse.id}
-                className={`flex min-w-0 items-center gap-3 rounded-lg border p-3 text-left shadow-sm transition ${selectedId === horse.id ? "border-equine-navy bg-slate-50 ring-1 ring-equine-navy/20" : "border-equine-line bg-white hover:border-equine-teal/50"}`}>
-                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-equine-mist"><HorseImage horse={horse} /></div>
-                <div className="min-w-0 flex-1"><p className="truncate font-semibold text-equine-navy">{horse.horse_name}</p><p className="truncate text-xs text-slate-500">{horse.breed ?? "Chưa cập nhật giống"} · {horse.box_code ?? "Chưa xếp chuồng"}</p></div>
-                <StatusBadge horse={horse} />
-              </button>
-            ))}
-          </div>
-
           {currentHorse && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-equine-line bg-white px-4 py-3 shadow-sm">
-              <div className="text-sm text-slate-600"><strong className="text-equine-navy">{currentHorse.horse_name}</strong>{currentHorse.section ? ` · Khu ${currentHorse.section}` : ""}{updatedAt ? <span className="ml-2 text-xs text-slate-400">· Làm mới mỗi 30 giây</span> : null}</div>
-              <Link href={Routes.horse(currentHorse.id)} className="text-sm font-semibold text-equine-navy underline underline-offset-4">Mở hồ sơ lý lịch</Link>
+            <div className="flex flex-col gap-3 rounded-lg border border-equine-line bg-white p-3.5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+              <div className="relative min-w-0 flex-1" ref={pickerRef}>
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen((open) => !open)}
+                  aria-expanded={pickerOpen}
+                  aria-haspopup="listbox"
+                  className="flex w-full max-w-xl items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-2 pr-3 text-left transition hover:border-equine-blue/50 hover:bg-white"
+                >
+                  <div className="h-11 w-11 shrink-0 overflow-hidden rounded-md bg-equine-mist">
+                    <HorseImage horse={currentHorse} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-semibold text-equine-navy">{currentHorse.horse_name}</span>
+                      <StatusBadge horse={currentHorse} />
+                    </div>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                      {currentHorse.breed ?? "Chưa cập nhật giống"} · {currentHorse.box_code ?? "Chưa xếp chuồng"}
+                      {currentHorse.section ? ` · Khu ${currentHorse.section}` : ""}
+                    </p>
+                  </div>
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600">
+                    {horses.length > 1 ? `Đổi (${horses.length})` : "1 ngựa"}
+                    <ChevronDown size={14} className={`transition-transform ${pickerOpen ? "rotate-180" : ""}`} />
+                  </span>
+                </button>
+
+                {pickerOpen && (
+                  <div className="absolute left-0 top-full z-40 mt-2 w-full max-w-xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
+                    <div className="border-b border-slate-100 p-2.5">
+                      <div className="relative flex items-center">
+                        <Search size={15} className="pointer-events-none absolute left-3 text-slate-400" />
+                        <input
+                          ref={searchInputRef}
+                          type="text"
+                          value={horseQuery}
+                          onChange={(event) => setHorseQuery(event.target.value)}
+                          placeholder="Tìm ngựa theo tên, giống, mã chuồng..."
+                          aria-label="Tìm kiếm ngựa của bạn"
+                          className="field-control !min-h-[36px] w-full pl-9 pr-8 text-xs"
+                        />
+                        {horseQuery && (
+                          <button
+                            type="button"
+                            onClick={() => { setHorseQuery(""); searchInputRef.current?.focus(); }}
+                            aria-label="Xóa từ khóa tìm kiếm"
+                            className="absolute right-2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div role="listbox" aria-label="Danh sách ngựa của bạn" className="max-h-72 divide-y divide-slate-100 overflow-y-auto">
+                      {filteredHorses.length === 0 ? (
+                        <p className="p-4 text-center text-xs text-slate-500">
+                          Không tìm thấy ngựa phù hợp với “{horseQuery}”.
+                        </p>
+                      ) : (
+                        filteredHorses.map((horse) => {
+                          const isSelected = horse.id === selectedId;
+                          return (
+                            <button
+                              key={horse.id}
+                              type="button"
+                              role="option"
+                              aria-selected={isSelected}
+                              onClick={() => {
+                                setSelectedId(horse.id);
+                                setPickerOpen(false);
+                                setHorseQuery("");
+                              }}
+                              className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
+                                isSelected ? "bg-blue-50/70" : "hover:bg-slate-50"
+                              }`}
+                            >
+                              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-equine-mist">
+                                <HorseImage horse={horse} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-equine-navy">{horse.horse_name}</p>
+                                <p className="truncate text-xs text-slate-500">
+                                  {horse.breed ?? "Chưa cập nhật giống"} · {horse.box_code ?? "Chưa xếp chuồng"}
+                                </p>
+                              </div>
+                              <StatusBadge horse={horse} />
+                              {isSelected && <Check size={15} className="shrink-0 text-equine-blue" />}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5 lg:justify-end">
+                <span className="text-xs text-slate-400">
+                  {updatedAt ? `Cập nhật ${formatDateTime(updatedAt.toISOString())}` : "Tự cập nhật mỗi 30 giây"}
+                </span>
+                <Link href={Routes.horse(currentHorse.id)} className="soft-button !min-h-[34px] !px-3 !text-xs">
+                  Mở hồ sơ lý lịch
+                </Link>
+                <button type="button" className="soft-button !min-h-[34px] !px-3 !text-xs" disabled={!selectedId || loadingDashboard} onClick={() => void refreshDashboard()} aria-label="Làm mới thông tin">
+                  <RefreshCw size={14} className={loadingDashboard ? "animate-spin" : ""} /> Làm mới
+                </button>
+              </div>
             </div>
           )}
 
           {loadingDashboard && !dashboard ? <Notice>Đang tải dữ liệu của {currentHorse?.horse_name}...</Notice> : dashboard?.horse.id === selectedId ? (
             <div className="space-y-5">
-              <div className="flex items-center gap-2 text-equine-navy"><TabIcon size={19} /><h3 className="font-sans text-xl font-semibold">{selectedTab.label}</h3></div>
-              {tab === "overview" && <OverviewPanel dashboard={dashboard} latestWeight={latestWeight} />}
               {tab === "health" && <HealthPanel dashboard={dashboard} latestWeight={latestWeight} />}
               {tab === "training" && <TrainingPanel dashboard={dashboard} />}
               {tab === "races" && <RacePanel dashboard={dashboard} />}
@@ -180,42 +302,144 @@ export default function HorseOwnerWorkspace() {
   );
 }
 
-function OverviewPanel({ dashboard, latestWeight }: { dashboard: OwnerDashboard; latestWeight: number | null }) {
-  const horse = dashboard.horse;
-  const nextSession = [...dashboard.training_schedules]
-    .filter((item) => item.event_date >= new Date().toISOString().slice(0, 10) && item.status !== "Cancelled" && item.status !== "Completed")
-    .sort((a, b) => a.event_date.localeCompare(b.event_date))[0];
-  const earned = dashboard.race_history.reduce((sum, item) => sum + (item.prize_amount ?? 0), 0);
+function OwnerHorsesOverview({
+  horses,
+  onSelectHorse,
+}: {
+  horses: OwnerHorse[];
+  onSelectHorse: (horseId: string) => void;
+}) {
+  const [searchInput, setSearchInput] = useState("");
+  const [statusFilter, setStatusFilter] = useState("ALL");
+
+  const filtered = useMemo(() => {
+    const q = searchInput.trim().toLowerCase();
+    return horses.filter((horse) => {
+      if (statusFilter !== "ALL" && horse.current_status !== statusFilter) return false;
+      if (!q) return true;
+      return [
+        horse.horse_name,
+        horse.breed,
+        horse.box_code,
+        horse.section,
+        horse.microchip_number,
+        horse.passport_number,
+      ].some((field) => field?.toLowerCase().includes(q));
+    });
+  }, [horses, searchInput, statusFilter]);
+
   return (
-    <div className="grid gap-5 xl:grid-cols-[1.2fr_1fr]">
-      <Panel title="Hồ sơ & dòng dõi" icon={ClipboardList}>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <InfoTile label="Giống" value={horse.breed ?? "Chưa cập nhật"} />
-          <InfoTile label="Năm sinh" value={horse.birth_year == null ? "Chưa cập nhật" : String(horse.birth_year)} />
-          <InfoTile label="Tên cha" value={horse.pedigree_father ?? "Chưa cập nhật"} />
-          <InfoTile label="Tên mẹ" value={horse.pedigree_mother ?? "Chưa cập nhật"} />
-          <InfoTile label="Microchip" value={horse.microchip_number ?? "Chưa cập nhật"} />
-          <InfoTile label="Hộ chiếu ngựa" value={horse.passport_number ?? "Chưa cập nhật"} />
-          <InfoTile label="Chiều cao đến vai" value={horse.height_cm == null ? "Chưa cập nhật" : `${horse.height_cm} cm`} />
-          <InfoTile label="Chuồng" value={horse.box_code ?? "Chưa xếp chuồng"} />
-          <InfoTile label="Chủ sở hữu" value={horse.owner_name ?? "Bạn"} />
+    <div className="space-y-5">
+      {/* Filter Bar matching HorsesPage style */}
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Bộ lọc tìm kiếm</span>
+          {(searchInput || statusFilter !== "ALL") && (
+            <button
+              type="button"
+              className="text-xs font-medium text-equine-blue hover:underline"
+              onClick={() => { setSearchInput(""); setStatusFilter("ALL"); }}
+            >
+              Xóa bộ lọc
+            </button>
+          )}
         </div>
-      </Panel>
-      <div className="space-y-5">
-        <Panel title="Sức khỏe & sẵn sàng thi đấu" icon={Activity}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <InfoTile label="Tình trạng sức khỏe" value={healthLabel(horse.current_status)} />
-            <InfoTile label="Sẵn sàng thi đấu" value={readinessLabel(horse.readiness_status)} />
-            <InfoTile label="Cân nặng gần nhất" value={latestWeight == null ? "Chưa có dữ liệu" : `${latestWeight} kg`} />
-            <InfoTile label="Huấn luyện" value={horse.is_training_locked ? "Đang tạm khóa" : "Không bị khóa"} />
-          </div>
-          {horse.is_training_locked && horse.lock_reason && <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Lý do tạm khóa: {horse.lock_reason}</p>}
-        </Panel>
-        <Panel title="Sắp tới & thành tích" icon={CalendarDays}>
-          {nextSession ? <p className="text-sm text-slate-700"><strong>{nextSession.session_type ?? "Buổi tập"}</strong> · {formatDate(nextSession.event_date)}{nextSession.start_time ? ` lúc ${formatTime(nextSession.start_time)}` : ""}{nextSession.track_surface ? ` · ${nextSession.track_surface}` : ""}</p> : <Empty>Chưa có lịch tập sắp tới.</Empty>}
-          <p className="mt-3 text-sm text-slate-600">{dashboard.race_history.length} lần ghi danh thi đấu · {money(earned)} tiền thưởng đã ghi nhận</p>
-        </Panel>
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus-within:border-equine-blue focus-within:bg-white focus-within:ring-2 focus-within:ring-equine-blue/15">
+            <Search size={16} className="shrink-0 text-slate-400" />
+            <input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              className="w-full border-0 bg-transparent text-sm text-slate-800 outline-none placeholder:text-slate-400"
+              placeholder="Tìm theo tên, giống, chuồng, chip hoặc hộ chiếu..."
+            />
+          </label>
+          <label className="flex items-center gap-2.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus-within:border-equine-blue focus-within:bg-white focus-within:ring-2 focus-within:ring-equine-blue/15">
+            <Filter size={16} className="shrink-0 text-slate-400" />
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="w-full cursor-pointer border-0 bg-transparent text-sm text-slate-800 outline-none"
+            >
+              <option value="ALL">Tất cả trạng thái</option>
+              <option value="Healthy">Khỏe mạnh</option>
+              <option value="Monitoring">Cần theo dõi</option>
+              <option value="Quarantine">Cách ly</option>
+              <option value="Injured">Chấn thương</option>
+            </select>
+          </label>
+        </div>
       </div>
+
+      <p className="text-xs text-slate-500">
+        Hiển thị <strong className="font-semibold text-slate-800">{filtered.length}</strong> / {horses.length} hồ sơ ngựa
+      </p>
+
+      {filtered.length === 0 ? (
+        <Notice>Không tìm thấy ngựa phù hợp với tiêu chí lọc. Vui lòng thử từ khóa khác hoặc xóa bộ lọc.</Notice>
+      ) : (
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((horse) => (
+            <article
+              key={horse.id}
+              className="horse-card overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+            >
+              <div className="relative h-48 w-full overflow-hidden bg-slate-100">
+                <HorseImage horse={horse} />
+              </div>
+              <div className="space-y-3.5 p-4">
+                <div className="flex items-start justify-between gap-2.5">
+                  <div className="min-w-0">
+                    <h2 className="truncate font-sans text-lg font-semibold text-slate-900">
+                      {horse.horse_name}
+                    </h2>
+                    <p className="truncate text-xs text-slate-500">
+                      {horse.breed ?? "Chưa cập nhật giống"}{horseGender(horse.gender) ? ` · ${horseGender(horse.gender)}` : ""}
+                    </p>
+                  </div>
+                  <StatusBadge horse={horse} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                  <div className="rounded-lg bg-slate-50 p-2.5">
+                    <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Chuồng</span>
+                    <span className="mt-0.5 block truncate font-semibold text-slate-800">{horse.box_code ?? "—"}</span>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-2.5">
+                    <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Năm sinh</span>
+                    <span className="mt-0.5 block truncate font-semibold text-slate-800">{horse.birth_year ?? "—"}</span>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-2.5">
+                    <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Cân nặng</span>
+                    <span className="mt-0.5 block truncate font-semibold text-slate-800">
+                      {horse.current_weight_kg == null ? "—" : `${horse.current_weight_kg} kg`}
+                    </span>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 p-2.5">
+                    <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Tập luyện</span>
+                    <span className={`mt-0.5 block truncate font-semibold ${horse.is_training_locked ? "text-amber-700" : "text-emerald-700"}`}>
+                      {horse.is_training_locked ? "Đang khóa" : "Sẵn sàng"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 border-t border-slate-100 pt-2">
+                  <Link className="gold-button flex-1 !min-h-[36px] !text-xs" href={Routes.horse(horse.id)}>
+                    Xem chi tiết
+                  </Link>
+                  <button
+                    type="button"
+                    className="soft-button !min-h-[36px] !px-3 !text-xs"
+                    onClick={() => onSelectHorse(horse.id)}
+                  >
+                    Lịch tập
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -228,8 +452,16 @@ function HealthPanel({ dashboard, latestWeight }: { dashboard: OwnerDashboard; l
         <InfoTile label="Cân nặng hiện tại" value={latestWeight == null ? "Chưa có dữ liệu" : `${latestWeight} kg`} detail="Từ lần cân gần nhất hoặc hồ sơ ngựa" />
         <InfoTile label="Sẵn sàng thi đấu" value={readinessLabel(horse.readiness_status)} />
         <InfoTile label="Trạng thái sức khỏe" value={healthLabel(horse.current_status)} />
-        <InfoTile label="Khóa huấn luyện" value={horse.is_training_locked ? horse.lock_level ?? "Đang khóa" : "Không khóa"} detail={horse.is_training_locked ? horse.lock_reason ?? undefined : undefined} />
+        <InfoTile label="Khóa huấn luyện" value={horse.is_training_locked ? lockLevelLabel(horse.lock_level) : "Không khóa"} detail={horse.is_training_locked ? horse.lock_reason ?? undefined : undefined} />
       </div>
+      <Panel title="Lịch y tế & chăm sóc định kỳ" icon={Stethoscope}>
+        <OwnerScheduleCalendar
+          trainingSchedules={dashboard.training_schedules}
+          careSchedules={dashboard.care_schedules ?? []}
+          defaultShowTraining={false}
+          defaultShowCare={true}
+        />
+      </Panel>
       <Panel title="Chỉ số khám gần đây" icon={HeartPulse}>
         {dashboard.health_exams.length === 0 ? <Empty>Chưa có lần khám nào được ghi nhận.</Empty> : <div className="space-y-3">{dashboard.health_exams.map((exam) => (
           <article key={exam.id} className="rounded-xl border border-equine-line bg-white p-4">
@@ -249,8 +481,13 @@ function HealthPanel({ dashboard, latestWeight }: { dashboard: OwnerDashboard; l
 function TrainingPanel({ dashboard }: { dashboard: OwnerDashboard }) {
   return (
     <div className="space-y-5">
-      <Panel title="Lịch tập luyện" icon={CalendarDays}>
-        {dashboard.training_schedules.length === 0 ? <Empty>Chưa có lịch tập luyện được công bố.</Empty> : <div className="space-y-2">{dashboard.training_schedules.map((item) => <article key={item.id} className="flex flex-col gap-2 rounded-xl border border-equine-line p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-equine-navy">{item.title ?? sessionLabel(item.session_type)}</p><p className="mt-1 text-sm text-slate-600">{formatDate(item.event_date)}{item.start_time ? ` · ${formatTime(item.start_time)}` : ""}{item.end_time ? `–${formatTime(item.end_time)}` : ""}{item.track_surface ? ` · ${item.track_surface}` : ""}{item.stage_name ? ` · ${item.stage_name}` : ""}</p></div><span className="w-fit rounded-full bg-equine-mist px-3 py-1 text-xs font-semibold text-equine-navy">{scheduleStatus(item.status)}</span></article>)}</div>}
+      <Panel title="Lịch tập luyện & Lịch y tế theo tuần" icon={CalendarDays}>
+        <OwnerScheduleCalendar
+          trainingSchedules={dashboard.training_schedules}
+          careSchedules={dashboard.care_schedules ?? []}
+          defaultShowTraining={true}
+          defaultShowCare={true}
+        />
       </Panel>
       <Panel title="Video đua thử & tập luyện" icon={Activity}>
         {dashboard.training_videos.length === 0 ? <Empty>Chưa có video nào được chia sẻ cho chủ ngựa.</Empty> : <div className="grid gap-4 md:grid-cols-2">{dashboard.training_videos.map((video) => <VideoCard key={video.id} video={video} />)}</div>}
@@ -258,6 +495,267 @@ function TrainingPanel({ dashboard }: { dashboard: OwnerDashboard }) {
       <Panel title="Nhật ký nhận xét của huấn luyện viên" icon={ClipboardList}>
         {dashboard.training_metrics.filter((item) => item.trainer_review?.trim()).length === 0 ? <Empty>Chưa có nhận xét huấn luyện được ghi nhận.</Empty> : <div className="space-y-3">{dashboard.training_metrics.filter((item) => item.trainer_review?.trim()).map((item) => <article key={item.id} className="rounded-xl border border-equine-line bg-[#f7f9ff] p-4"><p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{item.trainer_review}</p><p className="mt-2 text-xs text-slate-500">{item.recorded_by_name ? `${item.recorded_by_name} · ` : ""}{formatDateTime(item.recorded_at)}</p></article>)}</div>}
       </Panel>
+    </div>
+  );
+}
+
+const TIMETABLE_SLOTS = [
+  { id: 1, label: "Ca 1", timeRange: "06:00 – 09:00" },
+  { id: 2, label: "Ca 2", timeRange: "09:00 – 12:00" },
+  { id: 3, label: "Ca 3", timeRange: "14:00 – 16:30" },
+  { id: 4, label: "Ca 4", timeRange: "16:30 – 19:00" },
+] as const;
+
+function slotForTime(startTime: string | null | undefined): number {
+  if (!startTime) return 1;
+  const hour = Number(startTime.slice(0, 2));
+  if (Number.isNaN(hour) || hour < 9) return 1;
+  if (hour < 13) return 2;
+  if (hour < 16) return 3;
+  return 4;
+}
+
+function mondayOfWeek(dateIso: string) {
+  const date = new Date(`${dateIso}T12:00:00`);
+  const day = date.getDay();
+  date.setDate(date.getDate() - (day === 0 ? 6 : day - 1));
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function addDays(dateIso: string, delta: number) {
+  const date = new Date(`${dateIso}T12:00:00`);
+  date.setDate(date.getDate() + delta);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function weekdayShortLabel(dateIso: string) {
+  const labels = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+  return labels[new Date(`${dateIso}T12:00:00`).getDay()] ?? "";
+}
+
+function OwnerScheduleCalendar({
+  trainingSchedules,
+  careSchedules,
+  defaultShowTraining,
+  defaultShowCare,
+}: {
+  trainingSchedules: OwnerDashboard["training_schedules"];
+  careSchedules: NonNullable<OwnerDashboard["care_schedules"]>;
+  defaultShowTraining: boolean;
+  defaultShowCare: boolean;
+}) {
+  const todayStr = localTodayIso();
+  const [weekStart, setWeekStart] = useState(() => mondayOfWeek(todayStr));
+  const [showTraining, setShowTraining] = useState(defaultShowTraining);
+  const [showCare, setShowCare] = useState(defaultShowCare);
+
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+  const daySet = useMemo(() => new Set(days), [days]);
+
+  const weekTrainingCount = useMemo(
+    () => trainingSchedules.filter((item) => daySet.has(item.event_date)).length,
+    [trainingSchedules, daySet],
+  );
+  const weekCareCount = useMemo(
+    () => careSchedules.filter((item) => daySet.has(item.event_date)).length,
+    [careSchedules, daySet],
+  );
+
+  const nearestEventDate = useMemo(() => {
+    const allDates = [
+      ...(showTraining ? trainingSchedules.map((i) => i.event_date) : []),
+      ...(showCare ? careSchedules.map((i) => i.event_date) : []),
+    ].filter(Boolean);
+    if (allDates.length === 0) return null;
+    const upcoming = allDates.filter((d) => d >= todayStr).sort();
+    if (upcoming.length > 0) return upcoming[0];
+    return [...allDates].sort().at(-1) ?? null;
+  }, [trainingSchedules, careSchedules, showTraining, showCare, todayStr]);
+
+  const weekRangeLabel = `${days[0].slice(8, 10)}/${days[0].slice(5, 7)} – ${days[6].slice(8, 10)}/${days[6].slice(5, 7)}/${days[6].slice(0, 4)}`;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-equine-navy">
+            Tuần {weekRangeLabel}
+          </span>
+          <button type="button" className="soft-button !min-h-[32px] !px-2.5 !text-xs" onClick={() => setWeekStart(addDays(weekStart, -7))}>
+            <ArrowLeft size={13} /> Tuần trước
+          </button>
+          <button type="button" className="soft-button !min-h-[32px] !px-2.5 !text-xs" onClick={() => setWeekStart(mondayOfWeek(todayStr))}>
+            Tuần hiện tại
+          </button>
+          <button type="button" className="soft-button !min-h-[32px] !px-2.5 !text-xs" onClick={() => setWeekStart(addDays(weekStart, 7))}>
+            Tuần sau <ArrowRight size={13} />
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50/60 px-2.5 py-1.5 text-xs font-semibold text-blue-900">
+            <input type="checkbox" checked={showTraining} onChange={(e) => setShowTraining(e.target.checked)} className="rounded border-blue-300" />
+            Lịch tập ({weekTrainingCount})
+          </label>
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-purple-200 bg-purple-50/70 px-2.5 py-1.5 text-xs font-semibold text-purple-900">
+            <input type="checkbox" checked={showCare} onChange={(e) => setShowCare(e.target.checked)} className="rounded border-purple-300" />
+            Lịch Y tế ({weekCareCount})
+          </label>
+        </div>
+      </div>
+
+      {weekTrainingCount === 0 && weekCareCount === 0 && nearestEventDate && !daySet.has(nearestEventDate) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-600">
+          <span>Tuần này chưa có lịch được xếp cho ngựa.</span>
+          <button
+            type="button"
+            className="font-semibold text-equine-blue hover:underline"
+            onClick={() => setWeekStart(mondayOfWeek(nearestEventDate))}
+          >
+            Xem tuần có lịch gần nhất ({formatDate(nearestEventDate)})
+          </button>
+        </div>
+      )}
+
+      <div className="overflow-x-auto rounded-lg border border-slate-300">
+        <table className="w-full min-w-[920px] border-collapse text-left text-xs">
+          <thead>
+            <tr className="border-b border-slate-300">
+              <th className="w-24 border-r border-slate-300 bg-slate-100 p-2.5 text-center font-semibold uppercase tracking-wide text-slate-800">
+                Khung giờ
+              </th>
+              {days.map((day) => {
+                const isToday = day === todayStr;
+                return (
+                  <th
+                    key={day}
+                    className={`border-r border-slate-300 p-2.5 text-center last:border-r-0 ${
+                      isToday ? "border-b-2 border-emerald-700 bg-[#C3E6CB] text-[#0A4125]" : "bg-slate-100 text-slate-800"
+                    }`}
+                  >
+                    <div className="flex flex-col items-center">
+                      <span className="font-semibold">
+                        {weekdayShortLabel(day)} ({day.slice(8, 10)}/{day.slice(5, 7)})
+                      </span>
+                      {isToday && (
+                        <span className="mt-0.5 rounded bg-emerald-800 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                          Hôm nay
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-300">
+            {TIMETABLE_SLOTS.map((slot) => (
+              <tr key={slot.id} className="transition-colors hover:bg-slate-50/50">
+                <td className="border-r border-slate-300 bg-slate-100/80 p-2.5 text-center align-middle text-slate-900">
+                  <span className="block text-sm font-semibold">{slot.label}</span>
+                  <span className="mt-0.5 block whitespace-nowrap text-[11px] text-slate-600">{slot.timeRange}</span>
+                </td>
+                {days.map((day) => {
+                  const cellTraining = showTraining
+                    ? trainingSchedules.filter((item) => item.event_date === day && slotForTime(item.start_time) === slot.id)
+                    : [];
+                  const cellCare = showCare
+                    ? careSchedules.filter((item) => item.event_date === day && slotForTime(item.start_time) === slot.id)
+                    : [];
+                  return (
+                    <td
+                      key={`${slot.id}-${day}`}
+                      className={`border-r border-slate-300 p-2 align-top last:border-r-0 ${day === todayStr ? "bg-[#F3FAF5]" : "bg-white"}`}
+                    >
+                      {cellTraining.length === 0 && cellCare.length === 0 ? (
+                        <div className="flex min-h-[74px] items-center justify-center text-sm text-slate-300 select-none">—</div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {cellCare.map((care) => {
+                            const isCompleted = care.status === "Completed";
+                            const isOverdue = care.status === "Scheduled" && care.event_date < todayStr;
+                            return (
+                              <div
+                                key={`care-${care.id}`}
+                                className={`rounded-md border p-2 text-[11px] ${
+                                  isOverdue
+                                    ? "border-rose-300 bg-rose-50/90 text-rose-950"
+                                    : isCompleted
+                                      ? "border-emerald-300 bg-emerald-50/80 text-emerald-950"
+                                      : "border-purple-300 bg-purple-50/90 text-purple-950"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-1">
+                                  <strong className="font-semibold leading-snug">
+                                    🩺 {careTypeLabel(care.care_type, care.title)}
+                                  </strong>
+                                  <span
+                                    className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ${
+                                      isOverdue
+                                        ? "bg-rose-600 text-white"
+                                        : isCompleted
+                                          ? "bg-emerald-200 text-emerald-900"
+                                          : "bg-purple-200 text-purple-900"
+                                    }`}
+                                  >
+                                    {isOverdue ? "Quá hạn" : isCompleted ? "Đã khám" : "Lịch Y tế"}
+                                  </span>
+                                </div>
+                                {care.start_time && (
+                                  <p className="mt-1 text-[10px] opacity-80">
+                                    {formatTime(care.start_time)}{care.end_time ? ` – ${formatTime(care.end_time)}` : ""}
+                                  </p>
+                                )}
+                                {care.doctor_name && <p className="mt-0.5 truncate text-[10px] opacity-80">BS. {care.doctor_name}</p>}
+                              </div>
+                            );
+                          })}
+
+                          {cellTraining.map((item) => {
+                            const isCompleted = item.status === "Completed";
+                            const isCancelled = item.status === "Cancelled";
+                            const isMissed = item.status === "Missed" || item.status === "Blocked";
+                            return (
+                              <div
+                                key={`train-${item.id}`}
+                                className={`rounded-md border p-2 text-[11px] ${
+                                  isCancelled
+                                    ? "border-slate-200 bg-slate-100 text-slate-500 line-through"
+                                    : isCompleted
+                                      ? "border-emerald-300 bg-emerald-50/85 text-emerald-950"
+                                      : isMissed
+                                        ? "border-amber-300 bg-amber-50/90 text-amber-950"
+                                        : "border-blue-200 bg-blue-50/85 text-blue-950"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-1">
+                                  <strong className="font-semibold leading-snug">
+                                    {item.title ?? sessionLabel(item.session_type)}
+                                  </strong>
+                                  <span className="shrink-0 rounded bg-white/80 px-1.5 py-0.5 text-[9px] font-semibold">
+                                    {scheduleStatus(item.status)}
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-[10px] opacity-80">
+                                  {item.start_time ? `${formatTime(item.start_time)}${item.end_time ? `–${formatTime(item.end_time)}` : ""}` : slot.timeRange}
+                                  {item.track_surface ? ` · ${trackSurfaceLabel(item.track_surface)}` : ""}
+                                </p>
+                                {item.assigned_groom_name && (
+                                  <p className="mt-0.5 truncate text-[10px] opacity-80">Groom: {item.assigned_groom_name}</p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -516,14 +1014,14 @@ function FinancePanel({ dashboard, year, onYearChange }: { dashboard: OwnerDashb
   const totals = report.totals;
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Báo cáo định kỳ</p><h4 className="mt-1 font-sans text-xl font-semibold text-equine-navy">Thu chi theo tháng</h4></div><label className="text-sm font-medium text-slate-600">Năm báo cáo<select aria-label="Năm báo cáo" value={year} onChange={(event) => onYearChange(Number(event.target.value))} className="field-control ml-2 inline-flex h-10 w-28 px-3">{Array.from({ length: new Date().getFullYear() - 1999 }, (_, index) => new Date().getFullYear() - index).map((item) => <option key={item} value={item}>{item}</option>)}</select></label></div>
+      <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="eyebrow">Báo cáo định kỳ</p><h4 className="mt-1 font-sans text-xl font-semibold text-equine-navy">Thu chi theo tháng</h4></div><label className="text-sm font-medium text-slate-600">Năm báo cáo<select aria-label="Năm báo cáo" value={year} onChange={(event) => onYearChange(Number(event.target.value))} className="field-control ml-2 inline-flex h-10 w-28 px-3">{Array.from({ length: 5 }, (_, index) => new Date().getFullYear() - index).map((item) => <option key={item} value={item}>{item}</option>)}</select></label></div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><InfoTile label="Chi phí nuôi dưỡng" value={money(totals.care_cost)} /><InfoTile label="Chi phí y tế" value={money(totals.medical_cost)} /><InfoTile label="Tổng chi phí đã phân loại" value={money(totals.total_expenses)} /><InfoTile label="Doanh thu tiền thưởng" value={money(totals.prize_income)} /></div>
       {totals.other_amount > 0 && <p className="rounded-xl border border-equine-line bg-white p-3 text-xs text-slate-500">Chưa phân loại: {money(totals.other_amount)}.</p>}
       <Panel title="Tổng hợp từng tháng" icon={Wallet}>
         {report.monthly.length === 0 ? <Empty>Chưa có giao dịch tài chính cho năm {year}.</Empty> : <div className="overflow-x-auto"><table className="w-full min-w-[600px] text-left text-sm"><thead className="text-xs uppercase text-slate-500"><tr><th className="pb-3 pr-4">Kỳ</th><th className="pb-3 pr-4">Nuôi dưỡng</th><th className="pb-3 pr-4">Y tế</th><th className="pb-3 pr-4">Tiền thưởng</th><th className="pb-3">Khác</th></tr></thead><tbody>{report.monthly.map((month) => <tr key={month.billing_period} className="border-t border-equine-line"><td className="py-3 pr-4 font-semibold">{month.billing_period}</td><td className="py-3 pr-4">{money(month.care_cost)}</td><td className="py-3 pr-4">{money(month.medical_cost)}</td><td className="py-3 pr-4">{money(month.prize_income)}</td><td className="py-3">{money(month.other_amount)}</td></tr>)}</tbody></table></div>}
       </Panel>
       <Panel title="Các khoản đã ghi nhận" icon={ClipboardList}>
-        {report.transactions.length === 0 ? <Empty>Chưa có khoản thu chi trong kỳ.</Empty> : <div className="space-y-2">{report.transactions.map((transaction) => <article key={transaction.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-equine-line p-3"><div><p className="font-semibold text-equine-navy">{financialCategory(transaction.category)} · {transaction.transaction_type}</p><p className="mt-1 text-xs text-slate-500">Kỳ {transaction.billing_period} · {formatDateTime(transaction.created_at)}</p></div><strong className="text-sm text-equine-navy">{money(transaction.amount)}</strong></article>)}</div>}
+        {report.transactions.length === 0 ? <Empty>Chưa có khoản thu chi trong kỳ.</Empty> : <div className="space-y-2">{report.transactions.map((transaction) => <article key={transaction.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-equine-line p-3"><div><p className="font-semibold text-equine-navy">{transactionLabel(transaction.category, transaction.transaction_type)}</p><p className="mt-1 text-xs text-slate-500">Kỳ {transaction.billing_period} · {formatDateTime(transaction.created_at)}</p></div><strong className="text-sm text-equine-navy">{money(transaction.amount)}</strong></article>)}</div>}
       </Panel>
     </div>
   );
@@ -540,19 +1038,48 @@ function VideoCard({ video }: { video: OwnerDashboard["training_videos"][number]
 }
 
 function Panel({ title, icon: Icon, children }: { title: string; icon: typeof Activity; children: ReactNode }) {
-  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h2 className="mb-4 flex items-center gap-2 font-sans text-lg font-normal text-equine-navy"><Icon size={18} />{title}</h2>{children}</section>;
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h2 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Icon size={18} />{title}</h2>{children}</section>;
 }
 
 function InfoTile({ label, value, detail }: { label: string; value: string; detail?: string }) {
-  return <div className="rounded-lg border border-equine-line bg-[#f8fafc] p-4"><p className="text-xs font-normal uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 break-words text-sm font-semibold text-equine-navy">{value}</p>{detail && <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>}</div>;
+  return <div className="rounded-lg border border-equine-line bg-[#f8fafc] p-4"><p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 break-words text-sm font-semibold text-equine-navy">{value}</p>{detail && <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>}</div>;
 }
 
 function Empty({ children }: { children: ReactNode }) {
   return <p className="rounded-lg bg-[#f8fafc] p-4 text-sm text-slate-500">{children}</p>;
 }
 
+function localTodayIso() {
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "Asia/Ho_Chi_Minh",
+  }).format(new Date());
+}
+
 function healthLabel(value: string) {
   return ({ Healthy: "Khỏe mạnh", Injured: "Chấn thương", Quarantine: "Cách ly", Monitoring: "Đang theo dõi", "Under Observation": "Cần theo dõi", Sick: "Đang bệnh" } as Record<string, string>)[value] ?? value;
+}
+
+function careTypeLabel(careType: string | null | undefined, title: string | null | undefined) {
+  const map: Record<string, string> = {
+    Deworming: "Tẩy giun định kỳ",
+    Vaccination: "Tiêm phòng vắc-xin",
+    HoofCare: "Chăm sóc móng",
+    DentalCheck: "Khám răng",
+    GeneralCheckup: "Khám sức khỏe định kỳ",
+    Physiotherapy: "Vật lý trị liệu",
+  };
+  return (careType && map[careType]) || title || careType || "Chăm sóc y tế";
+}
+
+function lockLevelLabel(value: string | null | undefined) {
+  return ({ Warning: "Cảnh báo (tạm khóa)", Critical: "Khóa khẩn cấp" } as Record<string, string>)[value ?? ""] ?? "Đang tạm khóa";
+}
+
+function trackSurfaceLabel(value: string | null | undefined) {
+  return ({ Dirt: "Sân đất", Turf: "Sân cỏ", Grass: "Sân cỏ", Synthetic: "Sân tổng hợp" } as Record<string, string>)[value ?? ""] ?? value ?? "";
 }
 
 function readinessLabel(value: string | null | undefined) {
@@ -560,11 +1087,11 @@ function readinessLabel(value: string | null | undefined) {
 }
 
 function sessionLabel(value: string | null | undefined) {
-  return ({ TrialRun: "Đua thử", Race: "Đua thử", Training: "Tập luyện" } as Record<string, string>)[value ?? ""] ?? value ?? "Buổi tập";
+  return ({ TrialRun: "Đua thử", Race: "Đua thử", Training: "Tập luyện", Rest: "Nghỉ hồi phục" } as Record<string, string>)[value ?? ""] ?? value ?? "Buổi tập";
 }
 
 function scheduleStatus(value: string | null) {
-  return ({ Scheduled: "Đã lên lịch", Blocked: "Bị chặn do khóa y tế", InProgress: "Đang diễn ra", Completed: "Hoàn thành", Cancelled: "Đã hủy" } as Record<string, string>)[value ?? ""] ?? value ?? "Chưa xác định";
+  return ({ Scheduled: "Đã lên lịch", Blocked: "Bị chặn do khóa y tế", InProgress: "Đang diễn ra", Completed: "Hoàn thành", Missed: "Bỏ lỡ", Cancelled: "Đã hủy" } as Record<string, string>)[value ?? ""] ?? value ?? "Chưa xác định";
 }
 
 function entryStatus(value: string | null) {
@@ -578,6 +1105,13 @@ function entryStatus(value: string | null) {
 
 function financialCategory(value: string) {
   return ({ CARE: "Nuôi dưỡng", MEDICAL: "Y tế", PRIZE: "Tiền thưởng", OTHER: "Khoản khác" } as Record<string, string>)[value] ?? value;
+}
+
+function transactionLabel(category: string, type: string) {
+  const cat = financialCategory(category);
+  const norm = type.trim().toLowerCase();
+  if (!norm || ["care", "medical", "prize", "other"].includes(norm)) return cat;
+  return `${cat} · ${type}`;
 }
 
 function money(value: number) {
