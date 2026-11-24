@@ -45,7 +45,7 @@ import { activeRecurringRules, buildCareProjections, careRulesForDoctor } from "
 import { CompactId } from "@/components/shared/CompactId";
 import { StatTile } from "@/components/shared/StatTile";
 import type { Horse } from "@/api/horses/api";
-import { APP_MUTATION_COMPLETED_EVENT } from "@/api/client";
+import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError } from "@/api/client";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import { getUser } from "@/lib/session";
 import { useWorkspaceToast } from "@/components/horses/HorseShell";
@@ -1126,7 +1126,9 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     } catch (reason) {
       setMarkers([]);
       setLoadFailed(true);
-      setError(veterinarianError(reason));
+      setError(reason instanceof ApiRequestError && reason.status >= 500
+        ? `Không tải được hồ sơ chấn thương vì máy chủ lỗi (HTTP ${reason.status}). Vui lòng thử lại sau.`
+        : veterinarianError(reason));
     } finally {
       setLoading(false);
     }
@@ -1423,6 +1425,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
 
   return <SectionCard title="Chấn thương & phục hồi" description="Mỗi ca có một hồ sơ với lịch sử cập nhật trạng thái theo thời gian." icon={Activity} action={<button type="button" className="gold-button min-h-11 px-4" onClick={openCreate}>{creating ? "Đóng ghi nhận" : "Ghi nhận chấn thương"}</button>}>
     <ErrorLine>{error}</ErrorLine>
+    {loadFailed && <button type="button" className="soft-button mb-4 min-h-11 px-4" disabled={loading} onClick={() => void load()}>Thử tải lại hồ sơ chấn thương</button>}
     {!loading && !loadFailed && <>
       <div className={`mb-4 rounded-lg border px-4 py-3 text-sm font-medium leading-6 ${bannerClasses}`} role="status">{bannerText}</div>
       <div className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-4">

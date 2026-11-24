@@ -322,21 +322,23 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
         }),
       path,
       method,
-    );
-    inFlightGets.set(cacheKey, promise);
-    return promise
-      .then((result) => {
-        writeGetCache(cacheKey, result, Date.now(), path);
-        if (notifyOnUpdate) scheduleSwrNotify(path);
+    ).then((result) => {
+        // An intervening mutation/session change invalidates this response too.
+        if (inFlightGets.get(cacheKey) === promise) {
+          writeGetCache(cacheKey, result, Date.now(), path);
+          if (notifyOnUpdate) scheduleSwrNotify(path);
+        }
         return result;
       })
       .finally(() => {
-        inFlightGets.delete(cacheKey);
+        if (inFlightGets.get(cacheKey) === promise) inFlightGets.delete(cacheKey);
       });
+    inFlightGets.set(cacheKey, promise);
+    return promise;
   };
 
   if (canCache) {
-    const cached = readGetCache<T>(cacheKey, Date.now());
+    const cached = options.cache === "reload" ? undefined : readGetCache<T>(cacheKey, Date.now());
     if (cached !== undefined) {
       if (cached.isStale) {
         void fetchAndCache(true).catch(() => {});

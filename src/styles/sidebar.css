@@ -24,14 +24,11 @@
 .equine-brand-mark {
   display: grid;
   place-items: center;
-  width: 40px;
+  width: 44px;
   height: 40px;
   border-radius: 10px;
-  background: #1040c5;
-  color: white;
-  font-size: 25px;
-  font-weight: 800;
-  font-style: italic;
+  /* Crop the horse from the original Equine logo without changing its artwork. */
+  background: #fff url("/assets/aistudio/image_f48a425a.png") -5px -4px / 118px auto no-repeat;
 }
 .equine-sidebar .horse-sidebar-scroll {
   margin: 0;

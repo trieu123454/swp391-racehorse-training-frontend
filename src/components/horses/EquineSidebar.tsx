@@ -297,7 +297,6 @@ export default function EquineSidebar({
           <Link href="/" aria-label="Equine - Về trang chủ">
             {compact ? (
               <span className="equine-brand-mark" aria-hidden="true">
-                E
               </span>
             ) : (
               <Brand />
