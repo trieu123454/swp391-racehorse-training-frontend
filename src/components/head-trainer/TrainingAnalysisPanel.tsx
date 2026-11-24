@@ -177,6 +177,19 @@ export default function TrainingAnalysisPanel({
       setLoading(false);
       return;
     }
+    if (from && to && from > to) {
+      setError("Ngày bắt đầu không được lớn hơn ngày kết thúc.");
+      setLoading(false);
+      return;
+    }
+    if (from && to) {
+      const spanDays = Math.round((Date.parse(`${to}T00:00:00`) - Date.parse(`${from}T00:00:00`)) / 86_400_000);
+      if (spanDays > 366) {
+        setError("Khoảng ngày phân tích tối đa 366 ngày.");
+        setLoading(false);
+        return;
+      }
+    }
 
     setLoading(true);
     Promise.all([
@@ -292,6 +305,7 @@ export default function TrainingAnalysisPanel({
               <input
                 type="date"
                 aria-label="Từ ngày"
+                max={to || undefined}
                 className="field-control h-8 px-2.5 text-xs"
                 value={from}
                 onChange={(event) => setFrom(event.target.value)}
@@ -300,6 +314,7 @@ export default function TrainingAnalysisPanel({
               <input
                 type="date"
                 aria-label="Đến ngày"
+                min={from || undefined}
                 className="field-control h-8 px-2.5 text-xs"
                 value={to}
                 onChange={(event) => setTo(event.target.value)}

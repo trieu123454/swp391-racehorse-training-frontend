@@ -5,6 +5,8 @@ import { formatDisplayDate } from "@/lib/display-format";
 import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
+import { ApiRequestError } from "@/api/client";
 import {
   AlertCircle,
   ArrowRight,
@@ -27,8 +29,8 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { errorMessage, openFreshDocument, type Horse } from "@/api/horses/api";
-import { HorseImage, Notice } from "@/components/horses/HorseUI";
+import { errorMessage, horseGender, openFreshDocument, type Horse } from "@/api/horses/api";
+import { HorseImage, Modal, Notice } from "@/components/horses/HorseUI";
 import {
   getHorseRegistrationRequests,
   getOwnerRegistrationDocumentUrl,
@@ -121,6 +123,7 @@ export default function HorseRegistrationPanel() {
   const [editingRequest, setEditingRequest] = useState<HorseRegistrationRequest | null>(null);
   const [transferNotes, setTransferNotes] = useState<Record<string, string>>({});
   const [transferBusy, setTransferBusy] = useState("");
+  const [pendingTransfer, setPendingTransfer] = useState<{ request: OwnershipTransferRequest; action: "CONSENT" | "DECLINE" } | null>(null);
   const [requestType, setRequestType] = useState<HorseRegistrationSubmission["requestType"]>("REGISTER");
   const [activeTab, setActiveTab] = useState<"form" | "history">("form");
   const [showExtraSpecs, setShowExtraSpecs] = useState(false);
@@ -165,14 +168,24 @@ export default function HorseRegistrationPanel() {
   }, [horseImage]);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
-      const [nextRequests, nextTransfers] = await Promise.all([
+      const [nextRequests, nextTransfers] = await Promise.allSettled([
         getHorseRegistrationRequests(),
         getOwnershipTransferRequests(),
       ]);
-      setRequests(nextRequests);
-      setTransferRequests(nextTransfers);
-      setHistoryError("");
+      const failures: string[] = [];
+      const describeFailure = (label: string, reason: unknown) => {
+        const message = reason instanceof ApiRequestError && reason.status >= 500
+          ? `Máy chủ đang lỗi (HTTP ${reason.status}). Vui lòng thử lại sau.`
+          : errorMessage(reason);
+        failures.push(`${label}: ${message}`);
+      };
+      if (nextRequests.status === "fulfilled") setRequests(nextRequests.value);
+      else describeFailure("Hồ sơ đăng ký", nextRequests.reason);
+      if (nextTransfers.status === "fulfilled") setTransferRequests(nextTransfers.value);
+      else describeFailure("Chuyển quyền sở hữu", nextTransfers.reason);
+      setHistoryError(failures.join(" · "));
     } catch (reason) {
       setHistoryError(errorMessage(reason));
     } finally {
@@ -181,6 +194,7 @@ export default function HorseRegistrationPanel() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useAutoRefresh(load, { enabled: !saving && !historyError, intervalMs: 25_000 });
 
   function clearFieldError(...keys: RegistrationFieldKey[]) {
     setFieldErrors((current) => {
@@ -435,6 +449,7 @@ export default function HorseRegistrationPanel() {
       requestType,
       horseName,
       breed: isRegister ? String(values.get("breed") ?? "").trim() || null : null,
+      gender: isRegister ? String(values.get("gender") ?? "").trim() || null : null,
       birthYear,
       heightCm,
       currentWeightKg,
@@ -455,6 +470,7 @@ export default function HorseRegistrationPanel() {
         normText(input.ownerNote) !== normText(editingRequest.owner_note) ||
         (isRegister &&
           (normText(input.breed) !== normText(editingRequest.breed) ||
+            normText(input.gender) !== normText(editingRequest.gender) ||
             !sameOptionalNum(input.birthYear, editingRequest.birth_year) ||
             !sameOptionalNum(input.heightCm, editingRequest.height_cm) ||
             !sameOptionalNum(input.currentWeightKg, editingRequest.current_weight_kg) ||
@@ -645,20 +661,20 @@ export default function HorseRegistrationPanel() {
     formRef.current?.reset();
   }
 
-  async function answerTransfer(request: OwnershipTransferRequest, action: "CONSENT" | "DECLINE") {
-    const prompt = action === "CONSENT"
-      ? `Đồng ý chuyển quyền sở hữu ${request.horse_name} cho ${request.requester_name ?? "Horse Owner này"}?`
-      : `Từ chối yêu cầu chuyển quyền sở hữu ${request.horse_name}?`;
-    if (!window.confirm(prompt)) return;
+  async function confirmTransferAnswer() {
+    if (!pendingTransfer) return;
+    const { request, action } = pendingTransfer;
     setTransferBusy(request.id);
     setError("");
     setNotice("");
     try {
       await respondToOwnershipTransfer(request.id, action, transferNotes[request.id]?.trim() || undefined);
+      setPendingTransfer(null);
       setNotice(action === "CONSENT" ? "Đã xác nhận chuyển quyền sở hữu." : "Đã từ chối yêu cầu chuyển quyền sở hữu.");
       window.dispatchEvent(new Event("horse-owner-horses-changed"));
       await load();
     } catch (reason) {
+      setPendingTransfer(null);
       showFormError(errorMessage(reason));
     } finally {
       setTransferBusy("");
@@ -870,6 +886,7 @@ export default function HorseRegistrationPanel() {
             {historyError.toLowerCase().includes("authentication required")
               ? <>Đăng nhập bằng Horse Owner để gửi hồ sơ. <Link href={Routes.login} className="font-semibold underline underline-offset-2">Đăng nhập</Link>.</>
               : historyError}
+            <button type="button" className="ml-3 font-semibold underline underline-offset-2" disabled={loading || saving} onClick={() => void load()}>{loading ? "Đang tải…" : "Thử lại"}</button>
           </Notice></div>}
         </div>
 
@@ -884,8 +901,8 @@ export default function HorseRegistrationPanel() {
                 <textarea className="field-control min-h-20 px-3 py-2" maxLength={1000} value={transferNotes[request.id] ?? ""} onChange={(event) => setTransferNotes((current) => ({ ...current, [request.id]: event.target.value }))} />
               </label>
               <div className="mt-3 flex flex-wrap gap-2">
-                <button type="button" className="gold-button" disabled={Boolean(transferBusy)} onClick={() => void answerTransfer(request, "CONSENT")}>{transferBusy === request.id ? "Đang lưu…" : "Đồng ý chuyển quyền"}</button>
-                <button type="button" className="soft-button border-rose-200 bg-rose-50 text-rose-800" disabled={Boolean(transferBusy)} onClick={() => void answerTransfer(request, "DECLINE")}>Từ chối</button>
+                <button type="button" className="gold-button" disabled={Boolean(transferBusy)} onClick={() => setPendingTransfer({ request, action: "CONSENT" })}>{transferBusy === request.id ? "Đang lưu…" : "Đồng ý chuyển quyền"}</button>
+                <button type="button" className="soft-button border-rose-200 bg-rose-50 text-rose-800" disabled={Boolean(transferBusy)} onClick={() => setPendingTransfer({ request, action: "DECLINE" })}>Từ chối</button>
               </div>
             </article>)}
           </div>
@@ -1034,6 +1051,15 @@ export default function HorseRegistrationPanel() {
                 {requestType === "REGISTER" && (
                   <>
                     <label className="block"><span className="field-label">Giống</span><input className="field-control px-3" name="breed" maxLength={50} placeholder="Thoroughbred, Arab…" defaultValue={editingRequest?.breed ?? ""} /></label>
+                    <label className="block">
+                      <span className="field-label">Giới tính</span>
+                      <select className="field-control px-3 cursor-pointer" name="gender" defaultValue={editingRequest?.gender ?? ""}>
+                        <option value="">Chưa chọn</option>
+                        <option value="Male">Đực</option>
+                        <option value="Female">Cái</option>
+                        <option value="Gelding">Đực thiến</option>
+                      </select>
+                    </label>
                     <label className="block">
                       <span className="field-label">Năm sinh</span>
                       <input
@@ -1244,8 +1270,6 @@ export default function HorseRegistrationPanel() {
             </section>
           </div>
 
-          {error && <Notice error>{error}</Notice>}
-
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-equine-line pt-4">
             {editingRequest && <button type="button" className="soft-button w-full justify-center sm:w-auto" disabled={saving} onClick={cancelCorrection}>Hủy bổ sung</button>}
             <button className="gold-button w-full justify-center px-5 py-3 sm:w-auto" disabled={saving}>
@@ -1384,6 +1408,11 @@ export default function HorseRegistrationPanel() {
                         {request.breed && (
                           <span className="rounded-md bg-slate-50 px-2.5 py-1 text-slate-600 border border-slate-200">
                             Giống: <strong className="font-semibold text-slate-800">{request.breed}</strong>
+                          </span>
+                        )}
+                        {horseGender(request.gender) && (
+                          <span className="rounded-md bg-slate-50 px-2.5 py-1 text-slate-600 border border-slate-200">
+                            Giới tính: <strong className="font-semibold text-slate-800">{horseGender(request.gender)}</strong>
                           </span>
                         )}
                         {request.birth_year && (
@@ -1583,6 +1612,41 @@ export default function HorseRegistrationPanel() {
             </div>
           </div>
         </div>
+      )}
+      {pendingTransfer && (
+        <Modal
+          title={pendingTransfer.action === "CONSENT" ? "Xác nhận chuyển quyền sở hữu" : "Từ chối chuyển quyền sở hữu"}
+          busy={Boolean(transferBusy)}
+          onClose={() => setPendingTransfer(null)}
+        >
+          <div className="space-y-4">
+            <p className="text-sm leading-relaxed text-slate-600">
+              {pendingTransfer.action === "CONSENT" ? (
+                <>
+                  Bạn đồng ý chuyển quyền sở hữu ngựa <strong className="text-slate-900">{pendingTransfer.request.horse_name}</strong> cho{" "}
+                  <strong className="text-slate-900">{pendingTransfer.request.requester_name ?? "Chủ ngựa đề nghị"}</strong>?
+                </>
+              ) : (
+                <>
+                  Bạn chắc chắn muốn từ chối yêu cầu chuyển quyền sở hữu ngựa <strong className="text-slate-900">{pendingTransfer.request.horse_name}</strong>?
+                </>
+              )}
+            </p>
+            <div className="flex justify-end gap-2.5 border-t border-slate-100 pt-3">
+              <button type="button" className="soft-button !text-xs" disabled={Boolean(transferBusy)} onClick={() => setPendingTransfer(null)}>
+                Hủy
+              </button>
+              <button
+                type="button"
+                className={pendingTransfer.action === "CONSENT" ? "gold-button !text-xs" : "danger-button !text-xs"}
+                disabled={Boolean(transferBusy)}
+                onClick={() => void confirmTransferAnswer()}
+              >
+                {transferBusy ? "Đang lưu…" : pendingTransfer.action === "CONSENT" ? "Đồng ý chuyển quyền" : "Xác nhận từ chối"}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </section>
   );

@@ -1,7 +1,7 @@
 .notification-bell { position:relative; display:grid; place-items:center; width:40px; height:40px; flex-shrink:0; border:1px solid #E2E8F0; border-radius:6px; background:white; color:#101732; }
 .notification-bell:hover { background:#F8FAFC; }
 .notification-bell-badge { position:absolute; top:-4px; right:-4px; min-width:20px; padding:0 4px; border-radius:999px; background:#E11D48; color:white; font-size:10px; font-weight:700; line-height:20px; text-align:center; }
-.notification-popover { position:fixed; z-index:110; display:flex; flex-direction:column; width:min(380px, calc(100vw - 24px)); max-height:70vh; border:1px solid #E2E8F0; border-radius:12px; background:white; color:#101732; box-shadow:0 14px 40px rgb(15 23 42 / 16%); font-family:"Be Vietnam Pro", "Segoe UI", sans-serif; }
+.notification-popover { position:fixed; z-index:50; display:flex; flex-direction:column; width:min(380px, calc(100vw - 24px)); max-height:70vh; border:1px solid #E2E8F0; border-radius:12px; background:white; color:#101732; box-shadow:0 14px 40px rgb(15 23 42 / 16%); font-family:"Be Vietnam Pro", "Segoe UI", sans-serif; }
 .notification-popover::before { content:""; position:absolute; top:-6px; right:14px; width:10px; height:10px; transform:rotate(45deg); border-left:1px solid #E2E8F0; border-top:1px solid #E2E8F0; background:white; }
 .notification-panel-heading { display:flex; align-items:center; gap:8px; padding:14px 12px; }
 .notification-panel-heading h2 { margin-right:auto; font-size:14px; font-weight:600; white-space:nowrap; }
@@ -26,7 +26,7 @@
 .notification-empty button { color:#1040C5; text-decoration:underline; }
 .notification-item-open { display:flex; align-items:flex-start; gap:10px; width:100%; padding:12px 14px 12px 18px; text-align:left; }
 .notification-item-open > svg { flex-shrink:0; margin-top:1px; }
-.notification-item-description { display:block; margin-top:4px; min-height:20px; max-height:40px; overflow:hidden; overflow-wrap:anywhere; white-space:normal; color:#475569; font-size:12px; line-height:20px; }
+.notification-item-description { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; margin-top:4px; min-height:20px; max-height:40px; overflow:hidden; overflow-wrap:anywhere; white-space:normal; color:#475569; font-size:12px; line-height:20px; }
 .notification-item-description.is-expanded { max-height:none; }
 .notification-message-toggle { display:block; margin:-4px 14px 10px 46px; padding:2px 0; color:#1040C5; font-size:11px; text-align:left; }
 .notification-message-toggle:hover { text-decoration:underline; }
@@ -45,6 +45,6 @@
 @media (max-width:699px) {
   .notification-panel-heading .notification-mobile-close { display:inline-flex; }
   .notification-popover::before { display:none; }
-  .notification-sheet-backdrop { position:fixed; z-index:109; inset:0; display:block; background:rgb(15 23 42 / 30%); }
+  .notification-sheet-backdrop { position:fixed; z-index:49; inset:0; display:block; background:rgb(15 23 42 / 30%); }
   .notification-popover { top:auto !important; right:0 !important; bottom:0; left:0; width:100%; max-height:80dvh; border-radius:16px 16px 0 0; padding-bottom:env(safe-area-inset-bottom); }
 }

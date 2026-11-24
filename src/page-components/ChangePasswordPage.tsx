@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { LockKeyhole } from "lucide-react";
 import { Brand } from "@/components/shared/Brand";
-import { ApiRequestError, changePassword, validateSession } from "@/api/client";
+import { ApiRequestError, SESSION_EXPIRED_EVENT, changePassword, validateSession } from "@/api/client";
 import { routeForRole } from "@/lib/roles";
 import { getUser, isRemembered, saveSession } from "@/lib/session";
 import type { AuthUser } from "@/lib/types";
@@ -21,6 +21,12 @@ export default function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const onExpired = () => router.replace(Routes.login);
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, [router]);
 
   useEffect(() => {
     let active = true;
@@ -43,7 +49,7 @@ export default function ChangePasswordPage() {
       .catch((reason) => {
         if (!active) return;
         setReady(true);
-        if (reason instanceof ApiRequestError && reason.status === 401) {
+        if (reason instanceof ApiRequestError && [400, 401, 403].includes(reason.status)) {
           router.replace(Routes.login);
         } else if (!getUser()) {
           router.replace(Routes.login);

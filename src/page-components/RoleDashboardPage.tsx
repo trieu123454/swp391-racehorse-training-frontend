@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import HorseShell, { useHorseUser } from "@/components/horses/HorseShell";
 import { ApiRequestError, validateSession } from "@/api/client";
+import { veterinarianApi } from "@/api/veterinarian/api";
 import { roleForSlug, routeForRole } from "@/lib/roles";
 const VeterinarianWorkspace = dynamic(() => import("@/components/veterinarian/VeterinarianWorkspace"), {
   loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải phân hệ…</p>,
@@ -46,7 +47,7 @@ export default function RoleDashboardPage() {
       })
       .catch((reason: unknown) => {
         if (!active) return;
-        if (reason instanceof ApiRequestError && reason.status === 401) {
+        if (reason instanceof ApiRequestError && [400, 401, 403].includes(reason.status)) {
           router.replace(Routes.login);
           return;
         }
@@ -86,6 +87,13 @@ export default function RoleDashboardPage() {
 
 function RoleDashboardContent() {
   const user = useHorseUser();
+  useEffect(() => {
+    if (user.roleName === "VETERINARIAN" || user.roleName === "HEAD_VETERINARIAN") {
+      // Start the request while the workspace JavaScript downloads. The API
+      // client shares this request/cache with the workspace when it mounts.
+      void veterinarianApi.overview().catch(() => {});
+    }
+  }, [user.id, user.roleName]);
 
   return (
     <section className="dashboard-workspace">

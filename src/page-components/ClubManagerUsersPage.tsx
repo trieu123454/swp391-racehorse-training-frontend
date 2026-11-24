@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
 import {
   Check,
   Copy,
@@ -119,10 +120,11 @@ function AccountManagement() {
     roleName: "GROOM" as CreatableRoleName,
   });
 
-  const load = useCallback(async () => {
-    if (tab === "create") return;
-    setLoading(true);
-    setError("");
+  const isManager = user.roleName === "CLUB_MANAGER";
+  const load = useCallback(async (silent = false) => {
+    if (!isManager || tab === "create") return;
+    if (!silent) setLoading(true);
+    if (!silent) setError("");
     try {
       if (tab === "active") {
         setUsers(await listUsers("APPROVED", role));
@@ -130,16 +132,20 @@ function AccountManagement() {
         setUsers(await listUsers("LOCKED", role));
       }
     } catch (reason) {
-      setUsers([]);
-      setError(clubManagerError(reason));
+      if (!silent) {
+        setUsers([]);
+        setError(clubManagerError(reason));
+      }
     } finally {
       setLoading(false);
     }
-  }, [role, tab]);
+  }, [isManager, role, tab]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useAutoRefresh(() => load(true), { enabled: isManager && tab !== "create", intervalMs: 25_000 });
 
   async function lock() {
     if (!lockTarget) return;
@@ -203,7 +209,7 @@ function AccountManagement() {
         ...newStaff,
         phone: trimmedPhone || undefined,
       });
-      setNotice(`Đã tạo tài khoản ${created.email}. Mật khẩu tạm thời đã được tự động gửi qua email và số điện thoại (SMS) của nhân sự.`);
+      setNotice(`Đã tạo tài khoản ${created.email}. Mật khẩu tạm thời đã được tự động gửi tới email của nhân sự.`);
       setCreatedCredentials({ email: created.email, password: newStaff.password });
       setNewStaff({ fullName: "", email: "", phone: "", password: "", roleName: "GROOM" });
     } catch (reason) {
@@ -239,13 +245,15 @@ function AccountManagement() {
             Xem danh sách thành viên, cập nhật vai trò, khóa/mở khóa tài khoản hoặc cấp tài khoản nhân sự mới.
           </p>
         </div>
-        <button
-          type="button"
-          className="soft-button h-10 px-4 text-equine-navy hover:bg-slate-100"
-          onClick={() => void load()}
-        >
-          <RefreshCw size={15} /> Làm mới
-        </button>
+        {tab !== "create" && (
+          <button
+            type="button"
+            className="soft-button h-10 px-4 text-equine-navy hover:bg-slate-100"
+            onClick={() => void load()}
+          >
+            <RefreshCw size={15} /> Làm mới
+          </button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -337,9 +345,9 @@ function AccountManagement() {
           )}
 
           <div className="rounded-xl border border-equine-line bg-white p-6 shadow-xs sm:p-8">
-            <h2 className="font-sans text-xl font-normal text-equine-navy">Cấp tài khoản nhân sự mới</h2>
+            <h2 className="font-sans text-xl font-semibold text-equine-navy">Cấp tài khoản nhân sự mới</h2>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              Mật khẩu tạm sẽ tự động được gửi qua Email và Số điện thoại (SMS) của nhân sự. Người dùng phải đổi mật khẩu ở lần đăng nhập đầu tiên.
+              Mật khẩu tạm sẽ tự động được gửi qua Email của nhân sự. Người dùng phải đổi mật khẩu ở lần đăng nhập đầu tiên.
             </p>
             <form className="mt-6 space-y-4" onSubmit={createAccount}>
               <label className="block">

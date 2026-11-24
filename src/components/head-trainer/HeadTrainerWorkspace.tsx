@@ -1,5 +1,6 @@
 "use client";
 
+import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
 import { formatDisplayDate } from "@/lib/display-format";
 
 import { Activity, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, Ban, Bot, CalendarDays, Check, ChevronDown, CircleHelp, ClipboardList, Clock, Flag, Gauge, HeartPulse, MapPin, Medal, MessageSquare, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, Send, Sparkles, Trash2, User, Users, Utensils, Wand2, X } from "lucide-react";
@@ -18,6 +19,8 @@ const RaceTrackScene3D = dynamic(() => import("./RaceTrackScene3D"), {
 import { listHorses, type Horse } from "@/api/horses/api";
 import { useLinkedNotificationHorse } from "@/hooks/use-notification-target";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
+
+
 import {
   headTrainerApi,
   headTrainerError,
@@ -31,12 +34,11 @@ import {
   type TrainingPlan,
   type TrainingSession,
   type TrainerIncident,
-  type TrainerDietRecord,
   type TrainerHorse,
 } from "@/api/head-trainer/api";
 
-type Tab = "overview" | "analysis" | "plans" | "calendar" | "races" | "simulation" | "incidents" | "diet";
-const workspaceTabIds: readonly Tab[] = ["overview", "plans", "diet", "calendar", "simulation", "analysis", "races", "incidents"];
+type Tab = "overview" | "analysis" | "plans" | "calendar" | "races" | "simulation" | "incidents";
+const workspaceTabIds: readonly Tab[] = ["overview", "plans", "calendar", "simulation", "analysis", "races", "incidents"];
 type Groom = { user_id: number; full_name: string; email: string };
 type SensorVitals = { speed: number; heartRate: number; systolic: number; diastolic: number };
 const distanceOptions: [string, string][] = [["", "Chọn cự ly"], ...Array.from({ length: 15 }, (_, index) => {
@@ -59,16 +61,6 @@ function dateInputValue(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 function today() { return dateInputValue(new Date()); }
-function suggestedTrainingWindow() {
-  const start = new Date();
-  start.setMinutes(0, 0, 0);
-  start.setHours(start.getHours() + 1);
-  const end = new Date(start);
-  end.setHours(end.getHours() + 1);
-  const dateValue = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
-  const timeValue = (value: Date) => `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
-  return { date: dateValue(start), start: timeValue(start), end: timeValue(end) };
-}
 function plusDays(date: string, days: number) {
   const value = new Date(`${date}T12:00:00`);
   value.setDate(value.getDate() + days);
@@ -543,8 +535,6 @@ export default function HeadTrainerWorkspace() {
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
   const [careEvents, setCareEvents] = useState<CareCalendarEvent[]>([]);
   const [incidents, setIncidents] = useState<TrainerIncident[]>([]);
-  const [standardDiets, setStandardDiets] = useState<TrainerDietRecord[]>([]);
-  const [editingDietId, setEditingDietId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<TrainingMetric[]>([]);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compare, setCompare] = useState<{ horse_id: string; horse_name: string; metrics: TrainingMetric[] }[]>([]);
@@ -582,6 +572,7 @@ export default function HeadTrainerWorkspace() {
   const [editingPlan, setEditingPlan] = useState<string | null>(null);
   const [selectedPlanHorseIds, setSelectedPlanHorseIds] = useState<string[]>([]);
   const [scheduleDraft, setScheduleDraft] = useState<{ horseId: string; planId: string; startDate: string | null; regimenKey?: RegimenLevel } | null>(null);
+  const [lastCreatedSessionId, setLastCreatedSessionId] = useState<string | null>(null);
   const [showMetricsFor, setShowMetricsFor] = useState<string | null>(null);
   const [finishFailed, setFinishFailed] = useState(false);
   const finishStartedRef = useRef(false);
@@ -593,12 +584,12 @@ export default function HeadTrainerWorkspace() {
     ++horseRequestRef.current;
   }, [horseQueryKey]);
 
-  const selectedHorse = useMemo(() => horses.find((horse) => horse.id === horseId) ?? null, [horses, horseId]);
+  const trainableHorses = useMemo(() => horses.filter((horse) => !isHorseInjuredOrLocked(horse)), [horses]);
+  const selectedHorse = useMemo(() => trainableHorses.find((horse) => horse.id === horseId) ?? trainableHorses[0] ?? null, [trainableHorses, horseId]);
   const visibleHorseOptions = useMemo(() => {
     const query = normalizeHorseSearch(horseSearch.trim());
-    return horses.filter((horse) => normalizeHorseSearch(`${horse.horse_name} ${horse.id}`).includes(query));
-  }, [horses, horseSearch]);
-  const selectedOverview = useMemo(() => overview.find((horse) => horse.horse_id === horseId), [overview, horseId]);
+    return trainableHorses.filter((horse) => normalizeHorseSearch(`${horse.horse_name ?? ""} ${horse.box_code ?? ""} ${horse.microchip_number ?? ""} ${horse.breed ?? ""} ${horse.id}`).includes(query));
+  }, [trainableHorses, horseSearch]);
   const featuredSimulation = activeSimulations.find((item) => item.status === "Running") ?? null;
 
   const run = useCallback(async <T,>(action: () => Promise<T>, success?: string) => {
@@ -614,20 +605,22 @@ export default function HeadTrainerWorkspace() {
   }, []);
 
   const loadOverview = useCallback(async () => {
-    const [horsePage, overviewPage, groomPage, racePage, incidentPage, dietPage] = await Promise.all([
+    const [horsePage, overviewPage, groomPage, racePage, incidentPage] = await Promise.all([
       listHorses(), headTrainerApi.overview(includeSimulated), headTrainerApi.grooms(), headTrainerApi.races(),
-      headTrainerApi.incidents(), headTrainerApi.standardDiets(),
+      headTrainerApi.incidents(),
     ]);
     setHorses(horsePage.items);
     setOverview(overviewPage.data);
     setGrooms(groomPage.data);
     setRaces(racePage.data);
     setIncidents(incidentPage.data);
-    setStandardDiets(dietPage.data);
-    const unlockedHorses = horsePage.items.filter((item) => !item.is_training_locked);
-    const defaultHorseId = unlockedHorses[0]?.id || horsePage.items[0]?.id || "";
-    setHorseId((current) => horsePage.items.some((item) => item.id === current) ? current : defaultHorseId);
-    setCompareIds((current) => current.length ? current : (unlockedHorses.length ? unlockedHorses : horsePage.items).slice(0, 3).map((item) => item.id));
+    const unlockedHorses = horsePage.items.filter((item) => !isHorseInjuredOrLocked(item));
+    const defaultHorseId = unlockedHorses[0]?.id || "";
+    setHorseId((current) => unlockedHorses.some((item) => item.id === current) ? current : defaultHorseId);
+    setCompareIds((current) => {
+      const validCurrent = current.filter((id) => unlockedHorses.some((item) => item.id === id));
+      return validCurrent.length ? validCurrent : unlockedHorses.slice(0, 3).map((item) => item.id);
+    });
   }, [includeSimulated]);
 
   async function submitIncidentResult(event: FormEvent<HTMLFormElement>, incidentId: string) {
@@ -642,33 +635,22 @@ export default function HeadTrainerWorkspace() {
     }
   }
 
-  async function saveStandardDiet(event: FormEvent<HTMLFormElement>, dietId?: string) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const values = new FormData(form);
-    const input = {
-      feed_type: String(values.get("feed_type") ?? "").trim(),
-      quantity_kg: Number(values.get("quantity_kg")),
-      feeding_frequency: String(values.get("feeding_frequency") ?? "").trim() || null,
-      special_instructions: String(values.get("special_instructions") ?? "").trim() || null,
-      effective_date: String(values.get("effective_date")),
-      end_date: String(values.get("end_date") ?? "").trim() || null,
-    };
-    const saved = await run(() => dietId
-      ? headTrainerApi.updateStandardDiet(dietId, input)
-      : headTrainerApi.createStandardDiet(horseId, input),
-    dietId ? "Đã cập nhật khẩu phần thường." : "Đã duyệt khẩu phần thường cho ngựa.");
-    if (saved) {
-      form.reset();
-      setEditingDietId(null);
-      await loadOverview();
-    }
-  }
-
   const loadHorseData = useCallback(async () => {
     if (horseQueryRef.current !== horseQueryKey) return;
     const request = ++horseRequestRef.current;
     if (!horseId) { setPlans([]); setMetrics([]); setRaceEntries([]); return; }
+    if (from && to && from > to) {
+      const [planPage, entries] = await Promise.all([
+        headTrainerApi.plans(horseId, activeOnly),
+        headTrainerApi.raceEntries(horseId),
+      ]);
+      if (request !== horseRequestRef.current || horseQueryRef.current !== horseQueryKey) return;
+      setPlans(planPage.data);
+      setMetrics([]);
+      setRaceEntries(entries.data);
+      setError("Ngày bắt đầu không được lớn hơn ngày kết thúc.");
+      return;
+    }
     const [planPage, history, entries] = await Promise.all([
       headTrainerApi.plans(horseId, activeOnly),
       headTrainerApi.metrics(horseId, from, to, includeSimulated),
@@ -699,18 +681,23 @@ export default function HeadTrainerWorkspace() {
       } catch {
         // ignore storage quota errors
       }
-      const apiCareList = Array.isArray(data.care_events) ? data.care_events : [];
-      const mergedCare = [...apiCareList];
+      const rawCaret = Array.isArray(data.care_events) ? data.care_events : [];
+      const mergedCare: CareCalendarEvent[] = [];
+      const seenKeys = new Set<string>();
+      for (const item of rawCaret) {
+        const key = `${item.event_id || item.source_id || item.title || "care"}|${item.horse_id || ""}|${item.event_date}|${item.start_time || ""}`;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          mergedCare.push(item);
+        }
+      }
       try {
         const cachedVetRaw = window.localStorage.getItem(`racehorse:shared-calendar:vet:${calendarFrom}`);
         if (cachedVetRaw) {
           const cachedVet = JSON.parse(cachedVetRaw) as CareCalendarEvent[];
           if (Array.isArray(cachedVet)) {
-            const seenKeys = new Set(
-              mergedCare.map((c) => `${c.source_id || c.event_id}|${c.event_date}`),
-            );
             for (const item of cachedVet) {
-              const key = `${item.source_id || item.event_id}|${item.event_date}`;
+              const key = `${item.event_id || item.source_id || item.title || "care"}|${item.horse_id || ""}|${item.event_date}|${item.start_time || ""}`;
               if (!seenKeys.has(key)) {
                 seenKeys.add(key);
                 mergedCare.push(item);
@@ -751,8 +738,20 @@ export default function HeadTrainerWorkspace() {
     return () => { active = false; };
   }, [tab, loadHorseData, loadCalendar, plansRevision]);
 
+  useAutoRefresh(async () => {
+    const tasks: Promise<unknown>[] = [loadOverview()];
+    if (tab === "overview" || tab === "plans" || tab === "races") tasks.push(loadHorseData());
+    if (tab === "calendar" || tab === "overview") tasks.push(loadCalendar());
+    await Promise.allSettled(tasks);
+  }, { enabled: !busy, intervalMs: 25_000 });
+
   useEffect(() => {
     if (tab !== "overview" || !compareIds.length) { setCompare([]); return; }
+    if (from && to && from > to) {
+      setCompare([]);
+      setError("Ngày bắt đầu không được lớn hơn ngày kết thúc.");
+      return;
+    }
     let active = true;
     headTrainerApi.compare(compareIds.slice(0, 8), from, to, includeSimulated)
       .then((response) => { if (active) setCompare(response.horses); })
@@ -988,7 +987,7 @@ export default function HeadTrainerWorkspace() {
     }
   }
 
-  async function createSchedule(event: FormEvent<HTMLFormElement>) {
+  async function createSchedule(event: FormEvent<HTMLFormElement>): Promise<TrainingSession | null> {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
@@ -996,7 +995,7 @@ export default function HeadTrainerWorkspace() {
     const sessionTypeValue = String(data.get("session_type") || "Training");
     const eventDateValue = String(data.get("event_date") || today());
     const regimenKey = String(data.get("regimen_preset") || "");
-    let planIdValue = String(data.get("training_plan_id") || "").trim() || null;
+    let planIdValue = sessionTypeValue === "Rest" ? null : (String(data.get("training_plan_id") || "").trim() || null);
 
     const result = await run(async () => {
       if (!planIdValue && sessionTypeValue !== "Rest") {
@@ -1017,13 +1016,27 @@ export default function HeadTrainerWorkspace() {
         target_distance_meters: Number(data.get("session_distance")) || null,
         target_intensity: data.get("session_intensity") || null,
       });
-    }, "Đã tạo lịch tập.");
+    }, `✅ Đã tạo lịch tập ngày ${eventDateValue} (${String(data.get("start_time") || "")} – ${String(data.get("end_time") || "")}).`);
     if (result) {
-      form.reset();
       setScheduleDraft(null);
+      const targetMonday = mondayOfWeek(eventDateValue);
+      const targetSunday = plusDays(targetMonday, 6);
+      setCalendarFrom(targetMonday);
+      setCalendarTo(targetSunday);
+      setSessions((current) => [
+        ...current.filter((s) => s.training_schedule_id !== result.training_schedule_id),
+        result,
+      ]);
+      setLastCreatedSessionId(result.training_schedule_id);
       setPlansRevision((current) => current + 1);
-      await refresh();
+      if (targetMonday === calendarFrom) {
+        await refresh();
+      } else {
+        await Promise.all([loadOverview(), loadHorseData()]);
+      }
+      return result;
     }
+    return null;
   }
 
   // The calendar no longer exposes manual metric entry; this handler remains only for backwards compatibility with the API flow.
@@ -1067,6 +1080,7 @@ export default function HeadTrainerWorkspace() {
     const ids = data.getAll("training_schedule_id").map(String);
     const selected = sessions.filter(item => ids.includes(item.training_schedule_id));
     if (!selected.length) { setError("Chọn ít nhất một buổi tập."); return; }
+    if (selected.length > 5) { setError("Chỉ được chọn tối đa 5 buổi tập trong một nhóm mô phỏng."); return; }
     const scenario = String(data.get("scenario") ?? "Normal");
     const result = await run(() => headTrainerApi.createSimulationGroup(selected.map(session => ({
       horse_ids: [session.horse_id], training_schedule_id: session.training_schedule_id, scenario,
@@ -1170,51 +1184,135 @@ export default function HeadTrainerWorkspace() {
     {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
 
     <div className="mt-5 space-y-4">
-      {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} />
+      {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} error={error} notice={notice} />
         : !horses.length ? <Notice>Chưa có hồ sơ ngựa đang hoạt động.</Notice> : <>
-        {tab !== "simulation" && tab !== "races" && <div className="relative flex flex-wrap items-center gap-4 rounded-xl border border-blue-200 bg-gradient-to-r from-equine-mist via-white to-slate-50 p-4 shadow-sm ring-1 ring-blue-100/70">
-          <div className="relative order-2 flex w-full max-w-sm items-center gap-2">
-            <label className="sr-only" htmlFor="trainer-horse-search">Tìm ngựa đang xem</label>
-            <button type="button" aria-label="Mở danh sách ngựa" className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-slate-500 hover:text-equine-navy" onMouseDown={(event) => event.preventDefault()} onClick={() => setHorseSelectorOpen((open) => !open)}><ChevronDown size={20} aria-hidden="true" /></button>
-            <input id="trainer-horse-search" type="search" name="horse-search" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} onFocus={() => { setHorseSelectorOpen(true); setHorseSearch(""); }} onBlur={() => setTimeout(() => setHorseSelectorOpen(false), 150)} className="field-control min-h-12 flex-1 border-blue-200 bg-white pr-10 text-base font-semibold shadow-sm focus:border-blue-500 focus:ring-blue-200" value={horseSelectorOpen ? horseSearch : (selectedHorse?.horse_name ?? "")} onChange={(event) => {
-              const value = event.target.value;
-              const query = normalizeHorseSearch(value.trim());
-              setHorseSearch(value);
-              const firstMatch = visibleHorseOptions.find((horse) => normalizeHorseSearch(`${horse.horse_name} ${horse.id}`).includes(query));
-              if (query && firstMatch) setHorseId(firstMatch.id);
-            }} placeholder="Tìm theo tên hoặc mã ngựa..." />
-            {horseSearch && <span className="mt-1 block text-xs text-slate-500">{visibleHorseOptions.length} kết quả phù hợp</span>}
-          {horseSelectorOpen && <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-lg border border-equine-line bg-white py-1 shadow-lg" role="listbox">
-            {visibleHorseOptions.slice(0, 50).map((horse) => <button key={horse.id} type="button" className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-equine-mist" onMouseDown={(event) => event.preventDefault()} onClick={() => { setHorseId(horse.id); setHorseSearch(""); setHorseSelectorOpen(false); }} role="option" aria-selected={horse.id === horseId}>{horse.horse_name}{horse.is_training_locked ? " · Đang khóa" : ""}</button>)}
-            {visibleHorseOptions.length === 0 && <span className="block px-3 py-2 text-sm text-slate-500">Không tìm thấy ngựa phù hợp.</span>}
-            {visibleHorseOptions.length > 50 && <span className="block px-3 py-2 text-xs text-slate-500">Đang hiển thị 50 kết quả đầu tiên.</span>}
-          </div>}
+        {tab !== "simulation" && tab !== "races" && tab !== "calendar" && <div className="relative flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-gradient-to-r from-equine-mist via-white to-slate-50 p-3.5 shadow-sm ring-1 ring-blue-100/70">
+          <label className="text-xs font-extrabold uppercase tracking-wider text-equine-navy" htmlFor="trainer-horse-search">Ngựa đang xem:</label>
+          <div className="relative flex w-full max-w-xs items-center">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              id="trainer-horse-search"
+              type="text"
+              name="horse-search"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              onFocus={() => setHorseSelectorOpen(true)}
+              onBlur={() => setTimeout(() => setHorseSelectorOpen(false), 160)}
+              className="h-9 w-full rounded-lg border border-blue-200 bg-white pl-9 pr-8 text-xs font-semibold text-equine-navy shadow-xs outline-none focus:border-blue-500"
+              value={horseSelectorOpen ? horseSearch : `${selectedHorse?.horse_name ?? ""}${selectedHorse?.box_code ? ` (${selectedHorse.box_code})` : ""}`}
+              onChange={(event) => {
+                const value = event.target.value;
+                const query = normalizeHorseSearch(value.trim());
+                setHorseSearch(value);
+                setHorseSelectorOpen(true);
+                const firstMatch = horses.find((horse) =>
+                  normalizeHorseSearch(`${horse.horse_name ?? ""} ${horse.box_code ?? ""} ${horse.microchip_number ?? ""} ${horse.id}`).includes(query),
+                );
+                if (query && firstMatch) setHorseId(firstMatch.id);
+              }}
+              placeholder="Gõ tìm tên ngựa, mã chuồng..."
+            />
+            {horseSearch ? (
+              <button
+                type="button"
+                aria-label="Xóa tìm ngựa"
+                className="absolute right-2.5 top-1/2 z-10 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setHorseSearch("")}
+              >
+                <X size={14} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                aria-label="Mở danh sách ngựa"
+                className="absolute right-2.5 top-1/2 z-10 -translate-y-1/2 text-slate-500 hover:text-equine-navy"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setHorseSelectorOpen((open) => !open)}
+              >
+                <ChevronDown size={16} aria-hidden="true" />
+              </button>
+            )}
+            {horseSelectorOpen && (
+              <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-lg border border-equine-line bg-white py-1 shadow-lg" role="listbox">
+                {visibleHorseOptions.slice(0, 50).map((horse) => (
+                  <button
+                    key={horse.id}
+                    type="button"
+                    className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition hover:bg-equine-mist ${
+                      horse.id === horseId ? "bg-blue-50 font-bold text-blue-950" : "text-slate-700"
+                    }`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setHorseId(horse.id);
+                      setHorseSearch("");
+                      setHorseSelectorOpen(false);
+                    }}
+                    role="option"
+                    aria-selected={horse.id === horseId}
+                  >
+                    <span>
+                      {horse.horse_name}
+                      {horse.box_code ? <span className="ml-1.5 text-[11px] text-slate-500">· Chuồng {horse.box_code}</span> : null}
+                    </span>
+                    {horse.is_training_locked ? (
+                      <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">Đang khóa</span>
+                    ) : (
+                      <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">Sẵn sàng</span>
+                    )}
+                  </button>
+                ))}
+                {visibleHorseOptions.length === 0 && <span className="block px-3 py-2 text-xs text-slate-500">Không tìm thấy ngựa phù hợp.</span>}
+              </div>
+            )}
           </div>
-          <label className="order-1 text-sm font-extrabold uppercase tracking-wider text-equine-navy" htmlFor="trainer-horse">Ngựa đang xem</label>
-          <select id="trainer-horse" className="hidden" value={horseId} onChange={(event) => setHorseId(event.target.value)}>{horses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}</option>)}</select>
-          {selectedOverview?.is_training_locked && <span className="order-3 inline-flex items-center gap-1 rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700"><AlertTriangle size={14} /> Khóa huấn luyện · {selectedOverview.lock_reason}</span>}
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {trainableHorses.map((item) => {
+              const active = item.id === horseId;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setHorseId(item.id);
+                    setHorseSearch("");
+                  }}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+                    active
+                      ? "border-equine-navy bg-equine-navy text-white shadow-xs"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
+                  }`}
+                >
+                  <span>{item.horse_name}</span>
+                  {item.box_code && (
+                    <span className={`rounded px-1 py-0.2 text-[10px] ${active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
+                      {item.box_code}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <select id="trainer-horse" className="hidden" value={horseId} onChange={(event) => setHorseId(event.target.value)}>{trainableHorses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}</option>)}</select>
         </div>}
-        {tab === "overview" && <OverviewPanel horses={horses} overview={overview} selectedHorseId={horseId} metrics={metrics} compare={compare} compareIds={compareIds} setCompareIds={setCompareIds} from={from} setFrom={setFrom} to={to} setTo={setTo} includeSimulated={includeSimulated} setIncludeSimulated={setIncludeSimulated} />}
-        {tab === "analysis" && <TrainingAnalysisPanel horseId={horseId} from={from} to={to} setFrom={setFrom} setTo={setTo} revision={analysisRevision}/>}
-        {tab === "plans" && <PlansPanel horse={selectedHorse} horses={horses} overview={overview} sessions={sessions} grooms={grooms} calendarFrom={calendarFrom} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} selectedHorseIds={selectedPlanHorseIds} setSelectedHorseIds={setSelectedPlanHorseIds} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} onApplyRegimen={applyStandardRegimenToHorses} onResetCleanData={handleResetAndSeedCleanData} busy={busy} />}
-        {tab === "diet" && <StandardDietPanel
-          horseName={selectedHorse?.horse_name ?? ""}
-          records={standardDiets.filter((record) => record.horse_id === horseId)}
-          editing={standardDiets.find((record) => record.id === editingDietId) ?? null}
-          busy={busy}
-          onEdit={setEditingDietId}
-          onCancel={() => setEditingDietId(null)}
-          onSave={saveStandardDiet}
-        />}
-        {tab === "calendar" && <CalendarPanel selectedHorseId={horseId} onSelectHorse={setHorseId} overview={overview} onTargetsSaved={refresh} horses={horses} sessions={sessions} careEvents={careEvents} grooms={grooms} from={calendarFrom} to={calendarTo} onWeekChange={(value) => { const start = mondayOfWeek(value); setCalendarFrom(start); setCalendarTo(plusDays(start, 6)); }} scheduleDraft={scheduleDraft} onCreate={createSchedule} onResetCleanData={handleResetAndSeedCleanData} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} />}
+        {tab === "overview" && <>{error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}<OverviewPanel horses={trainableHorses} overview={overview.filter((o) => trainableHorses.some((h) => h.id === o.horse_id))} selectedHorseId={horseId} metrics={metrics} compare={compare} compareIds={compareIds} setCompareIds={setCompareIds} from={from} setFrom={setFrom} to={to} setTo={setTo} includeSimulated={includeSimulated} setIncludeSimulated={setIncludeSimulated} /></>}
+        {tab === "analysis" && <>{error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}<TrainingAnalysisPanel horseId={horseId} from={from} to={to} setFrom={setFrom} setTo={setTo} revision={analysisRevision}/></>}
+        {tab === "plans" && <PlansPanel horse={selectedHorse} horses={trainableHorses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} selectedHorseIds={selectedPlanHorseIds} setSelectedHorseIds={setSelectedPlanHorseIds} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} onApplyRegimen={applyStandardRegimenToHorses} onResetCleanData={handleResetAndSeedCleanData} busy={busy} error={error} notice={notice} />}
+        {tab === "calendar" && <CalendarPanel selectedHorseId={horseId} onSelectHorse={setHorseId} overview={overview.filter((o) => trainableHorses.some((h) => h.id === o.horse_id))} onTargetsSaved={refresh} horses={trainableHorses} sessions={sessions} careEvents={careEvents} grooms={grooms} from={calendarFrom} to={calendarTo} onWeekChange={(value) => { const start = mondayOfWeek(value); setCalendarFrom(start); setCalendarTo(plusDays(start, 6)); }} scheduleDraft={scheduleDraft} onCreate={createSchedule} onResetCleanData={handleResetAndSeedCleanData} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} error={error} notice={notice} lastCreatedSessionId={lastCreatedSessionId} />}
         {tab === "races" && <RaceEntriesPanel
           selectedHorse={selectedHorse}
-          horses={horses}
+          horses={trainableHorses}
           races={races}
           entries={raceEntries}
           refreshRevision={analysisRevision}
           onSelectHorse={setHorseId}
           onCancelTrainingConflict={cancelTrainingConflict}
+          error={error}
+          notice={notice}
           onOpenCalendarOnDate={(date) => {
             const start = mondayOfWeek(date);
             setCalendarFrom(start);
@@ -1252,18 +1350,22 @@ export default function HeadTrainerWorkspace() {
           }}
           busy={busy}
         />}
-        {tab === "simulation" && <SimulationPanel sessions={sessions} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} />}
+        {tab === "simulation" && <SimulationPanel sessions={sessions} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} error={error} notice={notice} />}
       </>}
     </div>
   </section>;
 }
 
-function TrainerIncidentsPanel({ incidents, busy, onSubmit }: {
+function TrainerIncidentsPanel({ incidents, busy, onSubmit, error, notice }: {
   incidents: TrainerIncident[];
   busy: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>, incidentId: string) => void | Promise<void>;
+  error?: string;
+  notice?: string;
 }) {
   return <Section title="Sự cố được giao cho bạn" help="Xem hướng dẫn, gửi kết quả xử lý để Club Manager đóng sự cố." icon={AlertTriangle}>
+    {error && <div className="mb-3"><Notice error>{error}</Notice></div>}
+    {notice && <div className="mb-3"><Notice>{notice}</Notice></div>}
     {!incidents.length ? <p className="text-sm text-slate-500">Hiện chưa có sự cố nào được giao cho bạn.</p>
       : <div className="space-y-3">{incidents.map((incident) => <article key={incident.id} className={`rounded-lg border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/40" : "border-equine-line bg-white"}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1322,13 +1424,10 @@ function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, co
   includeSimulated: boolean; setIncludeSimulated: (value: boolean) => void;
 }) {
   const [comparisonMetric, setComparisonMetric] = useState<ComparisonMetricKey>("avg_speed_kmh");
-  const [prioritySearch, setPrioritySearch] = useState("");
   const selected = overview.find((item) => item.horse_id === selectedHorseId);
   const lockedCount = overview.filter((item) => item.is_training_locked).length;
   const alertCount = overview.filter((item) => item.has_injury_alert).length;
-  const normalizedQuery = normalizeHorseSearch(prioritySearch.trim());
-  const priorityHorses = overview.filter((item) => !normalizedQuery || normalizeHorseSearch(item.horse_name).includes(normalizedQuery));
-  const visiblePriorityHorses = normalizedQuery ? priorityHorses : priorityHorses.slice(0, 8);
+  const visiblePriorityHorses = overview.slice(0, 8);
   return <div className="space-y-5">
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <StatCard icon={Users} label="Ngựa đang hoạt động" value={String(horses.length)} />
@@ -1338,11 +1437,6 @@ function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, co
     </div>
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
       <Section title="Ưu tiên theo dõi" help="Ngựa bị khóa hoặc có cảnh báo gần nhất được xếp lên trước." icon={AlertTriangle}>
-        <label className="relative mb-3 block">
-          <span className="sr-only">Tìm ngựa theo tên</span>
-          <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="search" value={prioritySearch} onChange={(event) => setPrioritySearch(event.target.value)} placeholder="Tìm ngựa theo tên..." className="field-control pl-9 pr-3" />
-        </label>
         <div className="space-y-2">{visiblePriorityHorses.map((item) => {
           const horseInfo = horses.find((h) => h.id === item.horse_id);
           const horseMetrics = item.horse_id === selectedHorseId ? metrics : (compare.find((c) => c.horse_id === item.horse_id)?.metrics ?? []);
@@ -1397,6 +1491,11 @@ const comparisonMetrics: { key: ComparisonMetricKey; label: string; unit: string
 function comparisonValue(metric: TrainingMetric, key: ComparisonMetricKey) {
   const value = metric[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isHorseInjuredOrLocked(horse: Horse): boolean {
+  const status = String(horse.current_status ?? "").trim().toLowerCase();
+  return Boolean(horse.is_training_locked) || status === "injured" || status === "quarantine" || status === "sick";
 }
 
 function normalizeHorseSearch(value: string) {
@@ -1566,21 +1665,6 @@ export interface HorseCoverageStat {
   coverageLabel: string;
 }
 
-export interface AiScheduleSuggestion {
-  horseId: string;
-  horseName: string;
-  regimen: StandardRegimen;
-  aiReason: string;
-  eventDate: string;
-  slotId: number;
-  timeRange: string;
-  startTime: string;
-  endTime: string;
-  groomId: number | null;
-  groomName: string;
-  currentWeekSessions: number;
-}
-
 export function recommendRegimenForHorse(horse: Horse, overviewItem?: TrainerHorse): { regimen: StandardRegimen; reason: string } {
   const readiness = overviewItem?.readiness_status ?? horse.readiness_status;
   const stamina = overviewItem?.stamina_score;
@@ -1727,10 +1811,18 @@ export function computeHorseCoverage(
 ): HorseCoverageStat[] {
   return horses.map((horse) => {
     const overviewItem = overview.find((o) => o.horse_id === horse.id);
-    const { regimen, reason } = recommendRegimenForHorse(horse, overviewItem);
+    const { regimen: aiRegimen, reason } = recommendRegimenForHorse(horse, overviewItem);
     const weekSessions = sessions.filter(
       (s) => s.horse_id === horse.id && s.status !== "Cancelled" && s.session_type !== "Rest" && calendarDays.includes(s.event_date),
     );
+    const hasHighSession = weekSessions.some((s) => s.plan_target_intensity === "High" || s.session_type === "TrialRun");
+    const hasMedSession = weekSessions.some((s) => s.plan_target_intensity === "Medium");
+    const regimen =
+      hasHighSession && aiRegimen.target_intensity !== "High"
+        ? STANDARD_REGIMENS[0]
+        : (hasHighSession || hasMedSession) && aiRegimen.target_intensity === "Low"
+          ? STANDARD_REGIMENS[3]
+          : aiRegimen;
     const activeSessionCount = weekSessions.length;
     const totalMinutesWeek = weekSessions.reduce((sum, s) => sum + sessionDurationMinutes(s), 0);
     const byDay = new Map<string, number>();
@@ -1738,6 +1830,9 @@ export function computeHorseCoverage(
       byDay.set(s.event_date, (byDay.get(s.event_date) ?? 0) + 1);
     }
     const maxSessionsInSingleDay = Math.max(0, ...Array.from(byDay.values()));
+    const targetSessionsWeek = Math.max(2, regimen.recommended_sessions_per_week);
+    const maxAllowedSessionsWeek = Math.max(4, targetSessionsWeek + 1);
+    const maxAllowedMinutesWeek = Math.max(360, regimen.target_workload_minutes * 1.5);
 
     let coverageStatus: HorseCoverageStat["coverageStatus"] = "balanced";
     let coverageLabel = "Đạt chuẩn";
@@ -1747,14 +1842,18 @@ export function computeHorseCoverage(
     } else if (activeSessionCount === 0) {
       coverageStatus = "uncovered";
       coverageLabel = "Chưa có lịch tập (0 buổi)";
-    } else if (activeSessionCount >= 5 || maxSessionsInSingleDay >= 2 || totalMinutesWeek > regimen.target_workload_minutes * 1.25) {
+    } else if (
+      activeSessionCount > maxAllowedSessionsWeek ||
+      maxSessionsInSingleDay >= 2 ||
+      totalMinutesWeek > maxAllowedMinutesWeek
+    ) {
       coverageStatus = "overtrained";
       coverageLabel = maxSessionsInSingleDay >= 2
         ? `Tập quá nhiều (${maxSessionsInSingleDay} buổi/ngày)`
-        : `Tập quá nhiều (${activeSessionCount} buổi · ${totalMinutesWeek}p)`;
-    } else if (activeSessionCount < regimen.recommended_sessions_per_week) {
+        : `Tập quá nhiều (${activeSessionCount}/${targetSessionsWeek} buổi · ${totalMinutesWeek}p)`;
+    } else if (activeSessionCount < targetSessionsWeek) {
       coverageStatus = "undertrained";
-      coverageLabel = `Thiếu buổi (${activeSessionCount}/${regimen.recommended_sessions_per_week} buổi)`;
+      coverageLabel = `Thiếu buổi (${activeSessionCount}/${targetSessionsWeek} buổi)`;
     }
     return {
       horse,
@@ -1771,418 +1870,8 @@ export function computeHorseCoverage(
   });
 }
 
-export function buildAiScheduleSuggestions(
-  coverageList: HorseCoverageStat[],
-  grooms: Groom[],
-  existingSessions: TrainingSession[],
-  calendarDays: string[],
-  careEvents: CareCalendarEvent[] = [],
-): AiScheduleSuggestion[] {
-  const now = new Date();
-  const todayStr = today();
-  const nowMinutes = now.getHours() * 60 + now.getMinutes() + 10;
-
-  // Candidate future days: prefer days in current viewed week that are >= today; if none, use next 7 days starting tomorrow
-  let candidateDays = calendarDays.filter((d) => d >= todayStr);
-  if (candidateDays.length === 0) {
-    candidateDays = Array.from({ length: 7 }, (_, idx) => plusDays(todayStr, idx + 1));
-  }
-
-  // Track occupied (horseId, date), (horseId, date, slotId) from care schedules, (groomId, date, slotId), and groom weekly counts
-  const horseDayOccupied = new Set<string>();
-  const horseSlotCareOccupied = new Set<string>();
-  const groomSlotOccupied = new Set<string>();
-  const groomLoad = new Map<number, number>();
-  for (const g of grooms) groomLoad.set(g.user_id, 0);
-
-  for (const s of existingSessions) {
-    if (s.status === "Cancelled") continue;
-    horseDayOccupied.add(`${s.horse_id}|${s.event_date}`);
-    const slotId = getTrainingSlot(s);
-    if (s.assigned_groom_id != null) {
-      groomSlotOccupied.add(`${s.assigned_groom_id}|${s.event_date}|${slotId}`);
-      if (calendarDays.includes(s.event_date)) {
-        groomLoad.set(s.assigned_groom_id, (groomLoad.get(s.assigned_groom_id) ?? 0) + 1);
-      }
-    }
-  }
-
-  for (const c of careEvents) {
-    if (c.status === "Cancelled" || c.status === "Completed") continue;
-    for (let slotId = 1; slotId <= 6; slotId++) {
-      if (doesCareEventOverlapSlot(c, slotId)) {
-        horseSlotCareOccupied.add(`${c.horse_id}|${c.event_date}|${slotId}`);
-        if (c.groom_id != null) {
-          groomSlotOccupied.add(`${c.groom_id}|${c.event_date}|${slotId}`);
-        }
-      }
-    }
-  }
-
-  const suggestions: AiScheduleSuggestion[] = [];
-  const targets = coverageList.filter((item) => item.coverageStatus === "uncovered" || item.coverageStatus === "undertrained");
-
-  let slotCursor = 0;
-  for (const item of targets) {
-    const needed = Math.max(1, item.recommendedRegimen.recommended_sessions_per_week - item.activeSessionCount);
-    let scheduledForHorse = 0;
-    let lastChosenDay: string | null = null;
-
-    for (const day of candidateDays) {
-      if (scheduledForHorse >= needed) break;
-      if (horseDayOccupied.has(`${item.horse.id}|${day}`)) continue;
-      // Avoid consecutive days if possible when scheduling multiple sessions
-      if (lastChosenDay && plusDays(lastChosenDay, 1) === day && candidateDays.length > needed * 2) continue;
-
-      let chosenSlot = 0;
-      let chosenGroom: Groom | null = null;
-
-      for (let attempt = 0; attempt < TRAINING_TIMETABLE_SLOTS.length; attempt++) {
-        const slotObj = TRAINING_TIMETABLE_SLOTS[(slotCursor + attempt) % TRAINING_TIMETABLE_SLOTS.length];
-        const times = SLOT_START_END[slotObj.id];
-        if (day === todayStr) {
-          const [sh, sm] = times.start.split(":").map(Number);
-          if (sh * 60 + sm <= nowMinutes) continue;
-        }
-        // Check if horse has a conflicting Care/Medical schedule in this slot!
-        if (horseSlotCareOccupied.has(`${item.horse.id}|${day}|${slotObj.id}`)) {
-          continue;
-        }
-        // Pick least-loaded groom free in this slot
-        const availableGrooms = [...grooms]
-          .filter((g) => !groomSlotOccupied.has(`${g.user_id}|${day}|${slotObj.id}`))
-          .sort((a, b) => (groomLoad.get(a.user_id) ?? 0) - (groomLoad.get(b.user_id) ?? 0));
-
-        if (availableGrooms.length > 0 || grooms.length === 0) {
-          chosenSlot = slotObj.id;
-          chosenGroom = availableGrooms[0] ?? null;
-          slotCursor = (slotCursor + attempt + 1) % TRAINING_TIMETABLE_SLOTS.length;
-          break;
-        }
-      }
-
-      // If today had no valid future slots, continue to next day
-      if (!chosenSlot) continue;
-
-      const slotMeta = TRAINING_TIMETABLE_SLOTS.find((s) => s.id === chosenSlot) ?? TRAINING_TIMETABLE_SLOTS[0];
-      const times = SLOT_START_END[slotMeta.id];
-      horseDayOccupied.add(`${item.horse.id}|${day}`);
-      if (chosenGroom) {
-        groomSlotOccupied.add(`${chosenGroom.user_id}|${day}|${slotMeta.id}`);
-        groomLoad.set(chosenGroom.user_id, (groomLoad.get(chosenGroom.user_id) ?? 0) + 1);
-      }
-      lastChosenDay = day;
-      scheduledForHorse += 1;
-
-      suggestions.push({
-        horseId: item.horse.id,
-        horseName: item.horse.horse_name,
-        regimen: item.recommendedRegimen,
-        aiReason: item.aiReason,
-        eventDate: day,
-        slotId: slotMeta.id,
-        timeRange: slotMeta.timeRange,
-        startTime: times.start,
-        endTime: times.end,
-        groomId: chosenGroom?.user_id ?? null,
-        groomName: chosenGroom?.full_name ?? "Chưa phân công",
-        currentWeekSessions: item.activeSessionCount,
-      });
-    }
-  }
-
-  return suggestions;
-}
-
-export interface AiChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: string;
-}
-
-export function generateTrainerAiChatReply(
-  question: string,
-  currentHorse: Horse | null,
-  currentOverview: TrainerHorse | undefined,
-  horses: Horse[],
-  overview: TrainerHorse[],
-  sessions: TrainingSession[],
-  grooms: Groom[],
-  calendarDays: string[],
-): string {
-  const q = normalizeHorseSearch(question.trim());
-  const coverageList = computeHorseCoverage(horses, overview, sessions, calendarDays);
-  const groomLoads = computeGroomWorkloads(grooms, sessions, calendarDays);
-
-  // Check if user mentions a specific horse name in the question
-  const mentionedHorse = horses.find((h) => q.includes(normalizeHorseSearch(h.horse_name))) ?? currentHorse;
-  const mentionedOv = overview.find((o) => o.horse_id === mentionedHorse?.id) ?? currentOverview;
-
-  // 1. Question about runs per session / distance / laps ("1 ca chạy bao nhiêu lần", "bao nhiêu vòng", "cự ly", "quãng đường")
-  if (q.includes("bao nhieu lan") || q.includes("may lan") || q.includes("bao nhieu vong") || q.includes("1 ca") || q.includes("mot ca") || q.includes("quang duong") || q.includes("cu ly")) {
-    const highRun = analyzeSessionRunStructure(1800, "High");
-    const medRun = analyzeSessionRunStructure(1200, "Medium");
-    const lowRun = analyzeSessionRunStructure(600, "Low");
-    const horseSpecific = mentionedHorse
-      ? (() => {
-          const rec = recommendRegimenForHorse(mentionedHorse, mentionedOv);
-          const run = analyzeSessionRunStructure(rec.regimen.target_distance_meters, rec.regimen.target_intensity);
-          return `\n\n🐎 **Áp dụng cho ${mentionedHorse.horse_name} (${rec.regimen.levelLabel}):**\n- ${run.formulaText}\n- ${run.phaseBreakdownText}`;
-        })()
-      : "";
-
-    return (
-      `📏 **Số lượt chạy / ca (90p) theo cự ly (1 vòng = 600m):**\n` +
-      `• **CAO (1.800m · Cỏ):** **${highRun.runsPerSession} lượt × ${highRun.distancePerRunMeters}m** (${highRun.totalLaps} vòng · nghỉ ${highRun.restBetweenRunsMinutes}p)\n` +
-      `• **VỪA (1.200m · Đất):** **${medRun.runsPerSession} lượt × ${medRun.distancePerRunMeters}m** (${medRun.totalLaps} vòng · nghỉ ${medRun.restBetweenRunsMinutes}p)\n` +
-      `• **THẤP (600m · Nhân tạo):** **${lowRun.runsPerSession} lượt × ${lowRun.distancePerRunMeters}m** (${lowRun.totalLaps} vòng · nghỉ ${lowRun.restBetweenRunsMinutes}p)` +
-      horseSpecific
-    );
-  }
-
-  // 2. Question about uncovered or overtrained horses ("ngựa nào chưa có lịch", "tập quá nhiều", "bỏ sót")
-  if (q.includes("chua co lich") || q.includes("bo sot") || q.includes("0 buoi") || q.includes("tap qua nhieu") || q.includes("qua tai")) {
-    const uncovered = coverageList.filter((c) => c.coverageStatus === "uncovered");
-    const under = coverageList.filter((c) => c.coverageStatus === "undertrained");
-    const over = coverageList.filter((c) => c.coverageStatus === "overtrained");
-    return (
-      `📊 **Độ phủ lịch tập tuần (${calendarDays[0]} → ${calendarDays[6]}):**\n` +
-      `• **Chưa có lịch (0 buổi — ${uncovered.length}):** ${uncovered.length ? uncovered.map((u) => `${u.horse.horse_name} (${u.recommendedRegimen.levelLabel})`).join(", ") : "Không có"}\n` +
-      `• **Thiếu buổi (${under.length}):** ${under.length ? under.map((u) => `${u.horse.horse_name} (${u.activeSessionCount}/${u.recommendedRegimen.recommended_sessions_per_week})`).join(", ") : "Không có"}\n` +
-      `• **Quá tải (${over.length}):** ${over.length ? over.map((o) => `${o.horse.horse_name} (${o.coverageLabel})`).join(", ") : "Không có"}`
-    );
-  }
-
-  // 3. Question about Groom workload ("groom nào rảnh", "nhân viên", "chia việc", "phân công")
-  if (q.includes("groom") || q.includes("nhan vien") || q.includes("ranh") || q.includes("it viec") || q.includes("chia viec") || q.includes("phan cong")) {
-    if (!groomLoads.length) return "Chưa có dữ liệu Groom.";
-    const lines = groomLoads.map(
-      (g, idx) => `${idx + 1}. **${g.groom.full_name}**: ${g.weekCount} ca/tuần · Hôm nay ${g.todayCount} ca (${g.statusLabel})${idx === 0 ? " 👈 Ưu tiên" : ""}`,
-    );
-    return `👥 **Tải công việc Groom:**\n` + lines.join("\n");
-  }
-
-  // 4. Default / Question about a horse's regimen ("giáo án nào", "liệu trình nào", "tư vấn", etc.)
-  if (mentionedHorse) {
-    const rec = recommendRegimenForHorse(mentionedHorse, mentionedOv);
-    const run = analyzeSessionRunStructure(rec.regimen.target_distance_meters, rec.regimen.target_intensity);
-    const cov = coverageList.find((c) => c.horse.id === mentionedHorse.id);
-    return (
-      `🐎 **${mentionedHorse.horse_name}** → **${rec.regimen.levelLabel}** (${rec.regimen.target_distance_meters.toLocaleString("vi-VN")}m · ${surfaceLabel(rec.regimen.target_track_surface)})\n` +
-      `• **Lý do:** ${rec.reason}\n` +
-      `• **Chia lượt/ca:** ${run.formulaText} · ${rec.regimen.recommended_sessions_per_week} buổi/tuần\n` +
-      `• **Tuần này:** ${cov ? `${cov.coverageLabel} (${cov.activeSessionCount} buổi)` : "—"}${groomLoads[0] ? ` · Groom gợi ý: **${groomLoads[0].groom.full_name}**` : ""}`
-    );
-  }
-
-  return (
-    `🤖 Chọn câu hỏi nhanh hoặc nhập tên ngựa để xem: Giáo án (Cao/Vừa/Thấp), số lượt chạy/ca, ngựa thiếu lịch hoặc tải Groom.`
-  );
-}
-
-export function TrainerAiChatBox({
-  currentHorse,
-  currentOverview,
-  horses,
-  overview,
-  sessions,
-  grooms,
-  calendarDays,
-  defaultOpen = false,
-}: {
-  currentHorse: Horse | null;
-  currentOverview?: TrainerHorse;
-  horses: Horse[];
-  overview: TrainerHorse[];
-  sessions: TrainingSession[];
-  grooms: Groom[];
-  calendarDays: string[];
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  const [messages, setMessages] = useState<AiChatMessage[]>(() => [
-    {
-      id: "welcome",
-      role: "assistant",
-      content: `Chào bạn! Bấm câu hỏi nhanh hoặc nhập câu hỏi để kiểm tra giáo án (Cao/Vừa/Thấp), số lượt chạy/ca và tải Groom.`,
-      timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
-    },
-  ]);
-  const [input, setInput] = useState("");
-  const [thinking, setThinking] = useState(false);
-
-  async function askQuestion(rawQuestion: string) {
-    const trimmed = rawQuestion.trim();
-    if (!trimmed || thinking) return;
-    setOpen(true);
-    const userMsg: AiChatMessage = {
-      id: `u-${Date.now()}`,
-      role: "user",
-      content: trimmed,
-      timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
-    };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput("");
-    setThinking(true);
-
-    const localAnswer = generateTrainerAiChatReply(
-      trimmed,
-      currentHorse,
-      currentOverview,
-      horses,
-      overview,
-      sessions,
-      grooms,
-      calendarDays,
-    );
-
-    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-    if (apiKey) {
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [
-                {
-                  parts: [
-                    {
-                      text: `Bạn là Trợ lý AI Huấn luyện Ngựa đua. Dữ liệu hệ thống:\n${localAnswer}\n\nCâu hỏi: "${trimmed}". Trả lời cực kỳ ngắn gọn (tối đa 4 dòng), đúng số liệu.`,
-                    },
-                  ],
-                },
-              ],
-            }),
-          },
-        );
-        if (res.ok) {
-          const json = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-          const geminiText = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          if (geminiText) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `a-${Date.now()}`,
-                role: "assistant",
-                content: geminiText,
-                timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
-              },
-            ]);
-            setThinking(false);
-            return;
-          }
-        }
-      } catch {
-        // Fallback to deterministic local specialist analysis
-      }
-    }
-
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `a-${Date.now()}`,
-          role: "assistant",
-          content: localAnswer,
-          timestamp: new Date().toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }),
-        },
-      ]);
-      setThinking(false);
-    }, 150);
-  }
-
-  const quickPrompts = [
-    { label: `Tư vấn ${currentHorse?.horse_name ?? "ngựa"}`, q: `Tư vấn giáo án cho ${currentHorse?.horse_name ?? "ngựa đang chọn"}` },
-    { label: "1 ca chạy mấy lượt?", q: "1 ca tập chạy bao nhiêu lần/lượt theo quãng đường?" },
-    { label: "Ngựa thiếu / quá tải", q: "Ngựa nào chưa có lịch hoặc tập quá nhiều?" },
-    { label: "Groom rảnh nhất", q: "Groom nào đang rảnh nhất để giao việc?" },
-  ];
-
-  return (
-    <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 px-3.5 py-2.5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="inline-flex items-center gap-2 text-left text-xs font-extrabold text-indigo-950"
-        >
-          <span className="grid h-6 w-6 place-items-center rounded-md bg-indigo-600 text-white">
-            <Bot size={14} />
-          </span>
-          <span>Chat AI Huấn luyện</span>
-          <span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 border border-indigo-200">
-            {open ? "Thu gọn" : "Mở chat"}
-          </span>
-        </button>
-        <div className="flex flex-wrap gap-1">
-          {quickPrompts.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              onClick={() => void askQuestion(item.q)}
-              className="rounded-full border border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-indigo-900 transition hover:border-indigo-400 hover:bg-indigo-50"
-            >
-              <MessageSquare size={10} className="mr-1 inline text-indigo-600" />
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {open && (
-        <div className="mt-2.5 space-y-2 border-t border-indigo-100 pt-2.5">
-          <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border border-slate-200/80 bg-white p-2.5">
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
-              >
-                <div
-                  className={`max-w-[92%] whitespace-pre-wrap rounded-lg px-3 py-1.5 text-xs leading-5 ${
-                    msg.role === "user"
-                      ? "bg-equine-navy font-medium text-white"
-                      : "border border-indigo-100 bg-slate-50 text-slate-800"
-                  }`}
-                >
-                  {msg.content}
-                </div>
-              </div>
-            ))}
-            {thinking && (
-              <div className="text-xs font-semibold text-indigo-700 animate-pulse">
-                AI đang phân tích…
-              </div>
-            )}
-          </div>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void askQuestion(input);
-            }}
-            className="flex gap-2"
-          >
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Hỏi AI (VD: 1800m chạy mấy lượt? Ngựa nào thiếu lịch?)..."
-              className="field-control h-9 flex-1 bg-white px-3 text-xs"
-            />
-            <button type="submit" disabled={thinking || !input.trim()} className="gold-button h-9 shrink-0 px-3 text-xs">
-              <Send size={13} /> Gửi
-            </button>
-          </form>
-        </div>
-      )}
-    </div>
-  );
-}
-function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, plans: allPlans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, selectedHorseIds, setSelectedHorseIds, onCreate, onUpdate, onDelete, onSchedule, onApplyRegimen, onResetCleanData, busy }: {
-  horse: Horse | null; horses: Horse[]; overview: TrainerHorse[]; sessions: TrainingSession[]; grooms: Groom[]; calendarFrom: string; plans: TrainingPlan[]; activeOnly: boolean; setActiveOnly: (value: boolean) => void;
+function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, selectedHorseIds, setSelectedHorseIds, onCreate, onUpdate, onDelete, onSchedule, onApplyRegimen, onResetCleanData, busy, error, notice }: {
+  horse: Horse | null; horses: Horse[]; plans: TrainingPlan[]; activeOnly: boolean; setActiveOnly: (value: boolean) => void;
   editingPlan: string | null; setEditingPlan: (id: string | null) => void;
   selectedHorseIds: string[]; setSelectedHorseIds: (value: string[] | ((current: string[]) => string[])) => void;
   onCreate: (event: FormEvent<HTMLFormElement>) => void; onUpdate: (event: FormEvent<HTMLFormElement>, id: string) => void;
@@ -2190,6 +1879,8 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
   onApplyRegimen: (regimen: StandardRegimen, targetHorseIds: string[], openCalendarAfter?: boolean) => Promise<void>;
   onResetCleanData: () => Promise<void>;
   busy: boolean;
+  error?: string;
+  notice?: string;
 }) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [showCustomForm, setShowCustomForm] = useState(false);
@@ -2199,6 +1890,7 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
   const plansPerPage = 6;
   const [planPage, setPlanPage] = useState(1);
 
+  const unlockedHorses = useMemo(() => horses.filter((h) => !h.is_training_locked), [horses]);
   const { uniquePlans, hiddenDuplicateCount } = useMemo(() => deduplicateAndSortPlans(allPlans), [allPlans]);
   const displayPlansSource = useMemo(() => {
     const baseList = showDuplicatePlans
@@ -2209,19 +1901,27 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
       if (levelFilter === "CAO" && p.target_intensity !== "High") return false;
       if (levelFilter === "VỪA" && p.target_intensity !== "Medium") return false;
       if (levelFilter === "THẤP" && p.target_intensity !== "Low") return false;
-      if (q && !normalizeHorseSearch(`${p.stage_name ?? ""} ${p.objective ?? ""} ${p.target_track_surface ?? ""} ${p.target_distance_meters ?? ""}`).includes(q)) return false;
+      if (q) {
+        const planText = normalizeHorseSearch(`${p.stage_name ?? ""} ${p.objective ?? ""} ${p.target_track_surface ?? ""} ${p.target_distance_meters ?? ""}`);
+        const matchesHorseName = unlockedHorses.some((h) => normalizeHorseSearch(`${h.horse_name ?? ""} ${h.box_code ?? ""}`).includes(q));
+        if (!planText.includes(q) && !matchesHorseName) return false;
+      }
       return true;
     });
-  }, [allPlans, uniquePlans, showDuplicatePlans, planSearch, levelFilter]);
+  }, [allPlans, uniquePlans, showDuplicatePlans, planSearch, levelFilter, unlockedHorses]);
 
   const filteredStandardRegimens = useMemo(() => {
     const q = normalizeHorseSearch(planSearch.trim());
     return STANDARD_REGIMENS.filter((reg) => {
       if (levelFilter !== "ALL" && reg.levelLabel !== levelFilter) return false;
-      if (q && !normalizeHorseSearch(`${reg.title} ${reg.subtitle} ${reg.stage_name} ${reg.target_track_surface} ${reg.target_distance_meters}`).includes(q)) return false;
+      if (q) {
+        const regText = normalizeHorseSearch(`${reg.title} ${reg.subtitle} ${reg.stage_name} ${reg.target_track_surface} ${reg.target_distance_meters}`);
+        const matchesHorseName = unlockedHorses.some((h) => normalizeHorseSearch(`${h.horse_name ?? ""} ${h.box_code ?? ""}`).includes(q));
+        if (!regText.includes(q) && !matchesHorseName) return false;
+      }
       return true;
     });
-  }, [planSearch, levelFilter]);
+  }, [planSearch, levelFilter, unlockedHorses]);
 
   const totalPlanPages = Math.max(1, Math.ceil(displayPlansSource.length / plansPerPage));
   const currentPlanPage = Math.min(planPage, totalPlanPages);
@@ -2229,7 +1929,6 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
   const selectableHorseId = horse && !horse.is_training_locked ? horse.id : null;
   const createFormRef = useRef<HTMLFormElement>(null);
   const [duplicateWarningPlan, setDuplicateWarningPlan] = useState<TrainingPlan | null>(null);
-  const calendarDays = useMemo(() => Array.from({ length: 7 }, (_, idx) => plusDays(calendarFrom, idx)), [calendarFrom]);
 
   useEffect(() => {
     setSelectedHorseIds(selectableHorseId ? [selectableHorseId] : []);
@@ -2242,10 +1941,6 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
   useEffect(() => {
     if (planPage > totalPlanPages) setPlanPage(totalPlanPages);
   }, [planPage, totalPlanPages]);
-
-  const unlockedHorses = useMemo(() => horses.filter((h) => !h.is_training_locked), [horses]);
-  const currentOverview = useMemo(() => overview.find((o) => o.horse_id === horse?.id), [overview, horse?.id]);
-  const aiRecommendation = useMemo(() => (horse ? recommendRegimenForHorse(horse, currentOverview) : null), [horse, currentOverview]);
 
   function handleFormChange() {
     const form = createFormRef.current;
@@ -2272,7 +1967,7 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
   return <div className="space-y-4">
     <Section
       title="Giáo án chuẩn (Cao → Vừa → Thấp)"
-      icon={Sparkles}
+      icon={ClipboardList}
       action={
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -2284,16 +1979,6 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
           >
             <RefreshCw size={13} /> 🧹 Làm sạch & Tạo lại Giáo án + Lịch chuẩn
           </button>
-          {aiRecommendation && horse && !horse.is_training_locked && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void onApplyRegimen(aiRecommendation.regimen, selectedHorseIds.length ? selectedHorseIds : [horse.id], true)}
-              className="gold-button px-3 py-1.5 text-xs"
-            >
-              <Wand2 size={13} /> AI gợi ý cho {horse.horse_name}: {aiRecommendation.regimen.levelLabel} — Lên lịch ngay
-            </button>
-          )}
         </div>
       }
     >
@@ -2302,12 +1987,22 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
           <div className="relative w-56">
             <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
-              type="search"
+              type="text"
               value={planSearch}
               onChange={(e) => setPlanSearch(e.target.value)}
               placeholder="Tìm giáo án, cự ly, sân..."
-              className="field-control h-8 w-full pl-7 pr-2 text-xs"
+              className="h-8 w-full rounded-lg border border-equine-line bg-white pl-7 pr-7 text-xs text-slate-800 outline-none focus:border-equine-navy"
             />
+            {planSearch && (
+              <button
+                type="button"
+                onClick={() => setPlanSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                title="Xóa tìm kiếm"
+              >
+                <X size={12} />
+              </button>
+            )}
           </div>
           <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5">
             {(["ALL", "CAO", "VỪA", "THẤP"] as const).map((lvl) => (
@@ -2324,15 +2019,20 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
             ))}
           </div>
         </div>
+
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-xs font-bold text-equine-navy">Ngựa ({selectedHorseIds.length}):</span>
+          <span className="mr-1 text-xs font-bold text-equine-navy">
+            Ngựa áp dụng ({selectedHorseIds.length}/{unlockedHorses.length}):
+          </span>
           {unlockedHorses.map((item) => {
             const checked = selectedHorseIds.includes(item.id);
             return (
               <label
                 key={item.id}
-                className={`inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium transition ${
-                  checked ? "border-blue-600 bg-blue-50 text-blue-950" : "border-equine-line bg-white text-slate-700 hover:bg-slate-50"
+                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition ${
+                  checked
+                    ? "border-blue-600 bg-blue-50 font-semibold text-blue-950 shadow-xs"
+                    : "border-equine-line bg-white text-slate-700 hover:bg-slate-50"
                 }`}
               >
                 <input
@@ -2344,21 +2044,26 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
                     )
                   }
                 />
-                {item.horse_name}
+                <span>{item.horse_name}</span>
+                {item.box_code && (
+                  <span className="rounded bg-slate-100 px-1 py-0.2 text-[10px] text-slate-500">
+                    {item.box_code}
+                  </span>
+                )}
               </label>
             );
           })}
           <button
             type="button"
-            className="soft-button px-2 py-1 text-[11px]"
+            className="soft-button px-2.5 py-1 text-[11px]"
             onClick={() => setSelectedHorseIds(unlockedHorses.map((h) => h.id))}
           >
-            Tất cả ({unlockedHorses.length})
+            Chọn tất cả ({unlockedHorses.length})
           </button>
           {horse && !horse.is_training_locked && (
             <button
               type="button"
-              className="soft-button px-2 py-1 text-[11px]"
+              className="soft-button px-2.5 py-1 text-[11px]"
               onClick={() => setSelectedHorseIds([horse.id])}
             >
               Chỉ {horse.horse_name}
@@ -2381,24 +2086,16 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
           </thead>
           <tbody className="divide-y divide-equine-line">
             {filteredStandardRegimens.map((reg) => {
-              const isAiPick = aiRecommendation?.regimen.key === reg.key;
               const runInfo = analyzeSessionRunStructure(reg.target_distance_meters, reg.target_intensity);
               return (
                 <tr
                   key={reg.key}
-                  className={`transition ${isAiPick ? "bg-indigo-50/70" : "hover:bg-slate-50/80"}`}
+                  className="transition hover:bg-slate-50/80"
                 >
                   <td className="px-3 py-2 align-middle">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${reg.badgeClass}`}>
-                        {reg.shortBadge}
-                      </span>
-                      {isAiPick && (
-                        <span className="inline-flex items-center gap-0.5 rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                          <Sparkles size={10} /> AI Gợi ý
-                        </span>
-                      )}
-                    </div>
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${reg.badgeClass}`}>
+                      {reg.shortBadge}
+                    </span>
                   </td>
                   <td className="px-3 py-2 align-middle">
                     <p className="font-bold text-equine-navy">{reg.title}</p>
@@ -2430,18 +2127,6 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
             })}
           </tbody>
         </table>
-      </div>
-
-      <div className="mt-3">
-        <TrainerAiChatBox
-          currentHorse={horse}
-          currentOverview={currentOverview}
-          horses={horses}
-          overview={overview}
-          sessions={sessions}
-          grooms={grooms}
-          calendarDays={calendarDays}
-        />
       </div>
     </Section>
 
@@ -2477,6 +2162,8 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
     >
       {showCustomForm && (
         <div className="mb-4 rounded-xl border border-blue-200 bg-slate-50/90 p-3.5">
+          {error && <div className="mb-3"><Notice error>{error}</Notice></div>}
+          {notice && <div className="mb-3"><Notice>{notice}</Notice></div>}
           <form ref={createFormRef} onSubmit={onCreate} onChange={handleFormChange} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="sm:col-span-2 lg:col-span-4">
               {selectedHorseIds.map((id) => <input key={id} type="hidden" name="horse_ids" value={id} />)}
@@ -2514,6 +2201,12 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
         </div>
       )}
 
+      {!showCustomForm && !editingPlan && (error || notice) && (
+        <div className="mb-3 space-y-2">
+          {error && <Notice error>{error}</Notice>}
+          {notice && <Notice>{notice}</Notice>}
+        </div>
+      )}
       {plans.length === 0 ? (
         <Notice>Chưa có giáo án. Hãy chọn 1 trong 3 mức Cao / Vừa / Thấp ở trên.</Notice>
       ) : (
@@ -2538,22 +2231,14 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
                   : "bg-blue-100 text-blue-800 border-blue-300";
                 const intensityLabel = ({ High: "CAO", Medium: "VỪA", Low: "THẤP" } as Record<string, string>)[plan.target_intensity ?? ""] ?? "—";
                 const runInfo = analyzeSessionRunStructure(plan.target_distance_meters, plan.target_intensity);
-                const isAiPick = aiRecommendation && plan.target_intensity === aiRecommendation.regimen.target_intensity;
 
                 return (
                   <Fragment key={plan.id}>
-                    <tr className={`transition hover:bg-slate-50/90 ${isAiPick ? "bg-indigo-50/35" : ""}`}>
+                    <tr className="transition hover:bg-slate-50/90">
                       <td className="px-3 py-2.5 align-middle">
-                        <div className="flex items-center gap-1">
-                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${intensityBadge}`}>
-                            {intensityLabel}
-                          </span>
-                          {isAiPick && (
-                            <span className="rounded bg-indigo-600 px-1.5 py-0.5 text-[9px] font-bold text-white">
-                              AI
-                            </span>
-                          )}
-                        </div>
+                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${intensityBadge}`}>
+                          {intensityLabel}
+                        </span>
                       </td>
                       <td className="px-3 py-2.5 align-middle">
                         <div className="flex flex-wrap items-center gap-1.5">
@@ -2609,6 +2294,8 @@ function PlansPanel({ horse, horses, overview, sessions, grooms, calendarFrom, p
                     {editingPlan === plan.id && (
                       <tr className="bg-slate-50">
                         <td colSpan={6} className="p-3.5">
+                          {error && <div className="mb-2.5"><Notice error>{error}</Notice></div>}
+                          {notice && <div className="mb-2.5"><Notice>{notice}</Notice></div>}
                           <form onSubmit={(event) => onUpdate(event, plan.id)} className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
                             <Field label="Tên giai đoạn" name="stage_name" required defaultValue={plan.stage_name} />
                             <SelectField label="Cự ly (m)" name="target_distance_meters" required defaultValue={String(plan.target_distance_meters ?? "")} options={distanceOptionsWithCurrent(plan.target_distance_meters)} />
@@ -2693,9 +2380,226 @@ function trainingDayLabel(value: string) {
   return day === 0 ? "Chủ nhật" : `Thứ ${day + 1}`;
 }
 
-function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessions, careEvents, grooms, from, to, onWeekChange, scheduleDraft, onCreate, onResetCleanData, onAssign, onStatus, onVideo, showMetricsFor, setShowMetricsFor, busy, onOpenSimulation, onTargetsSaved }: {
+function suggestedTrainingSlot(preferredDate?: string | null) {
+  const todayStr = today();
+  if (preferredDate && preferredDate > todayStr) {
+    return { date: preferredDate, slot: TRAINING_TIMETABLE_SLOTS[0] };
+  }
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const nextToday = TRAINING_TIMETABLE_SLOTS.find((s) => {
+    const [h, m] = s.start.split(":").map(Number);
+    return h * 60 + m > nowMinutes;
+  });
+  if (nextToday) {
+    return { date: todayStr, slot: nextToday };
+  }
+  return { date: plusDays(todayStr, 1), slot: TRAINING_TIMETABLE_SLOTS[0] };
+}
+
+type RankedSlotGroom = {
+  groom: Groom;
+  dayCount: number;
+  weekCount: number;
+  busyReason: string | null;
+};
+
+type EvaluatedSlot = {
+  slot: (typeof TRAINING_TIMETABLE_SLOTS)[number];
+  isPast: boolean;
+  horseTrainingConflict: TrainingSession | null;
+  horseCareConflict: CareCalendarEvent | null;
+  isFreeForHorse: boolean;
+  hasFreeGroom: boolean;
+  statusLabel: string;
+  rankedGrooms: RankedSlotGroom[];
+  bestGroomId: string;
+};
+
+function evaluateSlotForDateAndHorse(
+  horseId: string,
+  date: string,
+  slot: (typeof TRAINING_TIMETABLE_SLOTS)[number],
+  sessions: TrainingSession[],
+  careEvents: CareCalendarEvent[],
+  groomWorkloads: GroomWorkloadStat[],
+): EvaluatedSlot {
+  const todayStr = today();
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const slotStartMins = timeToMinutes(slot.start) ?? 0;
+  const isPast = date < todayStr || (date === todayStr && slotStartMins <= nowMinutes);
+
+  const activeDaySessions = sessions.filter((s) => s.status !== "Cancelled" && s.event_date === date);
+  const horseTrainingConflict = activeDaySessions.find(
+    (s) => s.horse_id === horseId && getTrainingSlot(s) === slot.id,
+  ) ?? null;
+
+  const horseCareConflict = careEvents.find((c) => {
+    if (c.status === "Cancelled" || c.status === "Completed") return false;
+    if (c.event_date !== date || c.horse_id !== horseId) return false;
+    return doesCareEventOverlapSlot(c, slot.id);
+  }) ?? null;
+
+  const rankedGrooms: RankedSlotGroom[] = groomWorkloads
+    .map((gw) => {
+      const gid = gw.groom.user_id;
+      const dayCount = activeDaySessions.filter((s) => s.assigned_groom_id === gid).length;
+      const busySession = activeDaySessions.find(
+        (s) => s.assigned_groom_id === gid && getTrainingSlot(s) === slot.id,
+      );
+      const busyCare = careEvents.find(
+        (c) =>
+          c.status !== "Cancelled" &&
+          c.status !== "Completed" &&
+          c.event_date === date &&
+          c.groom_id === gid &&
+          doesCareEventOverlapSlot(c, slot.id),
+      );
+      const busyReason = busySession
+        ? `đang tập ${busySession.horse_name || "ngựa khác"}`
+        : busyCare
+          ? `bận chăm sóc ${busyCare.horse_name || ""}`.trim()
+          : null;
+      return {
+        groom: gw.groom,
+        dayCount,
+        weekCount: gw.weekCount,
+        busyReason,
+      };
+    })
+    .sort((a, b) => {
+      const aBusy = a.busyReason ? 1 : 0;
+      const bBusy = b.busyReason ? 1 : 0;
+      if (aBusy !== bBusy) return aBusy - bBusy;
+      if (a.dayCount !== b.dayCount) return a.dayCount - b.dayCount;
+      return a.weekCount - b.weekCount;
+    });
+
+  const isFreeForHorse = !isPast && !horseTrainingConflict && !horseCareConflict;
+  const firstFreeGroom = rankedGrooms.find((g) => !g.busyReason);
+  const hasFreeGroom = Boolean(firstFreeGroom);
+  const bestGroomId = firstFreeGroom
+    ? String(firstFreeGroom.groom.user_id)
+    : rankedGrooms[0]
+      ? String(rankedGrooms[0].groom.user_id)
+      : "";
+
+  let statusLabel = "✓ Trống";
+  if (isPast) statusLabel = "✗ Đã qua giờ";
+  else if (horseTrainingConflict) statusLabel = "✗ Ngựa đã có ca tập";
+  else if (horseCareConflict) statusLabel = `✗ Trùng lịch Y tế (${careEventTypeLabel(horseCareConflict.care_type ?? horseCareConflict.event_type, horseCareConflict.title)})`;
+  else if (groomWorkloads.length > 0 && !hasFreeGroom) statusLabel = "⚠ Không còn Groom rảnh";
+
+  return {
+    slot,
+    isPast,
+    horseTrainingConflict,
+    horseCareConflict,
+    isFreeForHorse,
+    hasFreeGroom,
+    statusLabel,
+    rankedGrooms,
+    bestGroomId,
+  };
+}
+
+function findBestDateSlotAndGroom(
+  horseId: string,
+  minDate: string,
+  maxDate: string | null | undefined,
+  sessions: TrainingSession[],
+  careEvents: CareCalendarEvent[],
+  groomWorkloads: GroomWorkloadStat[],
+  preferredWeeklyCap = 3,
+): { date: string; slot: (typeof TRAINING_TIMETABLE_SLOTS)[number]; groomId: string } {
+  const todayStr = today();
+  const startDay = minDate >= todayStr ? minDate : todayStr;
+  const candidateDates: string[] = [];
+  for (let i = 0; i < 21; i++) {
+    const d = plusDays(startDay, i);
+    if (maxDate && d > maxDate) break;
+    candidateDates.push(d);
+  }
+  if (candidateDates.length === 0) candidateDates.push(startDay);
+
+  const horseActiveSessions = sessions.filter(
+    (s) => s.status !== "Cancelled" && s.session_type !== "Rest" && s.horse_id === horseId,
+  );
+  const horseTrainingDates = new Set(horseActiveSessions.map((s) => s.event_date));
+  const sessionsPerWeekMap = new Map<string, number>();
+  for (const s of horseActiveSessions) {
+    const wk = mondayOfWeek(s.event_date);
+    sessionsPerWeekMap.set(wk, (sessionsPerWeekMap.get(wk) ?? 0) + 1);
+  }
+
+  type ScoredCandidate = {
+    date: string;
+    slot: (typeof TRAINING_TIMETABLE_SLOTS)[number];
+    groomId: string;
+    score: number;
+  };
+  const candidates: ScoredCandidate[] = [];
+
+  for (let dayIdx = 0; dayIdx < candidateDates.length; dayIdx++) {
+    const d = candidateDates[dayIdx];
+    const wk = mondayOfWeek(d);
+    const weekCountForHorse = sessionsPerWeekMap.get(wk) ?? 0;
+    const horseSessionsOnDay = horseActiveSessions.filter((s) => s.event_date === d).length;
+    const hasAdjacentDaySession =
+      horseTrainingDates.has(plusDays(d, -1)) || horseTrainingDates.has(plusDays(d, 1));
+    const totalClubSessionsOnDay = sessions.filter(
+      (s) => s.status !== "Cancelled" && s.event_date === d,
+    ).length;
+
+    for (const slot of TRAINING_TIMETABLE_SLOTS) {
+      const ev = evaluateSlotForDateAndHorse(horseId, d, slot, sessions, careEvents, groomWorkloads);
+      if (!ev.isFreeForHorse) continue;
+
+      const totalClubSessionsInSlot = sessions.filter(
+        (s) => s.status !== "Cancelled" && s.event_date === d && getTrainingSlot(s) === slot.id,
+      ).length;
+
+      // Score lower is better:
+      // 1. Strongly avoid stacking >=2 sessions on the same day for the same horse (+10000)
+      // 2. If current week already reached preferredWeeklyCap, push to next week (+3000)
+      // 3. Prefer spacing training days by 1 rest day (+400 if adjacent day already has training)
+      // 4. Require at least 1 free Groom (+1500 if no free groom)
+      // 5. Spread evenly across slots & days in the club (+30 * slot load + 10 * day load)
+      // 6. Prefer earlier valid date/slot (+12 * dayIdx + slot.id)
+      let score = 0;
+      if (horseSessionsOnDay > 0) score += 10000 * horseSessionsOnDay;
+      if (weekCountForHorse >= preferredWeeklyCap) score += 3000 + (weekCountForHorse - preferredWeeklyCap) * 1000;
+      if (hasAdjacentDaySession) score += 400;
+      if (groomWorkloads.length > 0 && !ev.hasFreeGroom) score += 1500;
+      score += totalClubSessionsInSlot * 35 + totalClubSessionsOnDay * 10 + dayIdx * 12 + slot.id;
+
+      candidates.push({
+        date: d,
+        slot,
+        groomId: ev.bestGroomId,
+        score,
+      });
+    }
+  }
+
+  if (candidates.length > 0) {
+    candidates.sort((a, b) => a.score - b.score);
+    return {
+      date: candidates[0].date,
+      slot: candidates[0].slot,
+      groomId: candidates[0].groomId,
+    };
+  }
+
+  const def = suggestedTrainingSlot(startDay);
+  const ev = evaluateSlotForDateAndHorse(horseId, def.date, def.slot, sessions, careEvents, groomWorkloads);
+  return { date: def.date, slot: def.slot, groomId: ev.bestGroomId };
+}
+
+function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessions, careEvents, grooms, from, to, onWeekChange, scheduleDraft, onCreate, onResetCleanData, onAssign, onStatus, onVideo, showMetricsFor, setShowMetricsFor, busy, onOpenSimulation, onTargetsSaved, error, notice, lastCreatedSessionId }: {
   selectedHorseId: string; onSelectHorse: (id: string) => void; overview: TrainerHorse[]; horses: Horse[]; sessions: TrainingSession[]; careEvents: CareCalendarEvent[]; grooms: Groom[]; from: string; to: string; onWeekChange: (value: string) => void;
-  onCreate: (event: FormEvent<HTMLFormElement>) => void;
+  onCreate: (event: FormEvent<HTMLFormElement>) => Promise<TrainingSession | null>;
   onResetCleanData: () => Promise<void>;
   scheduleDraft: { horseId: string; planId: string; startDate: string | null; regimenKey?: RegimenLevel } | null;
   onTargetsSaved: () => Promise<void>;
@@ -2703,6 +2607,9 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   onAssign: (id: string, groomId: number) => void; onStatus: (id: string, status: string) => void;
   onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; showMetricsFor: string | null;
   setShowMetricsFor: (id: string | null) => void; busy: boolean;
+  error?: string;
+  notice?: string;
+  lastCreatedSessionId?: string | null;
 }) {
   const [createHorse, setCreateHorse] = useState((selectedHorseId || horses[0]?.id) ?? "");
   const [allHorsePlans, setHorsePlans] = useState<TrainingPlan[]>([]);
@@ -2711,14 +2618,14 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   const [plansReload, setPlansReload] = useState(0);
   const [selectedPlanId, setSelectedPlanId] = useState("");
   const [regimenPreset, setRegimenPreset] = useState<string>("MEDIUM_ENDURANCE");
-  const [selectedSlotId, setSelectedSlotId] = useState<string>("1");
+  const [scheduleDefaults] = useState(() => suggestedTrainingSlot(scheduleDraft?.startDate));
+  const [selectedSlotId, setSelectedSlotId] = useState<string>(() => String(scheduleDefaults.slot.id));
   const [sessionType, setSessionType] = useState("Training");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [scheduleDefaults] = useState(() => suggestedTrainingWindow());
-  const [scheduleDate, setScheduleDate] = useState(() => scheduleDraft?.startDate ?? scheduleDefaults.date);
-  const [startTimeVal, setStartTimeVal] = useState("07:00");
-  const [endTimeVal, setEndTimeVal] = useState("08:30");
+  const [scheduleDate, setScheduleDate] = useState(() => scheduleDefaults.date);
+  const [startTimeVal, setStartTimeVal] = useState(() => scheduleDefaults.slot.start);
+  const [endTimeVal, setEndTimeVal] = useState(() => scheduleDefaults.slot.end);
   const [assignedGroomVal, setAssignedGroomVal] = useState("");
   const [surfaceVal, setSurfaceVal] = useState("Dirt");
   const [distanceVal, setDistanceVal] = useState("1200");
@@ -2726,14 +2633,11 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   const [showAllHorsesTimetable, setShowAllHorsesTimetable] = useState(true);
   const [groomFilterId, setGroomFilterId] = useState<string>("");
   const [coverageFilter, setCoverageFilter] = useState<"all" | "uncovered" | "overtrained" | "undertrained" | "balanced" | "locked">("all");
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiStatusMsg, setAiStatusMsg] = useState("");
   const createFormRef = useRef<HTMLFormElement>(null);
 
   const calendarDays = useMemo(() => Array.from({ length: 7 }, (_, index) => plusDays(from, index)), [from]);
   const groomWorkloads = useMemo(() => computeGroomWorkloads(grooms, sessions, calendarDays), [grooms, sessions, calendarDays]);
   const horseCoverageList = useMemo(() => computeHorseCoverage(horses, overview, sessions, calendarDays), [horses, overview, sessions, calendarDays]);
-  const aiSuggestions = useMemo(() => buildAiScheduleSuggestions(horseCoverageList, grooms, sessions, calendarDays, careEvents), [horseCoverageList, grooms, sessions, calendarDays, careEvents]);
 
   const currentSlotCareConflict = useMemo(() => {
     if (!createHorse || !scheduleDate) return null;
@@ -2785,12 +2689,58 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   );
   const [notesVal, setNotesVal] = useState("");
 
-  // Sync default least-loaded groom when grooms load
+  const slotEvaluationsForDate = useMemo(
+    () =>
+      TRAINING_TIMETABLE_SLOTS.map((slot) =>
+        evaluateSlotForDateAndHorse(createHorse, scheduleDate, slot, sessions, careEvents, groomWorkloads),
+      ),
+    [createHorse, scheduleDate, sessions, careEvents, groomWorkloads],
+  );
+
+  const currentSlotEval = useMemo(
+    () =>
+      slotEvaluationsForDate.find((ev) => String(ev.slot.id) === selectedSlotId) ??
+      slotEvaluationsForDate[0],
+    [slotEvaluationsForDate, selectedSlotId],
+  );
+
+  // Automatically pick best available Groom for current (scheduleDate, selectedSlotId) whenever slot/date/horse/sessions change
   useEffect(() => {
-    if (!assignedGroomVal && groomWorkloads.length > 0) {
-      setAssignedGroomVal(String(groomWorkloads[0].groom.user_id));
+    if (!currentSlotEval) return;
+    const currentGroomStat = currentSlotEval.rankedGrooms.find(
+      (g) => String(g.groom.user_id) === assignedGroomVal,
+    );
+    // If no groom selected, or currently selected groom is busy in this slot, or another groom is clearly freer, auto-select bestGroomId
+    if (!assignedGroomVal || currentGroomStat?.busyReason || currentSlotEval.bestGroomId) {
+      if (currentSlotEval.bestGroomId && currentSlotEval.bestGroomId !== assignedGroomVal) {
+        setAssignedGroomVal(currentSlotEval.bestGroomId);
+      }
     }
-  }, [groomWorkloads, assignedGroomVal]);
+  }, [currentSlotEval, assignedGroomVal]);
+
+  // When scheduleDate changes and current slot is not free for the horse on that date, auto-hop to the least-crowded free slot on that date
+  useEffect(() => {
+    if (!createHorse || slotEvaluationsForDate.length === 0) return;
+    const currentEv = slotEvaluationsForDate.find((ev) => String(ev.slot.id) === selectedSlotId);
+    if (currentEv && currentEv.isFreeForHorse && (currentEv.hasFreeGroom || groomWorkloads.length === 0)) {
+      return;
+    }
+    const freeSlots = slotEvaluationsForDate
+      .filter((ev) => ev.isFreeForHorse)
+      .sort((a, b) => {
+        if (a.hasFreeGroom !== b.hasFreeGroom) return a.hasFreeGroom ? -1 : 1;
+        const aClubLoad = sessions.filter((s) => s.status !== "Cancelled" && s.event_date === scheduleDate && getTrainingSlot(s) === a.slot.id).length;
+        const bClubLoad = sessions.filter((s) => s.status !== "Cancelled" && s.event_date === scheduleDate && getTrainingSlot(s) === b.slot.id).length;
+        return aClubLoad - bClubLoad || a.slot.id - b.slot.id;
+      });
+    const bestSlotOnDay = freeSlots[0];
+    if (bestSlotOnDay && String(bestSlotOnDay.slot.id) !== selectedSlotId) {
+      setSelectedSlotId(String(bestSlotOnDay.slot.id));
+      setStartTimeVal(bestSlotOnDay.slot.start);
+      setEndTimeVal(bestSlotOnDay.slot.end);
+      if (bestSlotOnDay.bestGroomId) setAssignedGroomVal(bestSlotOnDay.bestGroomId);
+    }
+  }, [createHorse, scheduleDate, slotEvaluationsForDate, selectedSlotId, groomWorkloads.length, sessions]);
 
   useEffect(() => {
     const preferredHorseId = selectedHorseId && horses.some((horse) => horse.id === selectedHorseId)
@@ -2799,9 +2749,9 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
     setCreateHorse(preferredHorseId);
   }, [horses, selectedHorseId]);
 
-  // When horse changes, auto-select AI recommended regimen preset if no plan is forced
+  // When horse changes, auto-select recommended regimen preset ONLY if no specific plan is currently selected
   useEffect(() => {
-    if (currentHorseAi && !scheduleDraft) {
+    if (currentHorseAi && !scheduleDraft && !selectedPlanId) {
       const reg = currentHorseAi.regimen;
       setRegimenPreset(reg.key);
       setSurfaceVal(reg.target_track_surface);
@@ -2811,7 +2761,32 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
       const runInfo = analyzeSessionRunStructure(reg.target_distance_meters, reg.target_intensity);
       setNotesVal(`[${reg.stage_name}] ${runInfo.formulaText}`);
     }
-  }, [currentHorseAi, scheduleDraft]);
+  }, [currentHorseAi, scheduleDraft, selectedPlanId]);
+
+  const lastAutoPickedKeyRef = useRef<string>("");
+  useEffect(() => {
+    if (!createHorse) return;
+    const minStart =
+      (scheduleDraft?.startDate && scheduleDraft.startDate > today() ? scheduleDraft.startDate : null) ??
+      (selectedPlan?.start_date && selectedPlan.start_date > today() ? selectedPlan.start_date : null) ??
+      today();
+    const maxEnd = selectedPlan?.end_date ?? null;
+    const autoKey = `${createHorse}|${scheduleDraft?.planId ?? ""}|${selectedPlan?.id ?? ""}|${minStart}|${sessions.length}|${grooms.length}`;
+    if (lastAutoPickedKeyRef.current === autoKey) return;
+    lastAutoPickedKeyRef.current = autoKey;
+
+    const activeReg =
+      (selectedPlan ? matchStandardRegimen(selectedPlan) : null) ??
+      getRegimenByKey(regimenPreset) ??
+      currentHorseAi?.regimen;
+    const weeklyCap = Math.max(2, activeReg?.recommended_sessions_per_week ?? 3);
+    const best = findBestDateSlotAndGroom(createHorse, minStart, maxEnd, sessions, careEvents, groomWorkloads, weeklyCap);
+    setScheduleDate(best.date);
+    setSelectedSlotId(String(best.slot.id));
+    setStartTimeVal(best.slot.start);
+    setEndTimeVal(best.slot.end);
+    if (best.groomId) setAssignedGroomVal(best.groomId);
+  }, [createHorse, scheduleDraft, selectedPlan?.id, selectedPlan?.start_date, selectedPlan?.end_date, sessions, careEvents, groomWorkloads, grooms.length]);
 
   useEffect(() => {
     if (scheduleDraft) {
@@ -2828,9 +2803,6 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
           const runInfo = analyzeSessionRunStructure(reg.target_distance_meters, reg.target_intensity);
           setNotesVal(`[${reg.stage_name}] ${runInfo.formulaText}`);
         }
-      }
-      if (scheduleDraft.startDate && scheduleDraft.startDate >= today()) {
-        setScheduleDate(scheduleDraft.startDate);
       }
     }
   }, [scheduleDraft]);
@@ -2852,8 +2824,13 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
 
   useEffect(() => {
     if (horsePlansLoading) return;
-    setSelectedPlanId((current) => horsePlans.some((plan) => plan.id === current) ? current : "");
-  }, [scheduleDate, horsePlans, horsePlansLoading]);
+    setSelectedPlanId((current) => {
+      if (!current) return "";
+      if (allHorsePlans.some((plan) => plan.id === current)) return current;
+      if (scheduleDraft?.planId === current) return current;
+      return "";
+    });
+  }, [allHorsePlans, horsePlansLoading, scheduleDraft?.planId]);
 
   useEffect(() => {
     if (scheduleDraft) createFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -2873,8 +2850,8 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
       const plans = Array.isArray(result.data) ? result.data : [];
       setHorsePlans(plans);
       setSelectedPlanId((current) => {
-        if (plans.some((plan) => plan.id === current)) return current;
-        // Chỉ tự động chọn plan đã có nếu nó khớp đúng với Liệu trình AI/preset đang chọn! Không ép chọn plan Thấp khi AI đang gợi ý Vừa.
+        if (current && plans.some((plan) => plan.id === current)) return current;
+        if (scheduleDraft?.planId && plans.some((plan) => plan.id === scheduleDraft.planId)) return scheduleDraft.planId;
         const targetKey = scheduleDraft?.regimenKey ?? currentHorseAi?.regimen.key;
         if (targetKey) {
           const matching = plans.find((p) => matchStandardRegimen(p)?.key === targetKey);
@@ -2930,68 +2907,6 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
     }
   }
 
-  function handleAiQuickFillForCurrentHorse() {
-    if (!currentHorseObj) return;
-    const suggestionForHorse = aiSuggestions.find((s) => s.horseId === currentHorseObj.id);
-    const aiRec = currentHorseAi ?? recommendRegimenForHorse(currentHorseObj, currentOverviewObj);
-    handleSelectRegimenPreset(aiRec.regimen.key);
-    setSessionType(aiRec.regimen.session_type);
-    if (suggestionForHorse) {
-      setScheduleDate(suggestionForHorse.eventDate);
-      handleSelectSlot(String(suggestionForHorse.slotId));
-      if (suggestionForHorse.groomId) setAssignedGroomVal(String(suggestionForHorse.groomId));
-      setAiStatusMsg(`✨ Đã điền tự động cho ${currentHorseObj.horse_name}: ${aiRec.regimen.levelLabel} · Ngày ${suggestionForHorse.eventDate} · Slot ${suggestionForHorse.slotId} (${suggestionForHorse.timeRange}) · Groom ${suggestionForHorse.groomName}.`);
-    } else {
-      // Pick next valid day/slot and least busy groom
-      const leastBusyGroom = groomWorkloads[0]?.groom;
-      if (leastBusyGroom) setAssignedGroomVal(String(leastBusyGroom.user_id));
-      const tomorrowStr = plusDays(today(), 1);
-      setScheduleDate(tomorrowStr);
-      handleSelectSlot("1");
-      setAiStatusMsg(`✨ Đã điền tự động cho ${currentHorseObj.horse_name}: ${aiRec.regimen.levelLabel} · Ngày ${tomorrowStr} · Slot 1 (07h00 - 08h30)${leastBusyGroom ? ` · Groom ${leastBusyGroom.full_name}` : ""}.`);
-    }
-    createFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }
-
-  async function executeAiScheduleItems(items: AiScheduleSuggestion[]) {
-    if (!items.length) return;
-    setAiBusy(true);
-    setAiStatusMsg("");
-    let createdCount = 0;
-    let firstErr = "";
-    try {
-      for (const item of items) {
-        try {
-          const plan = await ensurePlanForHorse(item.horseId, item.regimen, item.eventDate);
-          await headTrainerApi.createSchedule(item.horseId, {
-            training_plan_id: plan.id,
-            session_type: item.regimen.session_type,
-            track_surface: item.regimen.target_track_surface,
-            event_date: item.eventDate,
-            start_time: item.startTime,
-            end_time: item.endTime,
-            assigned_groom_id: item.groomId,
-            notes: `[AI Điều phối] ${item.regimen.levelLabel} — ${item.aiReason}`,
-            target_distance_meters: item.regimen.target_distance_meters,
-            target_intensity: item.regimen.target_intensity,
-          });
-          createdCount += 1;
-        } catch (err) {
-          if (!firstErr) firstErr = headTrainerError(err);
-        }
-      }
-      await onTargetsSaved();
-      setPlansReload((v) => v + 1);
-      if (createdCount > 0) {
-        setAiStatusMsg(`✅ Đã tự động chọn liệu trình, gắn giáo án và lên lịch thành công ${createdCount}/${items.length} buổi tập!${firstErr ? ` (Lưu ý: ${firstErr})` : ""}`);
-      } else if (firstErr) {
-        setAiStatusMsg(`⚠️ Không thể tạo lịch tự động: ${firstErr}`);
-      }
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "Scheduled" | "Overdue" | "InProgress" | "Completed" | "Cancelled">("all");
   const [includeCareEvents, setIncludeCareEvents] = useState(true);
@@ -3003,6 +2918,54 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionNotice, setActionNotice] = useState("");
+  const [highlightedSessionId, setHighlightedSessionId] = useState<string | null>(null);
+  const timetableRef = useRef<HTMLDivElement>(null);
+
+  const lastScrolledSessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!lastCreatedSessionId) return;
+    setHighlightedSessionId(lastCreatedSessionId);
+    setSelectedSessionId(lastCreatedSessionId);
+    setSearchQuery("");
+    setGroomFilterId("");
+    setStatusFilter("all");
+    setShowAllHorsesTimetable(true);
+    setShowCreateForm(false);
+
+    let attempts = 0;
+    let scrollTimer = 0;
+    const tryScrollToCard = () => {
+      const cardEl = document.getElementById(`session-card-${lastCreatedSessionId}`);
+      if (cardEl) {
+        cardEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+        lastScrolledSessionRef.current = lastCreatedSessionId;
+      } else if (attempts < 15) {
+        attempts += 1;
+        scrollTimer = window.setTimeout(tryScrollToCard, 80);
+      } else {
+        timetableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    };
+    scrollTimer = window.setTimeout(tryScrollToCard, 60);
+
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedSessionId((curr) => (curr === lastCreatedSessionId ? null : curr));
+    }, 8000);
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [lastCreatedSessionId]);
+
+  useEffect(() => {
+    if (!highlightedSessionId) return;
+    const cardEl = document.getElementById(`session-card-${highlightedSessionId}`);
+    if (cardEl && lastScrolledSessionRef.current !== `${highlightedSessionId}:settled`) {
+      lastScrolledSessionRef.current = `${highlightedSessionId}:settled`;
+      cardEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+    }
+  }, [highlightedSessionId, sessions]);
 
   useEffect(() => {
     if (scheduleDraft) setShowCreateForm(true);
@@ -3133,11 +3096,16 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
         }
       }
       setMoveId("");
+      setHighlightedSessionId(session.training_schedule_id);
       if (!calendarDays.includes(nextDate)) {
         onWeekChange(nextDate);
       }
       await onTargetsSaved();
       setActionNotice(`✅ Đã dời lịch tập của ${session.horse_name} sang ngày ${nextDate} (${nextStart} – ${nextEnd}).`);
+      window.setTimeout(() => {
+        const el = document.getElementById(`session-card-${session.training_schedule_id}`);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 150);
     } catch (err) {
       setActionError(headTrainerError(err));
     } finally {
@@ -3186,23 +3154,6 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
     ?? sessions.find((session) => session.training_schedule_id === selectedSessionId && calendarDays.includes(session.event_date))
     ?? null;
 
-  const aiHorseGroups = useMemo(() => {
-    const map = new Map<string, AiScheduleSuggestion[]>();
-    for (const s of aiSuggestions) {
-      const arr = map.get(s.horseId) ?? [];
-      arr.push(s);
-      map.set(s.horseId, arr);
-    }
-    return Array.from(map.entries()).map(([hId, list]) => ({
-      horseId: hId,
-      horseName: list[0].horseName,
-      regimen: list[0].regimen,
-      aiReason: list[0].aiReason,
-      currentWeekSessions: list[0].currentWeekSessions,
-      sessions: list,
-    }));
-  }, [aiSuggestions]);
-
   const stableCoverageGroups = useMemo(() => {
     const map = new Map<string, { boxCode: string; section: string; items: HorseCoverageStat[] }>();
     for (const item of filteredCoverageList) {
@@ -3245,19 +3196,9 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {aiSuggestions.length > 0 && (
-          <button
-            type="button"
-            disabled={busy || aiBusy}
-            onClick={() => void executeAiScheduleItems(aiSuggestions)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white hover:bg-indigo-700 shadow-xs"
-          >
-            <Wand2 size={13} /> {aiBusy ? "Đang xếp lịch…" : `✨ AI Xếp tự động (${aiSuggestions.length} buổi)`}
-          </button>
-        )}
         <button
           type="button"
-          disabled={busy || aiBusy}
+          disabled={busy}
           onClick={() => void onResetCleanData()}
           className="inline-flex h-9 items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-bold text-amber-900 hover:bg-amber-100"
           title="Xóa giáo án & lịch tập cũ và tự động khởi tạo lại bộ chuẩn sạch cho toàn bộ ngựa"
@@ -3267,15 +3208,19 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
       </div>
     </div>
 
-    {(aiStatusMsg || actionNotice) && (
-      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-950">
-        {actionNotice || aiStatusMsg}
+    {!showCreateForm && !moveId && (error || notice || actionError || actionNotice) && (
+      <div className="space-y-2">
+        {(error || actionError) && <Notice error>{actionError || error}</Notice>}
+        {(notice || actionNotice) && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-950">
+            {actionNotice || notice}
+          </div>
+        )}
       </div>
     )}
-    {actionError && <Notice error>{actionError}</Notice>}
 
     {showDispatchDrawer && (
-      <Section title="Điều phối Độ phủ Chuồng & Tải Groom" icon={Sparkles}>
+      <Section title="Điều phối Độ phủ Chuồng & Tải Groom" icon={Users}>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
           <button type="button" onClick={() => setCoverageFilter(coverageFilter === "uncovered" ? "all" : "uncovered")} className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left transition ${coverageFilter === "uncovered" ? "border-rose-500 bg-rose-100/80" : "border-rose-200 bg-rose-50/60"}`}><span className="text-xs font-bold text-rose-900">Chưa có lịch</span><strong className="text-lg font-extrabold text-rose-900">{uncoveredCount}</strong></button>
           <button type="button" onClick={() => setCoverageFilter(coverageFilter === "undertrained" ? "all" : "undertrained")} className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left transition ${coverageFilter === "undertrained" ? "border-orange-500 bg-orange-100/80" : "border-orange-200 bg-orange-50/60"}`}><span className="text-xs font-bold text-orange-900">Thiếu buổi</span><strong className="text-lg font-extrabold text-orange-900">{undertrainedCount}</strong></button>
@@ -3293,18 +3238,12 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                     <span className="font-extrabold text-equine-navy">{stall.boxCode}</span>
                     <span className="text-[10px] text-slate-500">{stall.section}</span>
                   </div>
-                  {stall.items.map((item) => {
-                    const group = aiHorseGroups.find((g) => g.horseId === item.horse.id);
-                    return (
+                  {stall.items.map((item) => (
                       <div key={item.horse.id} className="mt-1 flex items-center justify-between gap-1 text-[11px]">
                         <button type="button" onClick={() => { onSelectHorse(item.horse.id); setCreateHorse(item.horse.id); }} className="truncate font-bold text-equine-navy hover:underline">{item.horse.horse_name}</button>
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] font-semibold text-slate-600">{item.activeSessionCount}/{item.recommendedRegimen.recommended_sessions_per_week}b</span>
-                          {group && <button type="button" disabled={busy || aiBusy} onClick={() => void executeAiScheduleItems(group.sessions)} className="rounded bg-indigo-600 px-1.5 py-0.5 text-[9px] font-bold text-white">+AI</button>}
-                        </div>
+                        <span className="text-[10px] font-semibold text-slate-600">{item.activeSessionCount}/{Math.max(2, item.recommendedRegimen.recommended_sessions_per_week)}b</span>
                       </div>
-                    );
-                  })}
+                  ))}
                 </div>
               ))}
             </div>
@@ -3329,12 +3268,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
         title="Đặt lịch tập mới"
         icon={Plus}
         action={
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={handleAiQuickFillForCurrentHorse} disabled={busy || !currentHorseObj} className="gold-button px-3 py-1.5 text-xs">
-              <Wand2 size={13} /> ✨ AI Điền tự động
-            </button>
-            <button type="button" onClick={() => setShowCreateForm(false)} className="soft-button px-2.5 py-1.5 text-xs">Đóng ✕</button>
-          </div>
+          <button type="button" onClick={() => setShowCreateForm(false)} className="soft-button px-2.5 py-1.5 text-xs">Đóng ✕</button>
         }
       >
         <form ref={createFormRef} onSubmit={onCreate} onChange={(event) => { if (event.target instanceof HTMLInputElement && event.target.name === "event_date") setScheduleDate(event.target.value); }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -3356,26 +3290,41 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                 return;
               }
               setSelectedPlanId(val);
-              const found = horsePlans.find((p) => p.id === val);
+              const found = horsePlans.find((p) => p.id === val) ?? allHorsePlans.find((p) => p.id === val);
               if (found) {
                 if (found.target_track_surface) setSurfaceVal(found.target_track_surface);
                 if (found.target_distance_meters) setDistanceVal(String(found.target_distance_meters));
                 if (found.target_intensity) setIntensityVal(found.target_intensity);
+                const matched = matchStandardRegimen(found);
+                if (matched) {
+                  setRegimenPreset(matched.key);
+                  setSessionType(matched.session_type);
+                }
+                const runInfo = analyzeSessionRunStructure(found.target_distance_meters, found.target_intensity);
+                setNotesVal(`[${found.stage_name}] ${runInfo.formulaText}`);
               }
             }}
             options={[
-              ["", `✨ Đang chọn: [${getRegimenByKey(regimenPreset)?.levelLabel ?? "VỪA"}] ${getRegimenByKey(regimenPreset)?.title ?? "Giáo án chuẩn"}`],
+              [
+                "",
+                selectedPlan
+                  ? `✨ Đang chọn: ${selectedPlan.stage_name}`
+                  : `✨ Đang chọn: [${getRegimenByKey(regimenPreset)?.levelLabel ?? "VỪA"}] ${getRegimenByKey(regimenPreset)?.title ?? "Giáo án chuẩn"}`,
+              ],
               ...STANDARD_REGIMENS.map((reg) => [`REG:${reg.key}`, `[${reg.levelLabel}] ${reg.title}`] as [string, string]),
               ...horsePlans.map((plan) => [plan.id, `[Đã lưu] ${plan.stage_name}`] as [string, string]),
             ]}
           />
           <Field label="Ngày tập" name="event_date" type="date" required value={scheduleDate} onChange={setScheduleDate} min={selectedPlan?.start_date && selectedPlan.start_date > today() ? selectedPlan.start_date : today()} max={selectedPlan?.end_date ?? undefined} />
           <SelectField
-            label="Ca tập (90p)"
+            label="Ca tập"
             name="slot_preset"
             value={selectedSlotId}
             onChange={handleSelectSlot}
-            options={TRAINING_TIMETABLE_SLOTS.map((slot) => [String(slot.id), `Ca ${slot.id}: ${slot.timeRange}`] as [string, string])}
+            options={slotEvaluationsForDate.map((ev) => [
+              String(ev.slot.id),
+              `Ca ${ev.slot.id}: ${ev.slot.timeRange} (${ev.statusLabel})`,
+            ] as [string, string])}
           />
           <SelectField
             label="Groom phụ trách"
@@ -3384,17 +3333,50 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
             onChange={setAssignedGroomVal}
             options={[
               ["", "Chưa phân công"],
-              ...groomWorkloads.map((item, idx) => [String(item.groom.user_id), `${item.groom.full_name} (${item.weekCount} ca${idx === 0 ? " · Rảnh nhất" : ""})`] as [string, string]),
+              ...(currentSlotEval?.rankedGrooms ?? []).map((item, idx) => [
+                String(item.groom.user_id),
+                item.busyReason
+                  ? `${item.groom.full_name} (✗ Bận ca này: ${item.busyReason} · ${item.weekCount} ca/tuần)`
+                  : `${item.groom.full_name} (✓ Rảnh ca này · ${item.dayCount} ca ngày / ${item.weekCount} ca tuần${idx === 0 ? " · Rảnh nhất" : ""})`,
+              ] as [string, string]),
             ]}
           />
           {currentSlotCareConflict && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 sm:col-span-2 lg:col-span-5">
-              <span>⚠️ Trùng lịch y tế/chăm sóc của <b>{currentSlotCareConflict.horse_name}</b> ({careEventTypeLabel(currentSlotCareConflict.event_type, currentSlotCareConflict.title)}).</span>
-              <button type="button" onClick={handleAiQuickFillForCurrentHorse} className="rounded bg-rose-700 px-2.5 py-1 text-[11px] font-bold text-white">✨ Đổi sang ca trống</button>
+              <span>⚠️ Trùng lịch y tế/chăm sóc của <b>{currentSlotCareConflict.horse_name}</b> ({careEventTypeLabel(currentSlotCareConflict.event_type, currentSlotCareConflict.title)}). Vui lòng chọn ngày hoặc khung giờ khác.</span>
+            </div>
+          )}
+          {(error || actionError) && !moveId && (
+            <div className="sm:col-span-2 lg:col-span-5">
+              <Notice error>{actionError || error}</Notice>
+            </div>
+          )}
+          {(notice || actionNotice) && !moveId && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-950 sm:col-span-2 lg:col-span-5">
+              <span>{actionNotice || notice}</span>
+              {lastCreatedSessionId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById(`session-card-${lastCreatedSessionId}`);
+                    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                    else timetableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  className="rounded border border-emerald-400 bg-white px-2.5 py-1 text-[11px] font-bold text-emerald-900 hover:bg-emerald-100"
+                >
+                  ↓ Xem trên bảng lịch
+                </button>
+              )}
             </div>
           )}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-950 sm:col-span-2 lg:col-span-5">
-            <span>✅ <strong>Thông số ca tập:</strong> {Number(distanceVal).toLocaleString("vi-VN")}m · {surfaceLabel(surfaceVal)} · Cường độ {({ High: "Cao", Medium: "Vừa", Low: "Thấp" } as Record<string, string>)[intensityVal] ?? intensityVal} · {currentRunStructure.formulaText}</span>
+            <span>
+              ✅ <strong>Thông số ca tập{selectedPlan ? ` (${selectedPlan.stage_name})` : ""}:</strong>{" "}
+              {Number(selectedPlan?.target_distance_meters ?? distanceVal).toLocaleString("vi-VN")}m ·{" "}
+              {surfaceLabel(selectedPlan?.target_track_surface ?? surfaceVal)} · Cường độ{" "}
+              {({ High: "Cao", Medium: "Vừa", Low: "Thấp" } as Record<string, string>)[selectedPlan?.target_intensity ?? intensityVal] ?? (selectedPlan?.target_intensity ?? intensityVal)} ·{" "}
+              {analyzeSessionRunStructure(Number(selectedPlan?.target_distance_meters ?? distanceVal) || 1200, selectedPlan?.target_intensity ?? intensityVal).formulaText}
+            </span>
             <div className="flex items-center gap-2">
               <details className="relative">
                 <summary className="cursor-pointer rounded border border-emerald-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-900">⚙️ Tùy chỉnh</summary>
@@ -3436,18 +3418,42 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
           <button type="button" className="soft-button text-xs" onClick={() => onWeekChange(plusDays(from, 7))}>
             Tuần sau <ArrowRight size={14} />
           </button>
+          {!showCreateForm && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowCreateForm(true);
+                window.setTimeout(() => {
+                  createFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                }, 60);
+              }}
+              className="gold-button px-3 py-1.5 text-xs"
+            >
+              <Plus size={13} /> Đặt thêm lịch tập
+            </button>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="relative min-w-52">
+          <div className="relative min-w-56">
             <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
-              type="search"
+              type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm ngựa, bài tập, groom, ghi chú..."
-              className="field-control h-9 pl-8 pr-3 text-xs"
+              placeholder="Tìm ngựa, bài tập, groom..."
+              className="h-9 w-full rounded-lg border border-equine-line bg-white pl-8 pr-7 text-xs text-slate-800 outline-none focus:border-equine-navy"
             />
-          </label>
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                title="Xóa tìm kiếm"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
           <div className="inline-flex rounded-lg border border-equine-line bg-white p-0.5">
             <button
               type="button"
@@ -3547,7 +3553,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-slate-300">
+      <div ref={timetableRef} className="overflow-x-auto rounded-lg border border-slate-300">
         <table className="w-full min-w-[1080px] border-collapse text-left text-xs">
           <thead>
             <tr className="border-b border-slate-300">
@@ -3590,7 +3596,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                         <div className="flex min-h-[96px] items-center justify-center text-base font-bold text-slate-400 select-none">-</div>
                       ) : (
                         <div className="space-y-2">
-                          {cellCareEvents.map((care) => {
+                          {cellCareEvents.map((care, careIdx) => {
                             const careLabel = careEventTypeLabel(care.care_type ?? care.event_type, care.title);
                             const dueOrEventDate = care.due_date ?? care.event_date;
                             const isCareOverdue = care.status === "Scheduled" && dueOrEventDate < today();
@@ -3601,7 +3607,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                             const stallText = care.box_code ? `Chuồng ${care.box_code}${care.section ? ` (${care.section})` : ""}` : null;
                             return (
                               <div
-                                key={care.event_id}
+                                key={`${care.event_id || care.source_id || "care"}-${care.horse_id || ""}-${care.event_date}-${careIdx}`}
                                 className={`rounded-lg border p-2 text-left text-[11px] shadow-2xs ${
                                   isCareOverdue
                                     ? "border-rose-400 bg-rose-50/90 text-rose-950"
@@ -3638,7 +3644,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                               </div>
                             );
                           })}
-                          {cellSessions.map((session) => {
+                          {cellSessions.map((session, sessionIdx) => {
                             const win = sessionWindow(session);
                             const insideTimeWindow = Boolean(win && nowMs >= win.start && nowMs < win.end);
                             const afterTimeWindow = Boolean(win && nowMs >= win.end);
@@ -3667,8 +3673,9 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                               : session.status === "Cancelled"
                               ? "bg-slate-200 text-slate-700"
                               : "bg-blue-100 text-blue-900";
+                            const isNewlyCreated = highlightedSessionId === session.training_schedule_id;
                             return (
-                              <div data-notification-target={session.horse_id} key={session.training_schedule_id} className={`rounded-lg border p-2 shadow-xs transition hover:shadow-sm ${cardStyle}`}>
+                              <div data-notification-target={session.horse_id} id={`session-card-${session.training_schedule_id}`} key={`${session.training_schedule_id || session.event_id || "session"}-${sessionIdx}`} className={`rounded-lg border p-2 shadow-xs transition hover:shadow-sm ${cardStyle} ${isNewlyCreated ? "ring-4 ring-emerald-500 border-emerald-600 bg-emerald-50 animate-pulse" : ""}`}>
                                 <div className="flex items-start justify-between gap-1">
                                   <button
                                     type="button"
@@ -4094,6 +4101,8 @@ function RaceEntriesPanel({
   onCancelEntry,
   onRestoreEntry,
   busy,
+  error,
+  notice,
 }: {
   selectedHorse: Horse | null;
   horses: Horse[];
@@ -4108,6 +4117,8 @@ function RaceEntriesPanel({
   onCancelEntry: (entryId: string, reason: string) => Promise<void>;
   onRestoreEntry: (entryId: string) => Promise<void>;
   busy: boolean;
+  error?: string;
+  notice?: string;
 }) {
   const [viewMode, setViewMode] = useState<"official" | "preview3d">("official");
   const [raceId, setRaceId] = useState("");
@@ -4657,6 +4668,8 @@ function RaceEntriesPanel({
             </div>
 
             <div className="space-y-2">
+              {error && <Notice error>{error}</Notice>}
+              {notice && <Notice>{notice}</Notice>}
               <button
                 type="button"
                 className="gold-button w-full justify-center"
@@ -4962,7 +4975,7 @@ function RaceEntriesPanel({
     )}
   </div>;
 }
-function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simulation, readings, phase, ranking, progress, vitals, onStart, onRestartSimulation, onRetryFinish, finishFailed, busy }: {
+function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simulation, readings, phase, ranking, progress, vitals, onStart, onRestartSimulation, onRetryFinish, finishFailed, busy, error, notice }: {
   sessions: TrainingSession[]; simulation: Simulation | null; readings: SensorReading[]; phase: string;
   activeSimulations: Simulation[]; onSelectSimulation: (simulation: Simulation) => void;
   onRestartSimulation: (simulation: Simulation) => void;
@@ -4970,6 +4983,8 @@ function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simu
   progress: number; vitals: Record<string, SensorVitals>;
   onStart: (event: FormEvent<HTMLFormElement>) => void; onRetryFinish: () => void;
   finishFailed: boolean; busy: boolean;
+  error?: string;
+  notice?: string;
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -5043,6 +5058,8 @@ function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simu
     </section>}
     <Section title="Chuẩn bị buổi tập mô phỏng" help="Chọn tối đa 5 buổi đã có lịch, Groom và đang trong khung giờ tập để mô phỏng riêng hoặc theo nhóm." icon={Play}>
       <form onSubmit={onStart} className="training-start-form">
+        {error && <div className="mb-2"><Notice error>{error}</Notice></div>}
+        {notice && <div className="mb-2"><Notice>{notice}</Notice></div>}
         <SelectField label="Tình huống mô phỏng" name="scenario" options={[["Normal", "Phản ứng vận động bình thường"], ["Fatigue", "Phản ứng tải cao, hồi phục chậm"]]} />
         <fieldset className="training-session-options"><legend className="field-label">Buổi tập đang sẵn sàng</legend>{eligible.map(session => <label key={session.training_schedule_id} className="training-session-option">
           <input type="checkbox" name="training_schedule_id" value={session.training_schedule_id} disabled={busy}/>
@@ -5084,27 +5101,4 @@ function SelectField({ label, name, options, value, defaultValue, onChange, requ
 
 function TextArea({ label, name, required = false, defaultValue, rows = 3 }: { label: string; name: string; required?: boolean; defaultValue?: string | null; rows?: number }) {
   return <label className="block"><span className="field-label">{label}</span><textarea name={name} required={required} defaultValue={defaultValue ?? ""} rows={rows} className="field-control px-3 py-2" /></label>;
-}
-
-function StandardDietPanel({ horseName, records, editing, busy, onEdit, onCancel, onSave }: {
-  horseName: string;
-  records: TrainerDietRecord[];
-  editing: TrainerDietRecord | null;
-  busy: boolean;
-  onEdit: (id: string) => void;
-  onCancel: () => void;
-  onSave: (event: FormEvent<HTMLFormElement>, dietId?: string) => void | Promise<void>;
-}) {
-  return <Section title="Duyệt khẩu phần" description={horseName} help="HLV trưởng duyệt khẩu phần vận động; bác sĩ thú y phụ trách điều trị và thuốc." icon={Utensils}>
-    <form key={editing?.id ?? `new-${horseName}`} onSubmit={(event) => void onSave(event, editing?.id)} className="grid gap-3 rounded-lg border border-equine-line bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-3">
-      <label className="block"><span className="field-label">Loại thức ăn</span><input className="field-control px-3" name="feed_type" maxLength={100} defaultValue={editing?.feed_type ?? ""} required placeholder="Cỏ khô, thức ăn viên..." /></label>
-      <label className="block"><span className="field-label">Khẩu phần (kg)</span><input className="field-control px-3" name="quantity_kg" type="number" min="0.01" max="9999.99" step="0.01" defaultValue={editing?.quantity_kg ?? ""} required /></label>
-      <label className="block"><span className="field-label">Tần suất / giờ ăn</span><input className="field-control px-3" name="feeding_frequency" maxLength={50} defaultValue={editing?.feeding_frequency ?? ""} placeholder="Ví dụ: 3 lần/ngày" /></label>
-      <label className="block"><span className="field-label">Áp dụng từ ngày</span><input className="field-control px-3" name="effective_date" type="date" defaultValue={editing?.effective_date ?? today()} required /></label>
-      <label className="block"><span className="field-label">Đến ngày (nếu có)</span><input className="field-control px-3" name="end_date" type="date" defaultValue={editing?.end_date ?? ""} /></label>
-      <label className="block sm:col-span-2 lg:col-span-3"><span className="field-label">Hướng dẫn cho Groom</span><textarea className="field-control min-h-20 px-3 py-2" name="special_instructions" defaultValue={editing?.special_instructions ?? ""} /></label>
-      <div className="flex gap-2 sm:col-span-2 lg:col-span-3"><button className="gold-button" disabled={busy}><Check size={15} />{editing ? "Lưu khẩu phần" : "Duyệt khẩu phần"}</button>{editing && <button type="button" className="soft-button" onClick={onCancel}>Hủy sửa</button>}</div>
-    </form>
-    <div className="mt-4 space-y-2">{records.map((record) => <article key={record.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-equine-line p-3"><div><p className="font-semibold text-equine-navy">{record.feed_type} · {record.quantity_kg} kg{record.feeding_frequency ? ` · ${record.feeding_frequency}` : ""}</p><p className="mt-1 text-xs text-slate-500">{record.effective_date} → {record.end_date ?? "Đang áp dụng"}</p>{record.special_instructions && <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{record.special_instructions}</p>}</div><button type="button" className="soft-button" onClick={() => onEdit(record.id)}><Pencil size={14} /> Sửa khẩu phần</button></article>)}{!records.length && <p className="rounded-lg bg-slate-50 p-4 text-center text-sm text-slate-500">Ngựa này chưa có khẩu phần thường đang áp dụng. Hãy nhập và duyệt khẩu phần ở trên.</p>}</div>
-  </Section>;
 }

@@ -8,7 +8,7 @@ const ts = require("typescript");
 function setup(fetch, sharedLocalStorage) {
   const storage = () => {
     const data = new Map();
-    return { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) };
+    return { get length() { return data.size; }, key: index => [...data.keys()][index] ?? null, getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) };
   };
   const localStorage = sharedLocalStorage ?? storage(), sessionStorage = storage(), cache = {};
   const context = vm.createContext({ window: { localStorage, sessionStorage, dispatchEvent: () => {} }, Event: class Event {}, CustomEvent: class CustomEvent {}, fetch, process: { env: {} } });
@@ -157,4 +157,58 @@ test("changePassword uses authenticatedRequest and refreshes expired access toke
   const res = await app.api.changePassword("oldPass123", "newPass456");
   assert.equal(res.accessToken, "updated-access");
   assert.deepEqual(sent, ["Bearer access", "Bearer refreshed-access"]);
+});
+
+test("concurrent image lookups share one request and reuse the cached signed URL", async () => {
+  let calls = 0;
+  let release;
+  const pending = new Promise(resolve => { release = resolve; });
+  const app = setup(async () => {
+    calls++;
+    await pending;
+    return reply(200, { hasImage: true, url: "https://images.example/horse.jpg?signature=test" });
+  });
+  app.session.saveSession(auth);
+  const first = app.api.authenticatedRequest("/api/horses/h1/image");
+  const second = app.api.authenticatedRequest("/api/horses/h1/image");
+  release();
+  const [a, b] = await Promise.all([first, second]);
+  assert.equal(a.url, b.url);
+  assert.equal(calls, 1);
+  const cached = await app.api.authenticatedRequest("/api/horses/h1/image");
+  assert.equal(cached.url, a.url);
+  assert.equal(calls, 1);
+});
+
+test("horse changes invalidate cached image lookups", async () => {
+  let imageCalls = 0;
+  const app = setup(async (url, options = {}) => {
+    if (options.method === "PATCH") return reply(200, { id: "h1" });
+    imageCalls++;
+    return reply(200, { hasImage: true, url: `https://images.example/${imageCalls}.jpg` });
+  });
+  app.session.saveSession(auth);
+  const first = await app.api.authenticatedRequest("/api/horses/h1/image");
+  await app.api.authenticatedRequest("/api/horses/h1", { method: "PATCH", body: "{}" });
+  const next = await app.api.authenticatedRequest("/api/horses/h1/image");
+  assert.notEqual(first.url, next.url);
+  assert.equal(imageCalls, 2);
+});
+
+test("reading notifications preserves cached horse images and refreshes notification data", async () => {
+  let imageCalls = 0, notificationCalls = 0;
+  const app = setup(async (url, options = {}) => {
+    if (options.method === "PATCH") return reply(200, {});
+    if (url.includes("/notifications")) return reply(200, { unread_count: ++notificationCalls });
+    imageCalls++;
+    return reply(200, { hasImage: true, url: "https://images.example/horse.jpg" });
+  });
+  app.session.saveSession(auth);
+  await app.api.authenticatedRequest("/api/horses/h1/image");
+  await app.api.authenticatedRequest("/api/notifications?page=1");
+  await app.api.authenticatedRequest("/api/notifications/n1/read", { method: "PATCH" });
+  await app.api.authenticatedRequest("/api/horses/h1/image");
+  await app.api.authenticatedRequest("/api/notifications?page=1");
+  assert.equal(imageCalls, 1);
+  assert.equal(notificationCalls, 2);
 });

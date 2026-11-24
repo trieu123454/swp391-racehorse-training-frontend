@@ -3,6 +3,7 @@
 import { formatDisplayDate } from "@/lib/display-format";
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
 import {
   Activity,
   AlertCircle,
@@ -31,8 +32,9 @@ import { HorseImage, Modal, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import InventoryManagerPanel from "@/components/club-manager/InventoryManagerPanel";
 import { CompactId } from "@/components/shared/CompactId";
+import { roleLabels } from "@/lib/roles";
 import { authenticatedRequest, ApiRequestError } from "@/api/client";
-import { getHorseStables, listHorses, type Horse, type Stable } from "@/api/horses/api";
+import { getHorseStables, horseGender, listHorses, type Horse, type Stable } from "@/api/horses/api";
 import { openFreshDocument } from "@/api/horses/api";
 import {
   cancelOfficialRace,
@@ -184,6 +186,18 @@ function today() {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
+function shiftDays(iso: string, days: number) {
+  const value = new Date(`${iso}T12:00:00`);
+  value.setDate(value.getDate() + days);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function shiftYears(iso: string, years: number) {
+  const value = new Date(`${iso}T12:00:00`);
+  value.setFullYear(value.getFullYear() + years);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
 function requestError(reason: unknown) {
   if (reason instanceof ApiRequestError && reason.status === 401) {
     return "Máy chủ yêu cầu xác thực. Hãy đăng xuất, đăng nhập lại rồi tải lại mục này.";
@@ -214,47 +228,59 @@ export default function ClubManagerWorkspace() {
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
-    const results = await Promise.allSettled([
-      authenticatedRequest<{ data: ManagerTask[] }>(`/api/club-manager/groom-tasks?date=${date}`),
-      authenticatedRequest<{ data: Incident[] }>(`/api/club-manager/groom-incidents?status=${incidentFilter}`),
-      authenticatedRequest<{ data: AuditRow[] }>(`/api/club-manager/audit-logs?from=${date}&to=${date}&page=1&limit=20`),
-      authenticatedRequest<Report>(`/api/club-manager/operations-report?from=${date}&to=${date}`),
-      authenticatedRequest<{ items: Option[] }>("/api/horses?page=1&size=100&limit=100"),
-      authenticatedRequest<Option[]>("/api/club-manager/grooms"),
-      listOfficialRaces(),
-      authenticatedRequest<{ data: IncidentAssignee[] }>("/api/club-manager/groom-incidents/assignees"),
-      listHorseRegistrationRequests(requestStatusFilter),
-      getHorseStables(),
-      getCompetitionReport(),
-    ]);
+    if (tab === "inventory") return;
 
-    const nextErrors: LoadErrors = {
-      overview: [], care: [], inventory: [], incidents: [], finance: [], races: [], audit: [], "horse-requests": [],
+    type FetchJob = {
+      section: string;
+      run: () => Promise<unknown>;
+      apply: (value: unknown) => void;
     };
-    const read = <T,>(index: number, section: string, tabs: WorkspaceTab[], setValue: (value: T) => void) => {
-      const result = results[index] as PromiseSettledResult<T>;
+
+    const jobs: FetchJob[] = [];
+    const add = (section: string, run: () => Promise<unknown>, apply: (value: unknown) => void) => {
+      jobs.push({ section, run, apply });
+    };
+
+    if (tab === "overview" || tab === "finance") {
+      add("Báo cáo vận hành", () => authenticatedRequest<Report>(`/api/club-manager/operations-report?from=${date}&to=${date}`), (v) => setReport(v as Report));
+    }
+    if (tab === "care") {
+      add("Việc chăm sóc", () => authenticatedRequest<{ data: ManagerTask[] }>(`/api/club-manager/groom-tasks?date=${date}`), (v) => setTasks((v as { data: ManagerTask[] }).data));
+      add("Danh sách Groom", () => authenticatedRequest<Option[]>("/api/club-manager/grooms"), (v) => setGrooms((v as Option[]).map((groom) => ({ ...groom, id: Number(groom.id) }))));
+    }
+    if (tab === "care" || tab === "finance" || tab === "horse-requests" || tab === "audit") {
+      add("Danh sách ngựa", () => authenticatedRequest<{ items: Option[] }>("/api/horses?page=1&size=100&limit=100"), (v) => setHorses((v as { items: Option[] }).items.map((horse) => ({ ...horse, id: String(horse.id) }))));
+    }
+    if (tab === "incidents") {
+      add("Sự cố Groom", () => authenticatedRequest<{ data: Incident[] }>(`/api/club-manager/groom-incidents?status=${incidentFilter}`), (v) => setIncidents((v as { data: Incident[] }).data));
+      add("Người phụ trách sự cố", () => authenticatedRequest<{ data: IncidentAssignee[] }>("/api/club-manager/groom-incidents/assignees"), (v) => setIncidentAssignees((v as { data: IncidentAssignee[] }).data));
+    }
+    if (tab === "races") {
+      add("Danh sách giải đấu", () => listOfficialRaces(), (v) => setOfficialRaces((v as { data: OfficialRace[] }).data));
+      add("Báo cáo thành tích thi đấu", () => getCompetitionReport(), (v) => setCompetitionReport(v as CompetitionReport));
+    }
+    if (tab === "audit") {
+      add("Nhật ký thao tác", () => authenticatedRequest<{ data: AuditRow[] }>(`/api/club-manager/audit-logs?from=${date}&to=${date}&page=1&limit=20`), (v) => setAudit((v as { data: AuditRow[] }).data));
+    }
+    if (tab === "horse-requests") {
+      add("Yêu cầu hồ sơ ngựa", () => listHorseRegistrationRequests(requestStatusFilter), (v) => setHorseRequests(v as ManagerHorseRegistrationRequest[]));
+      add("Danh sách chuồng", () => getHorseStables(), (v) => setStables(v as Stable[]));
+    }
+
+    const results = await Promise.allSettled(jobs.map((job) => job.run()));
+    const tabErrors: LoadErrors[WorkspaceTab] = [];
+    results.forEach((result, index) => {
       if (result.status === "fulfilled") {
-        setValue(result.value);
+        jobs[index].apply(result.value);
       } else {
-        for (const target of tabs) nextErrors[target].push({ section, message: requestError(result.reason) });
+        tabErrors.push({ section: jobs[index].section, message: requestError(result.reason) });
       }
-    };
-
-    read(0, "Việc chăm sóc", ["care"], (value) => setTasks((value as { data: ManagerTask[] }).data));
-    read(1, "Sự cố Groom", ["incidents"], (value) => setIncidents((value as { data: Incident[] }).data));
-    read(2, "Nhật ký thao tác", ["audit"], (value) => setAudit((value as { data: AuditRow[] }).data));
-    read(3, "Báo cáo vận hành", ["overview", "finance"], (value) => setReport(value as Report));
-    read(4, "Danh sách ngựa", ["care", "finance", "horse-requests"], (value) => setHorses((value as { items: Option[] }).items.map((horse) => ({ ...horse, id: String(horse.id) }))));
-    read(5, "Danh sách Groom", ["care"], (value) => setGrooms((value as Option[]).map((groom) => ({ ...groom, id: Number(groom.id) }))));
-    read(6, "Danh sách giải đấu", ["races"], (value) => setOfficialRaces((value as { data: OfficialRace[] }).data));
-    read(7, "Người phụ trách sự cố", ["incidents"], (value) => setIncidentAssignees((value as { data: IncidentAssignee[] }).data));
-    read(8, "Yêu cầu hồ sơ ngựa", ["horse-requests"], (value) => setHorseRequests(value as ManagerHorseRegistrationRequest[]));
-    read(9, "Danh sách chuồng", ["horse-requests"], (value) => setStables(value as Stable[]));
-    read(10, "Báo cáo thành tích thi đấu", ["races"], (value) => setCompetitionReport(value as CompetitionReport));
-    setLoadErrors(nextErrors);
-  }, [date, incidentFilter, requestStatusFilter]);
+    });
+    setLoadErrors((current) => ({ ...current, [tab]: tabErrors }));
+  }, [tab, date, incidentFilter, requestStatusFilter]);
 
   useEffect(() => { void load(); }, [load]);
+  useAutoRefresh(load, { enabled: !busy && tab !== "inventory", intervalMs: 25_000 });
 
   async function send(path: string, method: string, body?: Record<string, unknown>, success = "Đã lưu thay đổi."): Promise<boolean> {
     setBusy(true);
@@ -394,13 +420,23 @@ export default function ClubManagerWorkspace() {
       "Đã đóng sự cố sau khi ghi nhận kết quả.");
   }
 
-  return <section className="mt-5 space-y-5" aria-label="Điều hành câu lạc bộ">
-    <div className="flex justify-end gap-3 border-b border-equine-line pb-4">
-      <div className="flex gap-2">
-        <input aria-label="Ngày báo cáo" type="date" className="field-control px-3" value={date} onChange={(event) => setDate(event.target.value)} />
+  const todayStr = today();
+  const minReportDate = shiftYears(todayStr, -5);
+  const maxReportDate = shiftDays(todayStr, 60);
+  const minTaskDate = shiftDays(todayStr, -1);
+  const defaultTaskDate = date >= minTaskDate && date <= maxReportDate ? date : todayStr;
+
+  const dateApplies = tab === "overview" || tab === "care" || tab === "finance" || tab === "audit";
+
+  return <section className="space-y-5" aria-label="Điều hành câu lạc bộ">
+    {tab !== "inventory" && (
+      <div className="flex flex-wrap items-center justify-end gap-2 border-b border-equine-line pb-4">
+        {dateApplies && (
+          <input aria-label="Ngày báo cáo" type="date" min={minReportDate} max={maxReportDate} className="field-control px-3" value={date} onChange={(event) => { const next = event.target.value; if (next) setDate(next); }} />
+        )}
         <button type="button" className="soft-button" onClick={() => void load()} disabled={busy}><RefreshCw size={15} /> Làm mới</button>
       </div>
-    </div>
+    )}
 
     {error && <Notice error>{error}</Notice>}
     {notice && <Notice>{notice}</Notice>}
@@ -414,7 +450,7 @@ export default function ClubManagerWorkspace() {
           <Metric icon={Activity} label="Buổi tập trong ngày" value={String(report?.scheduled_training_sessions ?? 0)} />
           <Metric icon={ClipboardList} label="Việc Groom hoàn thành" value={`${report?.groom_tasks.completed ?? 0}/${report?.groom_tasks.total ?? 0}`} />
           <Metric icon={ShieldCheck} label="Sự cố cần xử lý" value={String(report?.pending_incidents ?? incidents.length)} />
-          <Metric icon={FileText} label="Trạng thái sức khỏe" value={(report?.horses_by_health_status ?? []).map((item) => `${item.current_status}: ${item.total}`).join(" · ") || "Chưa có dữ liệu"} />
+          <Metric icon={FileText} label="Trạng thái sức khỏe" value={(report?.horses_by_health_status ?? []).map((item) => `${managerHealthLabel(item.current_status)}: ${item.total}`).join(" · ") || "Chưa có dữ liệu"} />
         </div>
         <div className="grid gap-5 xl:grid-cols-2">
           <Panel title="Hiệu suất huấn luyện" icon={Activity}>
@@ -428,7 +464,7 @@ export default function ClubManagerWorkspace() {
           </Panel>
           <Panel title="Nhân sự đang hoạt động" icon={ShieldCheck}>
             <div className="space-y-2">
-              {report?.approved_staff_by_role.map((item) => <div key={item.role_name} className="flex justify-between rounded-lg bg-slate-50 p-3 text-sm"><span>{item.role_name}</span><span className="font-normal text-equine-navy tabular-nums">{item.total}</span></div>)}
+              {report?.approved_staff_by_role.map((item) => <div key={item.role_name} className="flex justify-between rounded-lg bg-slate-50 p-3 text-sm"><span className="font-medium text-slate-700">{roleLabels[item.role_name as keyof typeof roleLabels] ?? item.role_name}</span><span className="font-semibold text-equine-navy tabular-nums">{item.total}</span></div>)}
               {!report?.approved_staff_by_role.length && <p className="text-sm text-slate-500">Chưa có dữ liệu nhân sự.</p>}
             </div>
           </Panel>
@@ -440,13 +476,13 @@ export default function ClubManagerWorkspace() {
           <Select name="horse_id" label="Ngựa" options={horses.map((horse) => [String(horse.id), horse.horse_name ?? ""] as [string, string])} />
           <Select name="groom_id" label="Groom" options={grooms.map((groom) => [String(groom.id), groom.full_name ?? ""] as [string, string])} />
           <Select name="task_type" label="Công việc" options={[["Feeding", "Cho ăn"], ["Cleaning", "Dọn chuồng"], ["Bathing", "Tắm"], ["IceBath", "Ngâm đá"]]} />
-          <label className="block"><span className="field-label">Ngày</span><input className="field-control px-3" name="task_date" type="date" required defaultValue={date} /></label>
+          <label className="block"><span className="field-label">Ngày</span><input className="field-control px-3" name="task_date" type="date" required min={minTaskDate} max={maxReportDate} defaultValue={defaultTaskDate} /></label>
           <div className="sm:col-span-2"><button className="gold-button" disabled={busy}><Plus size={15} /> Giao việc</button></div>
         </form>}
         <div className="mt-5 space-y-2">
           {tasks.map((task) => <div key={task.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-slate-50 p-3 text-sm">
-            <span>{task.task_type} · {task.horse_name}{task.groom_name ? ` · ${task.groom_name}` : ""}</span>
-            <div className="flex items-center gap-2"><span className="text-slate-500">{task.status}</span>{task.status === "Pending" && <button type="button" className="soft-button h-8 px-2 text-xs text-rose-700" disabled={busy} onClick={() => void send(`/api/club-manager/groom-tasks/${task.id}`, "PATCH", { action: "Cancel" }, "Đã hủy công việc để có thể giao lại.")}>Hủy việc</button>}</div>
+            <span className="font-medium text-equine-navy">{managerTaskTypeLabel(task.task_type)} · {task.horse_name}{task.groom_name ? ` · ${task.groom_name}` : ""}</span>
+            <div className="flex items-center gap-2"><span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold text-slate-600 border border-slate-200">{managerTaskStatusLabel(task.status)}</span>{task.status === "Pending" && <button type="button" className="soft-button h-8 px-2 text-xs text-rose-700" disabled={busy} onClick={() => void send(`/api/club-manager/groom-tasks/${task.id}`, "PATCH", { action: "Cancel" }, "Đã hủy công việc để có thể giao lại.")}>Hủy việc</button>}</div>
           </div>)}
           {!tasks.length && <p className="text-sm text-slate-500">Chưa giao việc trong ngày này.</p>}
         </div>
@@ -480,7 +516,7 @@ export default function ClubManagerWorkspace() {
                 <p className="font-semibold text-equine-navy">{incident.horse_name}{incident.groom_name ? ` · ${incident.groom_name}` : ""}</p>
                 <p className="mt-1 text-xs text-slate-500">{formatDisplayDate(incident.created_at, true)}</p>
               </div>
-              <div className="flex items-center gap-2"><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold">{incident.status}</span>
+              <div className="flex items-center gap-2"><span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">{managerIncidentStatusLabel(incident.status)}</span>
                 {incident.is_emergency && <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-800">KHẨN CẤP · ĐÃ BÁO BÁC SĨ</span>}
               </div>
             </div>
@@ -597,6 +633,248 @@ export default function ClubManagerWorkspace() {
   </section>;
 }
 
+const AUDIT_ACTION_META: Record<string, { category: string; badgeCls: string; title: string }> = {
+  SUBMIT_HORSE_REGISTRATION: { category: "Xét duyệt hồ sơ", badgeCls: "border-blue-200 bg-blue-50 text-blue-800", title: "Gửi yêu cầu đăng ký hồ sơ ngựa mới" },
+  RESUBMIT_HORSE_REGISTRATION: { category: "Xét duyệt hồ sơ", badgeCls: "border-blue-200 bg-blue-50 text-blue-800", title: "Gửi bổ sung thông tin hồ sơ ngựa" },
+  REQUEST_INFORMATION_HORSE_REGISTRATION: { category: "Xét duyệt hồ sơ", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Yêu cầu Chủ ngựa bổ sung hồ sơ đăng ký" },
+  APPROVE_HORSE_REGISTRATION: { category: "Xét duyệt hồ sơ", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Phê duyệt hồ sơ đăng ký ngựa" },
+  REJECT_HORSE_REGISTRATION: { category: "Xét duyệt hồ sơ", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Từ chối yêu cầu đăng ký hồ sơ ngựa" },
+  APPROVE_HORSE_LINK_PENDING_OWNER_CONSENT: { category: "Xét duyệt hồ sơ", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Xác minh liên kết ngựa (chờ chủ hiện tại đồng ý)" },
+  CONSENT_HORSE_OWNERSHIP_TRANSFER: { category: "Xét duyệt hồ sơ", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Đồng ý chuyển nhượng quyền sở hữu ngựa" },
+  DECLINE_HORSE_OWNERSHIP_TRANSFER: { category: "Xét duyệt hồ sơ", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Từ chối chuyển nhượng quyền sở hữu ngựa" },
+  UPLOAD_HORSE_IMAGE: { category: "Hồ sơ ngựa", badgeCls: "border-indigo-200 bg-indigo-50 text-indigo-800", title: "Tải ảnh hồ sơ ngựa lên hệ thống" },
+  UPDATE_HORSE: { category: "Hồ sơ ngựa", badgeCls: "border-indigo-200 bg-indigo-50 text-indigo-800", title: "Cập nhật thông tin hồ sơ ngựa" },
+  DELETE_HORSE: { category: "Hồ sơ ngựa", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Xóa hồ sơ ngựa" },
+  CREATE_TRAINING_PLAN: { category: "Huấn luyện", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Tạo giáo án huấn luyện mới" },
+  UPDATE_TRAINING_PLAN: { category: "Huấn luyện", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Cập nhật giáo án huấn luyện" },
+  DELETE_TRAINING_PLAN: { category: "Huấn luyện", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Xóa giáo án huấn luyện" },
+  CREATE_TRAINING_SCHEDULE: { category: "Huấn luyện", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Tạo buổi tập luyện mới" },
+  UPDATE_TRAINING_SCHEDULE: { category: "Huấn luyện", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Cập nhật lịch tập luyện" },
+  ASSIGN_TRAINING_GROOM: { category: "Huấn luyện", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Phân công Groom phụ trách buổi tập" },
+  RECORD_TRAINING_METRICS: { category: "Huấn luyện", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Ghi nhận chỉ số thể chất sau buổi tập" },
+  ADD_TRAINING_VIDEO: { category: "Huấn luyện", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Đính kèm video buổi tập" },
+  APPROVE_STANDARD_DIET: { category: "Huấn luyện", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Duyệt khẩu phần ăn tiêu chuẩn" },
+  UPDATE_STANDARD_DIET: { category: "Huấn luyện", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Cập nhật khẩu phần ăn tiêu chuẩn" },
+  CREATE_RACE_SIMULATION: { category: "Huấn luyện", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Bắt đầu phiên mô phỏng buổi tập" },
+  RESTART_LEGACY_TRAINING_SIMULATION: { category: "Huấn luyện", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Khởi động lại phiên mô phỏng buổi tập" },
+  FINISH_RACE_SIMULATION: { category: "Huấn luyện", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Hoàn tất phiên mô phỏng buổi tập" },
+  FINALIZE_TRAINING_SIMULATION: { category: "Huấn luyện", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Đồng bộ kết quả mô phỏng buổi tập" },
+  RESET_AND_SEED_CLEAN_TRAINING_DATA: { category: "Huấn luyện", badgeCls: "border-slate-200 bg-slate-100 text-slate-700", title: "Khởi tạo lại dữ liệu giáo án & lịch tập chuẩn" },
+  UPDATE_HEALTH_STATUS: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Cập nhật tình trạng sức khỏe ngựa" },
+  LOCK_TRAINING: { category: "Thú y & Sức khỏe", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Khóa huấn luyện ngựa (yêu cầu nghỉ y tế)" },
+  UNLOCK_TRAINING: { category: "Thú y & Sức khỏe", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Mở khóa huấn luyện cho ngựa" },
+  CREATE_HEALTH_EXAM: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Tạo phiếu khám sức khỏe mới" },
+  UPDATE_HEALTH_EXAM: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Cập nhật phiếu khám sức khỏe" },
+  CREATE_MEDICAL_RECORD: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Tạo bệnh án điều trị mới" },
+  UPDATE_MEDICAL_RECORD: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Cập nhật bệnh án điều trị" },
+  CREATE_PRESCRIPTION: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Kê đơn thuốc mới" },
+  UPDATE_PRESCRIPTION: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Cập nhật đơn thuốc" },
+  CREATE_DIET_RECORD: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Tạo chế độ dinh dưỡng y tế" },
+  UPDATE_DIET_RECORD: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Cập nhật chế độ dinh dưỡng y tế" },
+  CREATE_INJURY_MARKER: { category: "Thú y & Sức khỏe", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Ghi nhận vị trí chấn thương mới" },
+  CREATE_PERIODIC_CARE_SCHEDULE: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Tạo lịch chăm sóc y tế định kỳ" },
+  BOOK_CARE_EVENT: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Đặt ca khám / chăm sóc y tế" },
+  MOVE_CARE_EVENT: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Dời lịch khám / chăm sóc y tế" },
+  CANCEL_CARE_EVENT: { category: "Thú y & Sức khỏe", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Hủy lịch khám / chăm sóc y tế" },
+  COMPLETE_CARE_SCHEDULE: { category: "Thú y & Sức khỏe", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Hoàn thành lịch chăm sóc y tế" },
+  REASSIGN_CARE_SCHEDULE: { category: "Thú y & Sức khỏe", badgeCls: "border-teal-200 bg-teal-50 text-teal-800", title: "Điều chuyển bác sĩ phụ trách lịch y tế" },
+  ASSIGN_GROOM_TASK: { category: "Chăm sóc & Sự cố", badgeCls: "border-sky-200 bg-sky-50 text-sky-800", title: "Giao công việc chăm sóc chuồng trại" },
+  REASSIGN_GROOM_TASK: { category: "Chăm sóc & Sự cố", badgeCls: "border-sky-200 bg-sky-50 text-sky-800", title: "Đổi Groom phụ trách công việc chăm sóc" },
+  CANCEL_GROOM_TASK: { category: "Chăm sóc & Sự cố", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Hủy công việc chăm sóc" },
+  COMPLETE_GROOM_TASK: { category: "Chăm sóc & Sự cố", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Hoàn thành công việc chăm sóc chuồng trại" },
+  COMPLETE_GROOM_TRAINING_SESSION: { category: "Chăm sóc & Sự cố", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Groom xác nhận hoàn thành buổi tập" },
+  REPORT_STABLE_INCIDENT: { category: "Chăm sóc & Sự cố", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Báo cáo sự cố chuồng trại mới" },
+  CLAIM_EMERGENCY_STABLE_INCIDENT: { category: "Chăm sóc & Sự cố", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Tiếp nhận xử lý sự cố khẩn cấp" },
+  ASSIGN_STABLE_INCIDENT: { category: "Chăm sóc & Sự cố", badgeCls: "border-sky-200 bg-sky-50 text-sky-800", title: "Phân công người xử lý sự cố chuồng trại" },
+  SUBMIT_STABLE_INCIDENT_RESULT: { category: "Chăm sóc & Sự cố", badgeCls: "border-sky-200 bg-sky-50 text-sky-800", title: "Gửi báo cáo kết quả xử lý sự cố" },
+  RESOLVE_STABLE_INCIDENT: { category: "Chăm sóc & Sự cố", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Đóng và xác nhận hoàn tất xử lý sự cố" },
+  CREATE_INVENTORY_ITEM: { category: "Kho vật tư", badgeCls: "border-purple-200 bg-purple-50 text-purple-800", title: "Thêm danh mục vật tư mới vào kho" },
+  UPDATE_INVENTORY_ITEM: { category: "Kho vật tư", badgeCls: "border-purple-200 bg-purple-50 text-purple-800", title: "Cập nhật thông tin vật tư" },
+  DEACTIVATE_INVENTORY_ITEM: { category: "Kho vật tư", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Ngừng sử dụng danh mục vật tư" },
+  INVENTORY_RECEIPT: { category: "Kho vật tư", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Nhập thêm vật tư vào kho" },
+  INVENTORY_ADJUSTMENT: { category: "Kho vật tư", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Điều chỉnh kiểm kê số lượng kho" },
+  INVENTORY_USAGE: { category: "Kho vật tư", badgeCls: "border-purple-200 bg-purple-50 text-purple-800", title: "Ghi nhận xuất dùng vật tư" },
+  CREATE_SUPPLY_REQUEST: { category: "Kho vật tư", badgeCls: "border-purple-200 bg-purple-50 text-purple-800", title: "Gửi yêu cầu cấp phát vật tư" },
+  REVIEW_SUPPLY_REQUEST: { category: "Kho vật tư", badgeCls: "border-purple-200 bg-purple-50 text-purple-800", title: "Xét duyệt yêu cầu cấp phát vật tư" },
+  CREATE_OFFICIAL_RACE: { category: "Giải đấu", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Tạo giải đấu chính thức mới" },
+  UPDATE_OFFICIAL_RACE: { category: "Giải đấu", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Cập nhật thông tin giải đấu" },
+  CANCEL_OFFICIAL_RACE: { category: "Giải đấu", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Hủy giải đấu chính thức" },
+  REGISTER_HORSE_RACE: { category: "Giải đấu", badgeCls: "border-amber-200 bg-amber-50 text-amber-800", title: "Đăng ký ngựa tham gia giải đấu" },
+  CANCEL_HORSE_RACE: { category: "Giải đấu", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Rút ngựa khỏi danh sách thi đấu" },
+  RESTORE_HORSE_RACE: { category: "Giải đấu", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Khôi phục đăng ký thi đấu cho ngựa" },
+  RECORD_RACE_RESULT: { category: "Giải đấu", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Ghi nhận thứ hạng & giải thưởng thi đấu" },
+  CREATE_FINANCIAL_TRANSACTION: { category: "Tài chính", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Ghi nhận giao dịch tài chính" },
+  CREATE_STAFF_ACCOUNT: { category: "Tài khoản", badgeCls: "border-purple-200 bg-purple-50 text-purple-800", title: "Tạo tài khoản nhân sự mới" },
+  APPROVE_USER: { category: "Tài khoản", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Phê duyệt tài khoản người dùng" },
+  REJECT_USER: { category: "Tài khoản", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Từ chối tài khoản người dùng" },
+  LOCK_USER: { category: "Tài khoản", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Khóa tài khoản người dùng" },
+  UNLOCK_USER: { category: "Tài khoản", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Mở khóa tài khoản người dùng" },
+  UPDATE_USER_ROLE: { category: "Tài khoản", badgeCls: "border-purple-200 bg-purple-50 text-purple-800", title: "Thay đổi vai trò tài khoản" },
+  APPROVE_ROLE_CHANGE: { category: "Tài khoản", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Chấp thuận yêu cầu đổi vai trò" },
+  REJECT_ROLE_CHANGE: { category: "Tài khoản", badgeCls: "border-rose-200 bg-rose-50 text-rose-800", title: "Từ chối yêu cầu đổi vai trò" },
+  REQUEST_FORGOT_PASSWORD_OTP: { category: "Tài khoản", badgeCls: "border-slate-200 bg-slate-100 text-slate-700", title: "Yêu cầu mã OTP khôi phục mật khẩu" },
+  RESET_PASSWORD_SUCCESS: { category: "Tài khoản", badgeCls: "border-emerald-200 bg-emerald-50 text-emerald-800", title: "Đặt lại mật khẩu thành công" },
+  READ_NOTIFICATION: { category: "Thông báo", badgeCls: "border-slate-200 bg-slate-100 text-slate-600", title: "Đánh dấu đã đọc thông báo" },
+  READ_ALL_NOTIFICATIONS: { category: "Thông báo", badgeCls: "border-slate-200 bg-slate-100 text-slate-600", title: "Đánh dấu đã đọc tất cả thông báo" },
+};
+
+function formatAuditAction(raw: string, horses: Option[], grooms: Option[]): { category: string; badgeCls: string; title: string; detail: string } {
+  const trimmed = (raw ?? "").trim();
+  const colonIdx = trimmed.indexOf(":");
+  const code = (colonIdx >= 0 ? trimmed.slice(0, colonIdx) : trimmed).trim();
+  const rest = colonIdx >= 0 ? trimmed.slice(colonIdx + 1).trim() : "";
+  const meta = AUDIT_ACTION_META[code] ?? {
+    category: "Hệ thống",
+    badgeCls: "border-slate-200 bg-slate-100 text-slate-700",
+    title: code.replace(/_/g, " "),
+  };
+
+  const horseNameById = (id: string) => {
+    const clean = id.trim();
+    const found = horses.find((h) => String(h.id).toLowerCase() === clean.toLowerCase());
+    return found?.horse_name ? `Ngựa: ${found.horse_name}` : null;
+  };
+  const groomNameById = (id: string) => {
+    const found = grooms.find((g) => String(g.id) === id.trim());
+    return found?.full_name ? found.full_name : `Groom #${id.trim()}`;
+  };
+
+  if (!rest) return { ...meta, detail: "" };
+
+  if (code === "UPLOAD_HORSE_IMAGE") {
+    return { ...meta, detail: "Đã lưu tệp hình ảnh lên dịch vụ lưu trữ đám mây" };
+  }
+  if (code === "UPDATE_HORSE" || code === "DELETE_HORSE") {
+    return { ...meta, detail: horseNameById(rest) ?? `Mã hồ sơ: #${rest.slice(0, 8)}` };
+  }
+  if (code === "APPROVE_HORSE_REGISTRATION" || code === "APPROVE_HORSE_LINK_PENDING_OWNER_CONSENT") {
+    const parts = rest.split("->").map((s) => s.trim());
+    const horseLabel = parts[1] ? horseNameById(parts[1]) : null;
+    return { ...meta, detail: horseLabel ?? (parts[0] ? `Mã đơn: #${parts[0].slice(0, 8)}` : "") };
+  }
+  if (code.endsWith("_HORSE_REGISTRATION") || code.endsWith("_HORSE_OWNERSHIP_TRANSFER")) {
+    return { ...meta, detail: `Mã đơn yêu cầu: #${rest.slice(0, 8)}` };
+  }
+  if (code === "UPDATE_HEALTH_STATUS") {
+    // Format: <horseId>:<old>-><new>:<reason>
+    const parts = rest.split(":");
+    const hName = parts[0] ? (horseNameById(parts[0]) ?? `Ngựa #${parts[0].slice(0, 8)}`) : "";
+    const transition = (parts[1] ?? "")
+      .replace(/Healthy/g, "Khỏe mạnh")
+      .replace(/Injured/g, "Chấn thương")
+      .replace(/Quarantine/g, "Cách ly")
+      .replace(/Monitoring/g, "Cần theo dõi")
+      .replace(/->/g, " → ");
+    const note = parts.slice(2).join(":").trim();
+    return {
+      ...meta,
+      detail: [hName, transition, note].filter(Boolean).join(" · "),
+    };
+  }
+  if (code === "LOCK_TRAINING" || code === "UNLOCK_TRAINING") {
+    const parts = rest.split(":");
+    const hName = parts[0] ? (horseNameById(parts[0]) ?? `Ngựa #${parts[0].slice(0, 8)}`) : "";
+    const extra = parts.slice(1).join(":").trim();
+    return { ...meta, detail: [hName, extra].filter(Boolean).join(" · ") };
+  }
+  if (code === "UPDATE_TRAINING_PLAN") {
+    const firstColon = rest.indexOf(":");
+    if (firstColon >= 0) {
+      const jsonPart = rest.slice(firstColon + 1).trim();
+      try {
+        const parsed = JSON.parse(jsonPart) as Record<string, unknown>;
+        const labels: Record<string, string> = {
+          stage_name: "Giai đoạn",
+          target_intensity: "Cường độ",
+          target_distance_meters: "Cự ly mục tiêu (m)",
+          target_duration_minutes: "Thời lượng (phút)",
+          start_date: "Ngày bắt đầu",
+          end_date: "Ngày kết thúc",
+        };
+        const summary = Object.entries(parsed)
+          .map(([k, v]) => `${labels[k] ?? k}: ${String(v)}`)
+          .join(" · ");
+        if (summary) return { ...meta, detail: summary };
+      } catch { /* ignore JSON parse error */ }
+    }
+    return { ...meta, detail: "" };
+  }
+  if (code === "RESET_AND_SEED_CLEAN_TRAINING_DATA") {
+    const m = rest.match(/plans=(\d+),schedules=(\d+)/);
+    if (m) return { ...meta, detail: `Tạo mới ${m[1]} giáo án và ${m[2]} buổi tập mẫu` };
+  }
+  if (code === "ASSIGN_GROOM_TASK" || code === "REASSIGN_GROOM_TASK") {
+    const parts = rest.split(" to ");
+    if (parts[1]) return { ...meta, detail: `Người nhận việc: ${groomNameById(parts[1])}` };
+  }
+  if (code === "ASSIGN_TRAINING_GROOM") {
+    const parts = rest.split(":");
+    if (parts[1]) return { ...meta, detail: `Người phụ trách: ${groomNameById(parts[1])}` };
+  }
+  if (code === "ASSIGN_STABLE_INCIDENT") {
+    const parts = rest.split(" to ");
+    if (parts[1]) {
+      const [rName, uid] = parts[1].split(":");
+      const roleLabel = incidentRoleLabels[rName] ?? rName;
+      return { ...meta, detail: `Giao cho: ${roleLabel}${uid ? ` (#${uid})` : ""}` };
+    }
+  }
+  if (code === "CREATE_FINANCIAL_TRANSACTION") {
+    const parts = rest.split(" for ");
+    const hName = parts[1] ? horseNameById(parts[1]) : null;
+    return { ...meta, detail: hName ?? "" };
+  }
+  if (code === "RECORD_RACE_RESULT") {
+    const m = rest.match(/position=(\d+)/);
+    if (m) return { ...meta, detail: `Kết quả: Hạng #${m[1]}` };
+  }
+  if (code === "UPDATE_USER_ROLE") {
+    const m = rest.match(/^(\d+)\s+(\S+)\s*->\s*(\S+)$/);
+    if (m) {
+      const fromLabel = roleLabels[m[2] as keyof typeof roleLabels] ?? m[2];
+      const toLabel = roleLabels[m[3] as keyof typeof roleLabels] ?? m[3];
+      return { ...meta, detail: `Tài khoản #${m[1]}: ${fromLabel} → ${toLabel}` };
+    }
+  }
+  if (code === "CREATE_STAFF_ACCOUNT") {
+    const m = rest.match(/^(\d+)\s+(\S+)$/);
+    if (m) {
+      const rLabel = roleLabels[m[2] as keyof typeof roleLabels] ?? m[2];
+      return { ...meta, detail: `Tài khoản #${m[1]} · Vai trò: ${rLabel}` };
+    }
+  }
+  if (code === "LOCK_USER" || code === "REJECT_USER") {
+    const dashIdx = rest.indexOf(" - ");
+    if (dashIdx >= 0) {
+      return { ...meta, detail: `Tài khoản #${rest.slice(0, dashIdx).trim()} · Lý do: ${rest.slice(dashIdx + 3).trim()}` };
+    }
+    return { ...meta, detail: `Tài khoản #${rest}` };
+  }
+  if (code === "APPROVE_USER" || code === "UNLOCK_USER") {
+    return { ...meta, detail: `Tài khoản #${rest}` };
+  }
+  if (code === "REVIEW_SUPPLY_REQUEST") {
+    const parts = rest.split(":");
+    const st = parts[1] === "Approved" ? "Đã duyệt cấp phát" : parts[1] === "Rejected" ? "Từ chối cấp phát" : parts[1];
+    return { ...meta, detail: st ?? "" };
+  }
+  if (code === "INVENTORY_RECEIPT" || code === "INVENTORY_USAGE") {
+    const parts = rest.split(":");
+    if (parts[1]) return { ...meta, detail: `Số lượng: ${parts[1]}` };
+  }
+  if (code === "INVENTORY_ADJUSTMENT") {
+    const parts = rest.split(":");
+    if (parts.length >= 2) {
+      return { ...meta, detail: `Chênh lệch: ${parts[1]}${parts[2] ? ` · Lý do: ${parts.slice(2).join(":")}` : ""}` };
+    }
+  }
+  // If rest is just a raw UUID, hide the raw 36-char UUID clutter or show a compact 6-char ref
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rest)) {
+    return { ...meta, detail: horseNameById(rest) ?? `Mã tham chiếu: #${rest.slice(0, 6)}` };
+  }
+  return { ...meta, detail: rest };
+}
+
 function Metric({
   icon: Icon,
   label,
@@ -615,23 +893,23 @@ function Metric({
       <div className={`rounded-lg bg-slate-50 p-3.5 transition-colors ${className}`}>
         <div className="flex items-center gap-2">
           <Icon size={16} className="shrink-0 text-equine-teal" />
-          <p className="text-xs font-normal uppercase tracking-wide text-slate-500">{label}</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
         </div>
-        <p className="mt-2 text-base font-normal text-equine-navy">{value}</p>
+        <p className="mt-2 text-lg font-semibold text-equine-navy tabular-nums">{value}</p>
       </div>
     );
   }
   return (
     <div className={`rounded-lg border border-equine-line bg-white p-4 shadow-sm ${className}`}>
       <Icon size={18} className="text-equine-teal" />
-      <p className="mt-3 text-xs font-normal uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 text-base font-normal text-equine-navy">{value}</p>
+      <p className="mt-3 text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-equine-navy tabular-nums">{value}</p>
     </div>
   );
 }
 
 function Panel({ title, icon: Icon, children }: { title: string; icon: typeof Activity; children: ReactNode }) {
-  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h2 className="mb-4 flex items-center gap-2 font-sans text-lg font-normal text-equine-navy"><Icon size={18} />{title}</h2>{children}</section>;
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><h2 className="mb-4 flex items-center gap-2 font-sans text-lg font-semibold text-equine-navy"><Icon size={18} />{title}</h2>{children}</section>;
 }
 
 const registrationFilterOptions: { value: HorseRegistrationStatusFilter; label: string }[] = [
@@ -926,6 +1204,10 @@ function HorseRegistrationReviewPanel({
                       <strong className="block text-xs font-semibold text-slate-800 mt-0.5">{request.breed || "Chưa cập nhật"}</strong>
                     </div>
                     <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
+                      <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Giới tính</span>
+                      <strong className="block text-xs font-semibold text-slate-800 mt-0.5">{horseGender(request.gender) || "Chưa cập nhật"}</strong>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100">
                       <span className="block text-[11px] font-medium uppercase tracking-wider text-slate-400">Năm sinh</span>
                       <strong className="block text-xs font-semibold text-slate-800 mt-0.5">{request.birth_year ?? "—"}</strong>
                     </div>
@@ -1215,6 +1497,32 @@ function managerHealthLabel(status: string) {
     Monitoring: "Đang theo dõi",
     Injured: "Chấn thương",
     Quarantine: "Cách ly",
+  } as Record<string, string>)[status] ?? status;
+}
+
+function managerTaskTypeLabel(type: string) {
+  return ({
+    Feeding: "Cho ăn",
+    Cleaning: "Dọn chuồng",
+    Bathing: "Tắm rửa",
+    IceBath: "Ngâm đá",
+  } as Record<string, string>)[type] ?? type;
+}
+
+function managerTaskStatusLabel(status: string) {
+  return ({
+    Pending: "Đang chờ",
+    Completed: "Hoàn thành",
+    Cancelled: "Đã hủy",
+  } as Record<string, string>)[status] ?? status;
+}
+
+function managerIncidentStatusLabel(status: string) {
+  return ({
+    Pending: "Chờ phân công",
+    InProgress: "Đang xử lý",
+    AwaitingClosure: "Chờ đóng",
+    Resolved: "Đã đóng",
   } as Record<string, string>)[status] ?? status;
 }
 

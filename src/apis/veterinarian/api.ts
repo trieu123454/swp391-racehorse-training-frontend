@@ -351,10 +351,15 @@ export const veterinarianApi = {
     if (!Array.isArray(first.data)) throw new Error("Dữ liệu lịch chăm sóc không hợp lệ.");
     const data = [...first.data];
     const limit = first.limit || 100;
-    for (let page = 2; page <= Math.ceil(first.total / limit); page++) {
-      const result = await call<ApiPage<CareSchedule>>(`/api/periodic-care-schedules?${queryString({ horse_id: horse, page, limit })}`);
-      if (!Array.isArray(result.data)) throw new Error("Dữ liệu lịch chăm sóc không hợp lệ.");
-      data.push(...result.data);
+    const pageCount = Math.ceil(first.total / limit);
+    for (let start = 2; start <= pageCount; start += 4) {
+      const pages = await Promise.all(Array.from({ length: Math.min(4, pageCount - start + 1) }, (_, index) =>
+        call<ApiPage<CareSchedule>>(`/api/periodic-care-schedules?${queryString({ horse_id: horse, page: start + index, limit })}`),
+      ));
+      for (const result of pages) {
+        if (!Array.isArray(result.data)) throw new Error("Dữ liệu lịch chăm sóc không hợp lệ.");
+        data.push(...result.data);
+      }
     }
     return { ...first, data };
   },

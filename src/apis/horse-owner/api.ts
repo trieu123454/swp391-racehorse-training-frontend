@@ -36,6 +36,22 @@ export type OwnerTrainingMetric = {
   recorded_by_name: string | null;
 };
 
+export type OwnerCareSchedule = {
+  id: string;
+  care_type: string | null;
+  frequency_days: number | null;
+  last_done_date: string | null;
+  next_due_date: string | null;
+  notes: string | null;
+  calendar_event_id: string | null;
+  event_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  status: string | null;
+  title: string | null;
+  doctor_name: string | null;
+};
+
 export type OwnerTrainingSchedule = {
   id: string;
   event_type: string;
@@ -99,6 +115,7 @@ export type OwnerFinancialMonth = {
 export type OwnerDashboard = {
   horse: OwnerHorse;
   health_exams: OwnerHealthExam[];
+  care_schedules?: OwnerCareSchedule[];
   training_metrics: OwnerTrainingMetric[];
   training_schedules: OwnerTrainingSchedule[];
   training_videos: OwnerTrainingVideo[];
@@ -144,6 +161,7 @@ export type HorseRegistrationRequest = {
   horse_name: string;
   horse_image_url: string | null;
   breed: string | null;
+  gender?: string | null;
   birth_year: number | null;
   height_cm: number | null;
   current_weight_kg: number | null;
@@ -166,6 +184,7 @@ export type HorseRegistrationSubmission = {
   requestType: "REGISTER" | "LINK";
   horseName: string;
   breed?: string | null;
+  gender?: string | null;
   birthYear?: number | null;
   heightCm?: number | null;
   currentWeightKg?: number | null;
@@ -234,10 +253,10 @@ export async function submitHorseRegistrationRequest(
   if (input.requestType !== "REGISTER") {
     throw new Error("Liên kết ngựa hiện chưa được hỗ trợ bởi dịch vụ đăng ký.");
   }
-  const { horseName, breed, birthYear, heightCm, currentWeightKg, pedigreeFather, pedigreeMother, ownerNote } = input;
+  const { horseName, breed, gender, birthYear, heightCm, currentWeightKg, pedigreeFather, pedigreeMother, ownerNote } = input;
   const result = await authenticatedRequest<HorseRegistrationRequest>("/api/horse-owner/horse-registration-requests", {
     method: "POST",
-    body: JSON.stringify({ horseName, breed, birthYear, heightCm, currentWeightKg, pedigreeFather, pedigreeMother, reason: ownerNote }),
+    body: JSON.stringify({ horseName, breed, gender, birthYear, heightCm, currentWeightKg, pedigreeFather, pedigreeMother, reason: ownerNote }),
   });
   return { ...result, documents: result.documents ?? [], history: result.history ?? [] };
 }

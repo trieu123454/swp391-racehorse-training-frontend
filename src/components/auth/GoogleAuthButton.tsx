@@ -18,6 +18,7 @@ declare global {
           initialize(config: {
             client_id: string;
             callback: (response: GoogleCredentialResponse) => void;
+            use_fedcm_for_button?: boolean;
           }): void;
           renderButton(
             element: HTMLElement,
@@ -86,6 +87,7 @@ export function GoogleAuthButton({
         window.google.accounts.id.initialize({
           client_id: clientId,
           callback: (response) => window.equineGoogleIdentity?.callback?.(response),
+          use_fedcm_for_button: true,
         });
         identity.clientId = clientId;
       }

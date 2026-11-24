@@ -8,6 +8,7 @@ import "@fontsource/be-vietnam-pro/700.css";
 import "@/styles/globals.css";
 import "@/styles/horses.css";
 import "@/styles/design.css";
+import "@/styles/sidebar.css";
 
 export const metadata: Metadata = {
   title: "Equine | Racehorse System",
