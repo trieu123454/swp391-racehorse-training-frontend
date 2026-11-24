@@ -62,7 +62,7 @@ function metricDate(date?: string | null) {
   const parsed = new Date(date);
   return Number.isNaN(parsed.getTime())
     ? date
-    : parsed.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    : parsed.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function shortDate(date?: string | null) {
@@ -70,7 +70,7 @@ function shortDate(date?: string | null) {
   const parsed = new Date(date);
   return Number.isNaN(parsed.getTime())
     ? date.slice(5)
-    : parsed.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+    : parsed.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function numberLabel(number: number, digits = 1) {

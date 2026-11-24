@@ -16,7 +16,7 @@ export const roleLabels: Record<RoleName, string> = {
   HEAD_VETERINARIAN: "Trưởng ban thú y",
   GROOM: "Nhân viên chăm sóc chuồng trại",
   HORSE_OWNER: "Chủ sở hữu ngựa",
-  CLUB_MANAGER: "Quản lý câu lạc bộ",
+  CLUB_MANAGER: "Quản lý CLB",
 };
 
 export function routeForRole(role: RoleName) {

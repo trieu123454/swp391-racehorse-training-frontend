@@ -1,3 +1,4 @@
+import "@/styles/notifications.css";
 import type { Metadata } from "next";
 import "@fontsource/be-vietnam-pro/400.css";
 import "@fontsource/be-vietnam-pro/500.css";

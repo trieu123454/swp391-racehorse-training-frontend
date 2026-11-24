@@ -1,5 +1,7 @@
 "use client";
 
+import { formatDisplayDate } from "@/lib/display-format";
+
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
 import {
@@ -507,11 +509,11 @@ export default function ClubManagerWorkspace() {
           </select>
         </div>
         <div className="space-y-3">
-          {incidents.map((incident) => <article key={incident.id} className={`rounded-xl border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/50" : "border-equine-line bg-white"}`}>
+          {incidents.map((incident) => <article data-notification-target={incident.id} key={incident.id} className={`rounded-xl border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/50" : "border-equine-line bg-white"}`}>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="font-semibold text-equine-navy">{incident.horse_name}{incident.groom_name ? ` · ${incident.groom_name}` : ""}</p>
-                <p className="mt-1 text-xs text-slate-500">{new Date(incident.created_at).toLocaleString("vi-VN")}</p>
+                <p className="mt-1 text-xs text-slate-500">{formatDisplayDate(incident.created_at, true)}</p>
               </div>
               <div className="flex items-center gap-2"><span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">{managerIncidentStatusLabel(incident.status)}</span>
                 {incident.is_emergency && <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-800">KHẨN CẤP · ĐÃ BÁO BÁC SĨ</span>}
@@ -632,9 +634,10 @@ export default function ClubManagerWorkspace() {
                   )}
                   <p className="mt-1 text-xs text-slate-500">
                     Thực hiện bởi: <strong className="font-medium text-slate-700">{entry.user_name ?? entry.email ?? "Tài khoản đã xóa"}</strong>
-                    {entry.email && entry.user_name ? ` (${entry.email})` : ""} · {new Date(entry.created_at).toLocaleString("vi-VN")}
+                    {entry.email && entry.user_name ? ` (${entry.email})` : ""} · {formatDisplayDate(entry.created_at, true)}
                   </p>
                 </div>
+                <CompactId id={entry.id} />
               </article>
             );
           })}
@@ -1154,7 +1157,7 @@ function HorseRegistrationReviewPanel({
         {requests.map((request) => {
           const badge = registrationStatusBadge[request.status];
           return (
-            <article key={request.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
+            <article data-notification-target={request.id} key={request.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md">
               {/* Header Dossier */}
               <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4">
                 <div>
@@ -1174,7 +1177,7 @@ function HorseRegistrationReviewPanel({
                     <CompactId id={request.id} />
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    Thời gian gửi: {new Date(request.created_at).toLocaleString("vi-VN")}
+                    Thời gian gửi: {formatDisplayDate(request.created_at, true)}
                   </p>
                 </div>
 
@@ -1310,7 +1313,7 @@ function HorseRegistrationReviewPanel({
                           <li key={entry.id} className="relative">
                             <span className="absolute -left-[17px] top-1 size-2 rounded-full bg-teal-600 ring-2 ring-white" />
                             <p className="font-semibold text-slate-800">{registrationHistoryLabel(entry.action)} (Lần {entry.revision_no})</p>
-                            <p className="text-[11px] text-slate-400">{new Date(entry.created_at).toLocaleString("vi-VN")}</p>
+                            <p className="text-[11px] text-slate-400">{formatDisplayDate(entry.created_at, true)}</p>
                             {entry.note && (
                               <p className="mt-1 rounded border border-slate-200 bg-white p-2 text-slate-700 whitespace-pre-wrap">{entry.note}</p>
                             )}
@@ -1551,7 +1554,7 @@ function formatManagerRaceDate(value?: string | null) {
   const parsed = new Date(`${value.slice(0, 10)}T00:00:00`);
   return Number.isNaN(parsed.getTime())
     ? value
-    : new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(parsed);
+    : new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(parsed);
 }
 
 type ManagerRaceFilter = "ALL" | "SCHEDULED" | "COMPLETED" | "CANCELLED";

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDisplayDate, formatDoctorDisplayName } from "@/lib/display-format";
 import { useId, useMemo, useState } from "react";
 import type { HealthExam, InjuryMarker, MedicalRecord } from "@/api/veterinarian/api";
 
@@ -25,7 +26,7 @@ export default function ExamHistoryViews({ exams, diagnosesByExam, onOpen, injur
   };
   const date = (value: string) => {
     const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? "Chưa ghi nhận" : parsed.toLocaleString("vi-VN");
+    return Number.isNaN(parsed.getTime()) ? "Chưa ghi nhận" : formatDisplayDate(value, true);
   };
   const conclusion = (exam: HealthExam) =>
     (diagnosesByExam.get(exam.id) ?? []).map((record) => record.diagnosis).join("; ")
@@ -60,7 +61,7 @@ export default function ExamHistoryViews({ exams, diagnosesByExam, onOpen, injur
             <tbody className="divide-y divide-equine-line">{sorted.map((exam) => <tr key={exam.id} className="hover:bg-slate-50">
               <td className="px-4 py-3"><button type="button" className="text-left font-medium text-equine-navy underline-offset-4 hover:underline" onClick={() => onOpen(exam.id)}>{date(exam.exam_date)}</button></td>
               <td className="px-4 py-3">{exam.exam_type || "Chưa ghi nhận"}</td>
-              <td className="px-4 py-3">{exam.doctor?.name || "Chưa ghi nhận"}</td>
+              <td className="px-4 py-3">{formatDoctorDisplayName(exam.doctor?.name) || "Chưa ghi nhận"}</td>
               <td className="max-w-md whitespace-pre-wrap px-4 py-3">{conclusion(exam)}{linkedInjuries(exam).length > 0 && <button type="button" className="mt-2 block text-xs font-medium text-rose-800 underline" onClick={onOpenInjuries}>Chấn thương: {linkedInjuries(exam).map((injury) => injury.body_part).join(", ")}</button>}</td>
             </tr>)}</tbody>
           </table>
@@ -83,7 +84,7 @@ export default function ExamHistoryViews({ exams, diagnosesByExam, onOpen, injur
           <time dateTime={exam.exam_date} className="text-xs text-slate-500">{date(exam.exam_date)}</time>
           <div className="mt-1 rounded-lg border border-equine-line px-3 py-2">
             <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-semibold leading-snug text-equine-navy">{exam.exam_type || "Lần khám"}</h4><button type="button" className="soft-button !h-8 !min-h-8 !px-2 !py-1 !text-xs" onClick={() => onOpen(exam.id)}>Mở chi tiết</button></div>
-            <p className="mt-1 text-xs text-slate-500">Bác sĩ: {exam.doctor?.name || "Chưa ghi nhận"}</p>
+            <p className="mt-1 text-xs text-slate-500">Bác sĩ: {formatDoctorDisplayName(exam.doctor?.name) || "Chưa ghi nhận"}</p>
             <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{conclusion(exam)}</p>
           </div>
         </li>; })}</ol>}

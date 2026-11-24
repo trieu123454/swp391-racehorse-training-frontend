@@ -4,14 +4,25 @@ import { Routes } from "@/routes/Routes";
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import HorseShell, { useHorseUser } from "@/components/horses/HorseShell";
 import { ApiRequestError, validateSession } from "@/api/client";
 import { roleForSlug, routeForRole } from "@/lib/roles";
-import VeterinarianWorkspace from "@/components/veterinarian/VeterinarianWorkspace";
-import HorseOwnerWorkspace from "@/components/horse-owner/HorseOwnerWorkspace";
-import HeadTrainerWorkspace from "@/components/head-trainer/HeadTrainerWorkspace";
-import GroomWorkspace from "@/components/groom/GroomWorkspace";
-import ClubManagerWorkspace from "@/components/club-manager/ClubManagerWorkspace";
+const VeterinarianWorkspace = dynamic(() => import("@/components/veterinarian/VeterinarianWorkspace"), {
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải phân hệ…</p>,
+});
+const HorseOwnerWorkspace = dynamic(() => import("@/components/horse-owner/HorseOwnerWorkspace"), {
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải phân hệ…</p>,
+});
+const HeadTrainerWorkspace = dynamic(() => import("@/components/head-trainer/HeadTrainerWorkspace"), {
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải phân hệ…</p>,
+});
+const GroomWorkspace = dynamic(() => import("@/components/groom/GroomWorkspace"), {
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải phân hệ…</p>,
+});
+const ClubManagerWorkspace = dynamic(() => import("@/components/club-manager/ClubManagerWorkspace"), {
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải phân hệ…</p>,
+});
 
 export default function RoleDashboardPage() {
   const role = useParams<{ role: string }>()?.role ?? "";

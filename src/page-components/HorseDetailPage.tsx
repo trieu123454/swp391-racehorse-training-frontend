@@ -1,4 +1,6 @@
 "use client";
+
+import { formatDisplayDate } from "@/lib/display-format";
 import { Routes } from "@/routes/Routes";
 
 import Link from "next/link";
@@ -295,7 +297,7 @@ export default function HorseDetailPage() {
                   {ownershipHistory.map((entry) => (
                     <article key={entry.id} className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-xs">
                       <p className="font-semibold text-slate-800">{entry.previous_owner_name ?? "Chưa gán chủ"} → {entry.new_owner_name ?? "Chưa gán chủ"}</p>
-                      <p className="mt-1 text-[11px] text-slate-500">{new Date(entry.changed_at).toLocaleString("vi-VN")} · {entry.changed_by_name ?? "Hệ thống"}</p>
+                      <p className="mt-1 text-[11px] text-slate-500">{formatDisplayDate(entry.changed_at, true)} · {entry.changed_by_name ?? "Hệ thống"}</p>
                     </article>
                   ))}
                   {!ownershipHistory.length && <p className="text-xs text-slate-400">Chưa có lịch sử thay đổi chủ sở hữu.</p>}
@@ -347,8 +349,8 @@ function formatDateTime(value: string | null | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Chưa cập nhật";
   return new Intl.DateTimeFormat("vi-VN", {
-    dateStyle: "medium",
-    timeStyle: "short",
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
   }).format(date);
 }
 

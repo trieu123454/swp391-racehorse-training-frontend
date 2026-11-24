@@ -1,18 +1,17 @@
 "use client";
 
-import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
-
 import {
   Activity,
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  Bell,
   BookOpen,
   CalendarCheck,
   CalendarDays,
   Check,
   CircleHelp,
+  ListFilter,
+  X,
   ClipboardCheck,
   Clock,
   FileHeart,
@@ -29,23 +28,28 @@ import {
   Utensils,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { HorseImage, Notice } from "@/components/horses/HorseUI";
+import { HorseImage, Modal, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import ExamHorsePicker from "./ExamHorsePicker";
 import ExamHistoryViews from "./ExamHistoryViews";
-import InjuryModel3D from "@/components/veterinarian/InjuryModel3D";
+import dynamic from "next/dynamic";
+const InjuryModel3D = dynamic(() => import("@/components/veterinarian/InjuryModel3D"), {
+  ssr: false,
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải mô hình 3D…</p>,
+});
 import StableWorkspace from "./StableWorkspace";
+import { formatDisplayDate, formatDoctorDisplayName, formatStableSection } from "@/lib/display-format";
+import { activeRecurringRules, buildCareProjections, careRulesForDoctor } from "@/lib/care-projections";
 import { CompactId } from "@/components/shared/CompactId";
 import { StatTile } from "@/components/shared/StatTile";
 import type { Horse } from "@/api/horses/api";
-import { APP_MUTATION_COMPLETED_EVENT, NOTIFICATION_COUNT_CHANGED_EVENT } from "@/api/client";
+import { APP_MUTATION_COMPLETED_EVENT } from "@/api/client";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import { getUser } from "@/lib/session";
 import { useWorkspaceToast } from "@/components/horses/HorseShell";
 import {
   veterinarianApi,
   veterinarianError,
-  type AppNotification,
   type CareEvent,
   type CareSchedule,
   type DietRecord,
@@ -76,31 +80,6 @@ const readinessLabels: Record<string, string> = {
   Unknown: "chưa đánh giá khả năng thi đấu",
 };
 
-type NotificationActionTab = "overview" | "injuries" | "care";
-type VetActionItem = {
-  id: string;
-  horseId: string;
-  title: string;
-  detail: string;
-  actionLabel: string;
-  actionTab: NotificationActionTab;
-  priority: "urgent" | "warning";
-};
-type VetActivity = {
-  id: string;
-  horseId: string | null;
-  horseName: string;
-  message: string;
-  createdAt: string;
-  actionTab: NotificationActionTab;
-};
-const VET_ACTIVITY_SESSION_KEY = "racehorse:veterinarian:recent-activity";
-
-const injuryStatusLabels: Record<InjuryMarker["recovery_status"], string> = {
-  Active: "đang chấn thương",
-  Recovering: "đang hồi phục",
-  Recovered: "đã hồi phục",
-};
 
 const careTypeLabels: Record<string, string> = {
   HoofCheck: "Kiểm tra móng",
@@ -113,125 +92,6 @@ const careTypeLabels: Record<string, string> = {
   Race: "Giải đua",
 };
 
-function latestInjuriesByBodyPart(markers: InjuryMarker[]) {
-  const ordered = [...markers].sort((left, right) => Date.parse(right.marked_at) - Date.parse(left.marked_at));
-  const latest = new Map<string, InjuryMarker>();
-  for (const marker of ordered) {
-    const key = marker.body_part.trim().toLocaleLowerCase("vi");
-    if (!latest.has(key)) latest.set(key, marker);
-  }
-  return [...latest.values()];
-}
-
-function buildVetActionItems(
-  horses: VetHorse[],
-  injuriesByHorse: Map<string, InjuryMarker[]>,
-  schedules: CareSchedule[],
-) {
-  const items: VetActionItem[] = [];
-
-  for (const horse of horses) {
-    const latestInjuries = latestInjuriesByBodyPart(injuriesByHorse.get(horse.id) ?? []);
-    const activeInjuries = latestInjuries.filter((marker) => marker.recovery_status !== "Recovered");
-
-    for (const marker of activeInjuries) {
-      const severe = marker.severity === "Severe";
-      items.push({
-        id: `injury-${horse.id}-${marker.id}`,
-        horseId: horse.id,
-        title: `${horse.horse_name} · ${marker.body_part}`,
-        detail: marker.recovery_status === "Active"
-          ? `Chấn thương mức ${injurySeverityLabels[marker.severity]} hiện ${injuryStatusLabels[marker.recovery_status]}. Cần chăm sóc và cập nhật đánh giá.`
-          : `Chấn thương mức ${injurySeverityLabels[marker.severity]} hiện ${injuryStatusLabels[marker.recovery_status]}. Cần theo dõi và cập nhật lần đánh giá tiếp theo.`,
-        actionLabel: "Cập nhật chấn thương",
-        actionTab: "injuries",
-        priority: severe ? "urgent" : "warning",
-      });
-    }
-
-    if (horse.current_status === "Quarantine" || (horse.current_status !== "Healthy" && activeInjuries.length === 0)) {
-      const status = statusLabels[horse.current_status] ?? horse.current_status;
-      items.push({
-        id: `health-${horse.id}`,
-        horseId: horse.id,
-        title: `${horse.horse_name} · ${status}`,
-        detail: horse.current_status === "Quarantine"
-          ? "Kiểm tra tình trạng cách ly và cập nhật sức khỏe trước khi đưa ngựa trở lại hoạt động."
-          : "Trạng thái sức khỏe cần được đánh giá và cập nhật sau khi chăm sóc.",
-        actionLabel: "Cập nhật sức khỏe",
-        actionTab: "overview",
-        priority: horse.current_status === "Injured" || horse.current_status === "Quarantine" ? "urgent" : "warning",
-      });
-    }
-
-    if (horse.current_status === "Healthy" && (horse.readiness_status !== "Ready" || horse.is_training_locked)) {
-      items.push({
-        id: `readiness-${horse.id}`,
-        horseId: horse.id,
-        title: `${horse.horse_name} · Đã khỏe mạnh, cần xác nhận trạng thái`,
-        detail: horse.is_training_locked
-          ? "Hồ sơ đã ghi nhận khỏe mạnh nhưng lịch tập vẫn đang khóa. Kiểm tra kết quả khám và mở khóa nếu đủ điều kiện."
-          : "Hồ sơ đã ghi nhận khỏe mạnh nhưng chưa sẵn sàng thi đấu. Cập nhật trạng thái sau khi xác nhận.",
-        actionLabel: "Rà soát sức khỏe",
-        actionTab: "overview",
-        priority: "warning",
-      });
-    }
-  }
-
-  for (const schedule of schedules) {
-    if (schedule.event_status === "Completed" || (!schedule.is_overdue && schedule.next_due_date > today())) continue;
-    const horse = horses.find((item) => item.id === schedule.horse_id);
-    if (!horse) continue;
-    items.push({
-      id: `care-${schedule.id}`,
-      horseId: schedule.horse_id,
-      title: `${horse.horse_name} · ${careTypeLabels[schedule.care_type] ?? schedule.care_type}`,
-      detail: `${schedule.is_overdue ? "Lịch chăm sóc đã quá hạn" : "Lịch chăm sóc đến hạn hôm nay"} (${displayDate(schedule.next_due_date)}). ${schedule.calendar_event_id ? "Hãy hoàn thành lịch hẹn hoặc xác nhận đã chăm sóc." : "Hãy đặt lịch hoặc xác nhận đã chăm sóc."}`,
-      actionLabel: "Mở lịch chăm sóc",
-      actionTab: "care",
-      priority: "urgent",
-    });
-  }
-
-  const priorityOrder = { urgent: 0, warning: 1 };
-  return items.sort((left, right) => priorityOrder[left.priority] - priorityOrder[right.priority] || left.title.localeCompare(right.title, "vi"));
-}
-
-async function fetchVetActionItems(horses: VetHorse[]) {
-  const horsesToInspect = horses.filter((horse) => horse.current_status === "Injured" || horse.is_training_locked);
-  const [schedulesResult, ...injuryResults] = await Promise.allSettled([
-    veterinarianApi.schedules(),
-    ...horsesToInspect.map((horse) => veterinarianApi.injuries(horse.id)),
-  ]);
-  const injuriesByHorse = new Map<string, InjuryMarker[]>();
-  const failures: string[] = [];
-  injuryResults.forEach((result, index) => {
-    if (result.status === "fulfilled") injuriesByHorse.set(horsesToInspect[index].id, result.value.data);
-    else failures.push(horsesToInspect[index].horse_name);
-  });
-  const schedules = schedulesResult.status === "fulfilled" ? schedulesResult.value.data : [];
-  if (schedulesResult.status === "rejected") failures.push("lịch chăm sóc");
-  return {
-    items: buildVetActionItems(horses, injuriesByHorse, schedules),
-    error: failures.length ? "Một số dữ liệu sức khỏe hoặc lịch chăm sóc chưa tải được; hãy làm mới để thử lại." : "",
-  };
-}
-
-function formatNotificationMessage(message: string, horses: VetHorse[]) {
-  const simulationAlert = message.match(/^Training simulation for horse ([\w-]+) exceeded a configured monitoring threshold; review the sensor readings\.?$/i);
-  if (simulationAlert) {
-    const horseId = simulationAlert[1];
-    const horse = horses.find((item) => item.id === horseId);
-    const horseName = horse?.horse_name ?? `mã ${horseId.slice(0, 8)}`;
-    return {
-      message: `Chỉ số cảm biến trong buổi tập của ngựa ${horseName} vượt ngưỡng theo dõi. Bác sĩ cần kiểm tra dữ liệu và đánh giá nguy cơ chấn thương.`,
-      horseId: horse?.id ?? null,
-    };
-  }
-  return { message, horseId: null };
-}
-
 export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boolean } = {}) {
   const showToast = useWorkspaceToast();
   const currentUser = useMemo(() => getUser(), []);
@@ -242,18 +102,11 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
-  const [, setUnread] = useState(0);
-  const [, setActionCount] = useState(0);
-  const [actionItems, setActionItems] = useState<VetActionItem[]>([]);
-  const [actionItemsLoading, setActionItemsLoading] = useState(true);
-  const [actionItemsError, setActionItemsError] = useState("");
-  const [recentActivities, setRecentActivities] = useState<VetActivity[]>([]);
-  const [activityHistoryReady, setActivityHistoryReady] = useState(false);
   const [autoOpenExam, setAutoOpenExam] = useState(false);
   const [linkedScheduleId, setLinkedScheduleId] = useState<string | undefined>(undefined);
 
-  const loadOverview = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
+  const loadOverview = useCallback(async () => {
+    setLoading(true);
     setError("");
     try {
       const result = await veterinarianApi.overview();
@@ -263,84 +116,35 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
         : result.horses[0]?.id ?? "");
       return result;
     } catch (reason) {
-      if (!silent) setError(veterinarianError(reason));
+      setError(veterinarianError(reason));
       return null;
     } finally {
-      if (!silent) setLoading(false);
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => { void loadOverview(); }, [loadOverview]);
-  useAutoRefresh(() => loadOverview(true), { intervalMs: 25_000 });
-  useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem(VET_ACTIVITY_SESSION_KEY);
-      if (saved) {
-        const parsed: unknown = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setRecentActivities(parsed.filter((item): item is VetActivity => Boolean(
-            item && typeof item === "object"
-            && typeof item.id === "string"
-            && (item.horseId === null || typeof item.horseId === "string")
-            && typeof item.horseName === "string"
-            && typeof item.message === "string"
-            && typeof item.createdAt === "string"
-            && ["overview", "injuries", "care"].includes(item.actionTab),
-          )).slice(0, 12));
-        }
-      }
-    } catch {
-      // Keep the workspace usable if this browser blocks or corrupts session storage.
-    }
-    setActivityHistoryReady(true);
-  }, []);
-  useEffect(() => {
-    if (!activityHistoryReady) return;
-    try {
-      sessionStorage.setItem(VET_ACTIVITY_SESSION_KEY, JSON.stringify(recentActivities));
-    } catch {
-      // Activity notices still remain visible until this workspace is closed.
-    }
-  }, [activityHistoryReady, recentActivities]);
   const horses = useMemo(() => overview?.horses ?? [], [overview]);
   const horse = horses.find((item) => item.id === selectedId) ?? null;
-  const loadActionItems = useCallback(async (targetHorses: VetHorse[]) => {
-    setActionItemsLoading(true);
-    setActionItemsError("");
-    try {
-      const result = await fetchVetActionItems(targetHorses);
-      setActionItems(result.items);
-      setActionCount(result.items.length);
-      setActionItemsError(result.error);
-    } catch (reason) {
-      setActionItemsError(veterinarianError(reason));
-    } finally {
-      setActionItemsLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    if (!overview) return;
-    void loadActionItems(overview.horses);
-  }, [overview, loadActionItems]);
   useEffect(() => {
     let timer: number | undefined;
     const refreshAfterMutation = (event: Event) => {
       const path = (event as CustomEvent<{ path?: string }>).detail?.path ?? "";
       if (path.includes("/api/notifications")) return;
       window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        void (async () => {
-          const refreshedOverview = await loadOverview(true);
-          await loadActionItems(refreshedOverview?.horses ?? horses);
-        })();
-      }, 180);
+      timer = window.setTimeout(() => { void loadOverview(); }, 180);
     };
     window.addEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation);
+    return () => { window.clearTimeout(timer); window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, refreshAfterMutation); };
+  }, [loadOverview]);
+  useEffect(() => {
+    const selectLinkedHorse = () => {
+      const horseId = new URLSearchParams(window.location.search).get("horse");
+      if (horseId && horses.some((horse) => horse.id === horseId)) setSelectedId(horseId);
     };
-  }, [horses, loadActionItems, loadOverview]);
+    selectLinkedHorse(); window.addEventListener("workspace-tab-change", selectLinkedHorse);
+    return () => window.removeEventListener("workspace-tab-change", selectLinkedHorse);
+  }, [horses]);
   const visibleHorses = horses.filter((item) => {
     const query = search.trim().toLocaleLowerCase("vi");
     return item.horse_name.toLocaleLowerCase("vi").includes(query)
@@ -350,20 +154,6 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
 
   function changed(message: string) {
     showToast(message);
-    const activity: VetActivity = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      horseId: horse?.id ?? null,
-      horseName: horse?.horse_name ?? "Đàn ngựa",
-      message,
-      createdAt: new Date().toISOString(),
-      actionTab: tab === "injuries" ? "injuries" : tab === "care" || tab === "dispatch" ? "care" : "overview",
-    };
-    setRecentActivities((current) => [activity, ...current].slice(0, 12));
-  }
-
-  function openNotificationAction(horseId: string, nextTab: NotificationActionTab) {
-    setSelectedId(horseId);
-    selectTab(nextTab);
   }
 
   const isSingleHorseTab = !["stables", "dispatch", "care", "incidents", "notifications"].includes(tab);
@@ -381,19 +171,7 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
 
       {tab === "stables" ? (
         <StableWorkspace
-          stables={overview?.stables}
-          onGoToExam={(id) => { setSelectedId(id); setAutoOpenExam(true); selectTab("exams"); }}
-          onUpdateStatus={async (horseId, status, readiness, note) => {
-            try {
-              const result = await veterinarianApi.updateHealthStatus(horseId, status, readiness, note);
-              showToast(result.stable_relocation?.message ?? "Đã cập nhật trạng thái sức khỏe");
-              await loadOverview();
-            } catch (reason) {
-              showToast(veterinarianError(reason));
-              throw reason;
-            }
-          }}
-          onSelectHorse={setSelectedId} horses={horses} loading={loading} onRefresh={() => { void loadOverview(); }} onOpen={(id) => { setSelectedId(id); selectTab("overview"); }} />
+          horses={horses} loading={loading} onRefresh={() => { void loadOverview(); }} onOpen={(id) => { setSelectedId(id); selectTab("overview"); }} />
       ) : (
       <div className="mt-4 min-w-0">
           {(tab === "dispatch" || tab === "care") && horse && (
@@ -414,7 +192,6 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
             />
           )}
           {tab === "incidents" && <StableIncidentsPanel onOpenHorse={(id) => { setSelectedId(id); selectTab("overview"); }} />}
-          {tab === "notifications" && <NotificationsPanel horses={horses} activities={recentActivities} initialActionItems={actionItems} actionsLoading={actionItemsLoading} actionsError={actionItemsError} onUnread={setUnread} onActionCount={setActionCount} onOpenAction={openNotificationAction} />}
           {isSingleHorseTab && horse && <>
             {tab !== "exams" && <HorseSummary horse={horse} />}
             <div className="mt-4">
@@ -456,7 +233,7 @@ function HorseChoice({ horse, selected, onClick }: { horse: VetHorse; selected: 
 }
 
 function HorseSummary({ horse }: { horse: VetHorse }) {
-  return <article className="flex flex-col gap-3 rounded-lg border border-equine-line bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:p-4">
+  return <article data-notification-target={horse.id} className="flex flex-col gap-3 rounded-lg border border-equine-line bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:p-4">
     <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md bg-equine-mist"><HorseImage horse={horse as unknown as Horse} /></div>
     <div className="min-w-0 flex-1"><p className="eyebrow text-[10px]">Hồ sơ sức khỏe</p><h2 className="mt-0.5 font-sans text-xl font-semibold text-equine-navy">{horse.horse_name}</h2><p className="mt-1 text-sm text-slate-600">{horse.stable_box ? `Chuồng ${horse.stable_box.box_code} · Khu ${horse.stable_box.section}` : "Chưa gán chuồng"} · {statusLabels[horse.current_status] ?? horse.current_status}</p></div>
     {horse.is_training_locked && <div className={`rounded-md border px-3 py-2 text-sm ${horse.lock_level === "Critical" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}><p className="flex items-center gap-2 font-bold"><LockKeyhole size={15} /> Khóa {horse.lock_level}</p><p className="mt-1 max-w-sm text-xs">{horse.lock_reason}</p></div>}
@@ -464,10 +241,10 @@ function HorseSummary({ horse }: { horse: VetHorse }) {
 }
 
 function SectionCard({ title, description, icon: Icon, children, action }: { title: string; description?: string; icon: typeof Activity; children: ReactNode; action?: ReactNode }) {
-  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{description && <details className="relative text-slate-500"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100" aria-label={`Giải thích ${title}`} title={`Giải thích ${title}`}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{description}</p></details>}</div></div></div>{action}</div>{children}</section>;
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{description && <details className="relative text-slate-500"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100" aria-label={`Giải thích ${title}`} title={description}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{description}</p></details>}</div></div></div>{action}</div>{children}</section>;
 }
 
-function Field({ label, name, type = "text", required = false, defaultValue, maxLength, min, max, step, placeholder, disabled }: { label: string; name: string; type?: string; required?: boolean; defaultValue?: string | number | null; maxLength?: number; min?: number | string; max?: number | string; step?: string; placeholder?: string; disabled?: boolean }) {
+function Field({ label, name, type = "text", required = false, defaultValue, maxLength, min, max, step, placeholder, disabled }: { label: string; name: string; type?: string; required?: boolean; defaultValue?: string | number | null; maxLength?: number; min?: number; max?: number; step?: string; placeholder?: string; disabled?: boolean }) {
   const isTime = type === "time";
   return <label className="block"><span className="field-label">{label}{required && <span className="text-rose-600"> *</span>}</span><input name={name} type={isTime ? "text" : type} required={required} maxLength={isTime ? 5 : maxLength} min={min} max={max} step={step} pattern={isTime ? "([01][0-9]|2[0-3]):[0-5][0-9]" : undefined} title={isTime ? "Nhập giờ theo dạng 24 giờ, ví dụ 08:30" : undefined} defaultValue={defaultValue ?? ""} placeholder={isTime ? "HH:mm" : placeholder} disabled={disabled} className="field-control px-3" /></label>;
 }
@@ -510,9 +287,7 @@ function today() {
 }
 
 function displayDate(value?: string | null) {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? value : new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium", timeStyle: value.includes("T") ? "short" : undefined }).format(date);
+  return formatDisplayDate(value, Boolean(value?.includes("T")));
 }
 
 function ErrorLine({ children }: { children: string }) {
@@ -533,8 +308,7 @@ function HorseStatusPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (m
     const values = formValues(event.currentTarget);
     try {
       const status = String(values.current_status);
-      const rawReadiness = String(values.readiness_status);
-      const readiness = ["Injured", "Quarantine"].includes(status) && rawReadiness === "Ready" ? "NotReady" : rawReadiness;
+      const readiness = String(values.readiness_status);
       const result = await veterinarianApi.updateHealthStatus(horse.id, status, readiness, String(values.note ?? ""));
       setSuggestLock(["Injured", "Quarantine"].includes(status));
       setSessions(result.upcoming_sessions ?? []);
@@ -559,7 +333,7 @@ function HorseStatusPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (m
   }
   return <div className="space-y-4">
     <SectionCard title="Trạng thái sức khỏe" description="Cập nhật trạng thái sau khi khám. Trạng thái sức khỏe và khóa huấn luyện được quản lý riêng." icon={HeartPulse}>
-      <form key={horse.id} onSubmit={updateStatus} className="grid gap-3 sm:grid-cols-2 sm:items-end"><SelectField label="Trạng thái mới" name="current_status" defaultValue={horse.current_status} required options={[{ value: "Healthy", label: "Khỏe mạnh" }, { value: "Monitoring", label: "Cần theo dõi" }, { value: "Injured", label: "Chấn thương" }, { value: "Quarantine", label: "Cách ly" }]} /><SelectField label="Sẵn sàng thi đấu" name="readiness_status" defaultValue={horse.readiness_status ?? "Unknown"} required options={[{ value: "Ready", label: "Sẵn sàng" }, { value: "NotReady", label: "Chưa sẵn sàng" }, { value: "Unknown", label: "Chưa đánh giá" }]} /><Field label="Ghi chú kiểm tra (không bắt buộc)" name="note" maxLength={500} placeholder="Lý do thay đổi..." /><button className="gold-button h-12" disabled={busy}><Check size={15} /> Lưu trạng thái</button></form>
+      <form onSubmit={updateStatus} className="grid gap-3 sm:grid-cols-2 sm:items-end"><SelectField label="Trạng thái mới" name="current_status" defaultValue={horse.current_status} required options={[{ value: "Healthy", label: "Khỏe mạnh" }, { value: "Monitoring", label: "Cần theo dõi" }, { value: "Injured", label: "Chấn thương" }, { value: "Quarantine", label: "Cách ly" }]} /><SelectField label="Sẵn sàng thi đấu" name="readiness_status" defaultValue={horse.readiness_status ?? "Unknown"} required options={[{ value: "Ready", label: "Sẵn sàng" }, { value: "NotReady", label: "Chưa sẵn sàng" }, { value: "Unknown", label: "Chưa đánh giá" }]} /><Field label="Ghi chú kiểm tra (không bắt buộc)" name="note" maxLength={500} placeholder="Lý do thay đổi..." /><button className="gold-button h-12" disabled={busy}><Check size={15} /> Lưu trạng thái</button></form>
       {suggestLock && <p className="mt-3 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900"><AlertTriangle size={16} /> Trạng thái này tự động khóa lịch huấn luyện sắp tới. Hãy xử lý các lịch bị chặn trước khi mở khóa.</p>}
     </SectionCard>
     <SectionCard title="Khóa huấn luyện" description="Khóa sẽ chặn việc tạo lịch huấn luyện và thông báo cho các Huấn luyện viên trưởng đang hoạt động." icon={LockKeyhole}>
@@ -925,7 +699,7 @@ function ExamsPanel({
     )}
     {detail && <div ref={examEditorRef} tabIndex={-1} className="mb-5 rounded-xl border border-equine-line bg-slate-50 p-4">
       <div className="mb-3 flex justify-end"><button type="button" className="text-sm font-medium text-slate-600 hover:text-equine-navy" onClick={() => { setDetail(null); setEditing(false); setDiagnosisExamId(""); }}>Đóng chi tiết</button></div>
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h4 className="font-semibold text-equine-navy">Chi tiết lần khám</h4><CompactId id={detail.id} /></div><p className="text-sm text-slate-500">{displayDate(detail.exam_date)} · {detail.doctor?.name ?? "Bác sĩ"}</p>{detail.last_edited_at && <p className="mt-1 text-xs text-slate-500">Sửa gần nhất: {displayDate(detail.last_edited_at)} · {detail.last_edited_by?.name ?? "Bác sĩ"}</p>}</div><button type="button" className="soft-button h-9 px-3" onClick={() => setEditing((value) => !value)}> {editing ? "Đóng chỉnh sửa" : "Chỉnh sửa"}</button></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="flex items-center gap-2"><h4 className="font-semibold text-equine-navy">Chi tiết lần khám</h4><CompactId id={detail.id} /></div><p className="text-sm text-slate-500">{displayDate(detail.exam_date)} · {formatDoctorDisplayName(detail.doctor?.name) || "Bác sĩ"}</p>{detail.last_edited_at && <p className="mt-1 text-xs text-slate-500">Sửa gần nhất: {displayDate(detail.last_edited_at)} · {formatDoctorDisplayName(detail.last_edited_by?.name) || "Bác sĩ"}</p>}</div><button type="button" className="soft-button h-9 px-3" onClick={() => setEditing((value) => !value)}> {editing ? "Đóng chỉnh sửa" : "Chỉnh sửa"}</button></div>
       {editing ? <div className="mt-4"><ExamForm initial={detail} editing busy={busy} onSubmit={save} onCancel={() => setEditing(false)} /></div> : <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{[...examFields, ...examLongFields].map((field) => { const value = detail[field.name as keyof HealthExam]; return value === undefined || value === null || value === "" ? null : <p key={field.name} className="rounded-lg bg-white px-3 py-2 text-sm"><span className="block text-xs text-slate-500">{field.label}</span><span className="whitespace-pre-wrap font-medium text-slate-800">{String(value)}</span></p>; })}</div>}
       <div className="mt-4 border-t border-equine-line pt-3"><p className="mb-2 flex items-center gap-2 text-sm font-semibold text-equine-navy"><ClipboardCheck size={15} /> Lịch sử sửa ({logs.length})</p>{logs.length === 0 ? <p className="text-xs text-slate-500">Hồ sơ chưa có lần chỉnh sửa.</p> : <div className="space-y-2">{logs.map((log) => <div key={log.id} className="rounded-lg bg-white p-3 text-xs"><p className="font-semibold">{log.edited_by?.name ?? "Bác sĩ"} · {displayDate(log.edited_at)}</p><ul className="mt-1 space-y-1">{log.changes.map((change) => <li key={change.field}>{change.field}: {String(change.old_value ?? "—")} → {String(change.new_value ?? "—")}</li>)}</ul></div>)}</div>}</div>
       <section className="mt-4 border-t border-equine-line pt-3">
@@ -1102,7 +876,7 @@ function DietPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message:
     <ErrorLine>{error}</ErrorLine>
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={includeHistory} onChange={(event) => setIncludeHistory(event.target.checked)} /> Hiện cả lịch sử</label>{!includeHistory && <label className="block"><span className="field-label">Đang hiệu lực vào ngày</span><input type="date" value={activeOn} onChange={(event) => setActiveOn(event.target.value)} className="field-control px-3" /></label>}</div>
     {(creating || editing) && <form key={editing?.id ?? "new-diet"} onSubmit={(event) => void save(event, editing ?? undefined)} className="mb-4 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">{editing ? "Chỉnh sửa khẩu phần" : "Thêm khẩu phần"}</h4><Field label="Loại thức ăn" name="feed_type" required maxLength={100} defaultValue={editing?.feed_type} /><Field label="Khối lượng (kg)" name="quantity_kg" type="number" required min={0.01} step="0.01" defaultValue={editing?.quantity_kg} /><Field label="Tần suất cho ăn" name="feeding_frequency" maxLength={50} defaultValue={editing?.feeding_frequency} /><Field label="Ngày bắt đầu hiệu lực" name="effective_date" type="date" required defaultValue={editing?.effective_date ?? today()} /><Field label="Ngày kết thúc" name="end_date" type="date" defaultValue={editing?.end_date} /><TextAreaField label="Hướng dẫn đặc biệt" name="special_instructions" defaultValue={editing?.special_instructions} rows={2} /><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>{editing ? "Lưu thay đổi" : "Tạo khẩu phần"}</button><button type="button" className="soft-button h-10 px-3" onClick={() => { setCreating(false); setEditing(null); }}>Hủy</button></div></form>}
-    {loading ? <Notice>Đang tải khẩu phần...</Notice> : error ? null : records.length === 0 ? <Empty>Không có khẩu phần trong khoảng thời gian này.</Empty> : <div className="space-y-2">{records.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-xl border border-equine-line p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-equine-navy">{item.feed_type} · {item.quantity_kg} kg</p><p className="mt-1 text-sm text-slate-600">{item.feeding_frequency || "Chưa ghi tần suất"} · {item.effective_date ?? "—"} → {item.end_date ?? "Đang áp dụng"}</p>{item.special_instructions && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{item.special_instructions}</p>}</div><div className="flex gap-2"><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => { setEditing(item); setCreating(false); }}>Sửa</button>{!item.end_date && (!item.effective_date || item.effective_date <= today()) && <button type="button" className="soft-button h-9 border-amber-200 bg-amber-50 px-3 text-xs text-amber-900" disabled={busy} onClick={() => void endToday(item)}>Kết thúc hôm nay</button>}</div></article>)}</div>}
+    {loading ? <Notice>Đang tải khẩu phần...</Notice> : error ? null : records.length === 0 ? <Empty>Không có khẩu phần trong khoảng thời gian này.</Empty> : <div className="space-y-2">{records.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-xl border border-equine-line p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-equine-navy">{item.feed_type} · {item.quantity_kg} kg</p><p className="mt-1 text-sm text-slate-600">{item.feeding_frequency || "Chưa ghi tần suất"} · {item.effective_date ?? "—"} → {item.end_date ?? "Đang áp dụng"}</p>{item.special_instructions && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{item.special_instructions}</p>}</div><div className="flex gap-2"><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => { setEditing(item); setCreating(false); }}>Sửa</button>{!item.end_date && <button type="button" className="soft-button h-9 border-amber-200 bg-amber-50 px-3 text-xs text-amber-900" disabled={busy} onClick={() => void endToday(item)}>Kết thúc hôm nay</button>}</div></article>)}</div>}
   </SectionCard>;
 }
 
@@ -1659,7 +1433,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
 
       {creating && <form onSubmit={(event) => void createInjury(event)} className="mt-4 grid gap-4 rounded-lg border border-equine-line bg-slate-50 p-4 sm:grid-cols-2">
         <h4 className="font-semibold text-equine-navy sm:col-span-2">Thông tin ca chấn thương mới</h4>
-        <label className="block"><span className="field-label">Vị trí cơ thể<span className="text-rose-600"> *</span></span><input name="body_part" required maxLength={50} placeholder="Chọn vị trí trên mô hình hoặc nhập tên" value={draftBodyPart} onChange={(event) => setDraftBodyPart(event.target.value)} className="field-control px-3" /></label>
+        <label className="block"><span className="field-label">Vị trí cơ thể<span className="text-rose-600"> *</span></span><input name="body_part" required maxLength={100} placeholder="Chọn vị trí trên mô hình hoặc nhập tên" value={draftBodyPart} onChange={(event) => setDraftBodyPart(event.target.value)} className="field-control px-3" /></label>
         <label className="block"><span className="field-label">Nhóm</span><select name="injury_group" required value={draftGroup} onChange={(event) => setDraftGroup(event.target.value as InjuryGroup)} className="field-control px-3">{Object.entries(injuryGroupLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <SelectField label="Mức độ" name="severity" required options={[{ value: "Mild", label: "Nhẹ" }, { value: "Moderate", label: "Vừa" }, { value: "Severe", label: "Nặng" }]} />
         <label className="block"><span className="field-label">Ngày bắt đầu<span className="text-rose-600"> *</span></span><input name="date" type="date" required defaultValue={todayValue} max={todayValue} className="field-control px-3" /></label>
@@ -1769,8 +1543,8 @@ function StableIncidentsPanel({ onOpenHorse }: { onOpenHorse: (id: string) => vo
 
   return <SectionCard title="Báo cáo sự cố từ Groom" description="Tiếp nhận sự cố khẩn cấp hoặc xử lý báo cáo được Club Manager giao." icon={AlertTriangle} action={<select aria-label="Lọc sự cố" value={status} onChange={(event) => setStatus(event.target.value)} className="field-control h-10 px-3"><option value="Open">Đang xử lý</option><option value="Pending">Chưa phân công</option><option value="InProgress">Đang thực hiện</option><option value="AwaitingClosure">Chờ đóng</option><option value="Resolved">Đã đóng</option><option value="All">Tất cả</option></select>}>
     <ErrorLine>{error}</ErrorLine>{notice && <Notice>{notice}</Notice>}
-    {loading ? <Notice>Đang tải báo cáo sự cố...</Notice> : error ? null : incidents.length === 0 ? <Empty>Không có báo cáo ở trạng thái này.</Empty> : <div className="grid gap-3 lg:grid-cols-2">{incidents.map((incident) => <article key={incident.id} className={`rounded-xl border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/40" : "border-equine-line bg-white"}`}>
-      <div className="flex flex-wrap items-start justify-between gap-2"><div><h4 className="font-semibold text-equine-navy">{incident.horse_name}</h4><p className="mt-1 text-xs text-slate-500">{incident.box_code ? `Khu ${incident.section} · Chuồng ${incident.box_code} · ` : ""}{incident.groom_name ?? "Groom"} · {new Date(incident.created_at).toLocaleString("vi-VN")}</p></div><div className="flex gap-2"><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold">{incident.status}</span>{incident.is_emergency && <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-800">KHẨN CẤP</span>}</div></div>
+    {loading ? <Notice>Đang tải báo cáo sự cố...</Notice> : error ? null : incidents.length === 0 ? <Empty>Không có báo cáo ở trạng thái này.</Empty> : <div className="grid gap-3 lg:grid-cols-2">{incidents.map((incident) => <article data-notification-target={incident.id} key={incident.id} className={`rounded-xl border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/40" : "border-equine-line bg-white"}`}>
+      <div className="flex flex-wrap items-start justify-between gap-2"><div><h4 className="font-semibold text-equine-navy">{incident.horse_name}</h4><p className="mt-1 text-xs text-slate-500">{incident.box_code ? `Khu ${incident.section} · Chuồng ${incident.box_code} · ` : ""}{incident.groom_name ?? "Groom"} · {formatDisplayDate(incident.created_at, true)}</p></div><div className="flex gap-2"><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold">{incident.status}</span>{incident.is_emergency && <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-800">KHẨN CẤP</span>}</div></div>
       <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{incident.issue_description}</p>
       <IncidentPhoto incidentId={incident.id} imageUrl={incident.image_url} />
       {incident.assignee_name && <p className="mt-3 text-sm font-semibold text-equine-navy">Phụ trách: {incident.assignee_name} · {incident.assigned_role}</p>}
@@ -1889,12 +1663,8 @@ function formatDoctorName(
   if (!doctorName || typeof doctorName !== "string") {
     return "Bác sĩ thú y";
   }
-  const trimmed = doctorName.trim();
-  if (!trimmed) return "Bác sĩ thú y";
-  if (/^(bs|bác sĩ|dr|b\.s)\.?\s+/i.test(trimmed)) {
-    return trimmed;
-  }
-  return `BS. ${trimmed}`;
+  const name = formatDoctorDisplayName(doctorName);
+  return name ? `BS. ${name}` : "Bác sĩ thú y";
 }
 
 function isEventOverdue(event: CalendarCareItem, schedule?: CareSchedule): boolean {
@@ -1929,7 +1699,7 @@ function isEventOverdue(event: CalendarCareItem, schedule?: CareSchedule): boole
 }
 
 function isScheduleOverdue(schedule: CareSchedule): boolean {
-  if (schedule.event_status === "Completed" && !schedule.frequency_days) return false;
+  if (!isActiveCareSchedule(schedule)) return false;
   if (schedule.is_overdue) return true;
 
   const curDate = today();
@@ -1949,6 +1719,10 @@ function isScheduleOverdue(schedule: CareSchedule): boolean {
   }
 
   return false;
+}
+
+function isActiveCareSchedule(schedule: CareSchedule): boolean {
+  return Boolean(schedule.frequency_days) || !["Completed", "Cancelled"].includes(schedule.event_status ?? "");
 }
 
 function isAssignedDoctor(
@@ -2015,36 +1789,99 @@ function CarePanel({
   viewMode?: "dispatch" | "care";
   onSwitchView?: (nextView: "dispatch" | "care") => void;
 }) {
-  const [schedules, setSchedules] = useState<CareSchedule[]>([]);
+  const [rawSchedules, setSchedules] = useState<CareSchedule[]>([]);
   const [events, setEvents] = useState<CareEvent[]>([]);
   const [contextEvents, setContextEvents] = useState<CareEvent[]>([]);
-  const [doctors, setDoctors] = useState<{ id: number | string; name: string; email: string }[]>([]);
-  const [workloads, setWorkloads] = useState<{ id: number | string; name: string; email: string; role_name?: string; total_schedules: number; overdue_count: number; today_count: number }[]>([]);
+  const [doctors, setDoctors] = useState<{ id: number | string; name: string; email: string; role_name?: string }[]>([]);
   const [reassignTarget, setReassignTarget] = useState<CareSchedule | null>(null);
+  const [workloadsLoading, setWorkloadsLoading] = useState(true);
+  const [workloadsError, setWorkloadsError] = useState("");
   const [reassignDoctorId, setReassignDoctorId] = useState<string>("");
   const [dispatchSubTab, setDispatchSubTab] = useState<"coverage" | "rules">("coverage");
-  const [coverageFilter, setCoverageFilter] = useState<"all" | "uncovered" | "overdue" | "covered">("all");
+  const [coverageFilter, setCoverageFilter] = useState<"all" | "uncovered" | "overdue" | "covered" | "today">("all");
+  const [showIdleDoctors, setShowIdleDoctors] = useState(false);
   const [doctorFilter, setDoctorFilter] = useState<string>("all");
   const [createHorseId, setCreateHorseId] = useState<string>(selectedHorse.id);
   const [showRulesDrawer, setShowRulesDrawer] = useState(false);
   const [weekStart, setWeekStart] = useState(() => mondayOfWeek(today()));
-  const [scope, setScope] = useState<"mine" | "all">("all");
+  const [scope, setScope] = useState<"mine" | "all">("mine");
   const [horseFilter, setHorseFilter] = useState("all");
   const [includeContext, setIncludeContext] = useState(false);
+  const [projectionTarget, setProjectionTarget] = useState<CalendarCareItem | null>(null);
+  const rulesDrawerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (showRulesDrawer) {
+      rulesDrawerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      rulesDrawerRef.current?.focus({ preventScroll: true });
+    }
+  }, [showRulesDrawer]);
+  useEffect(() => { setProjectionTarget(null); }, [weekStart, horseFilter, scope]);
   const [bookNow, setBookNow] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [bookId, setBookId] = useState("");
   const [moveId, setMoveId] = useState("");
   const [completeId, setCompleteId] = useState("");
   const currentUser = useMemo(() => getUser(), []);
+  const schedules = useMemo(() => rawSchedules.map((schedule) => {
+    const doctorId = schedule.assigned_doctor_id ?? schedule.assigned_doctor?.id;
+    const doctor = doctors.find((item) => doctorId != null && String(item.id) === String(doctorId));
+    const name = formatDoctorDisplayName(doctor?.name ?? schedule.assigned_doctor?.name ?? schedule.doctor_name);
+    return {
+      ...schedule,
+      doctor_name: name,
+      assigned_doctor: doctorId != null ? { id: doctorId, name } : schedule.assigned_doctor,
+    };
+  }), [rawSchedules, doctors]);
+  const workloads = useMemo(() => doctors.map((doctor) => {
+    const assigned = careRulesForDoctor(schedules, doctor.id);
+    return {
+      ...doctor,
+      role_name: doctor.role_name ?? (String(doctor.id) === String(currentUser?.id) ? currentUser?.roleName : undefined),
+      total_schedules: assigned.length,
+      today_count: events.filter((event) => event.event_date === today() && event.status === "Scheduled"
+        && assigned.some((rule) => rule.id === event.schedule_id || Boolean(rule.calendar_event_id && rule.calendar_event_id === (event.event_id ?? event.id)))).length,
+      overdue_count: assigned.filter(isScheduleOverdue).length,
+    };
+  }), [doctors, schedules, currentUser, events]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const from = weekStart;
   const to = addCalendarDays(weekStart, 6);
+  const effectiveScope = viewMode === "dispatch" ? "all" : scope;
+  const calendarFrom = viewMode === "dispatch" ? today() : from;
+  const calendarTo = viewMode === "dispatch" ? today() : to;
   const currentWeekStart = mondayOfWeek(today());
   const [showAllSlots, setShowAllSlots] = useState(true);
+  useEffect(() => {
+    const syncTarget = () => {
+      const params = new URLSearchParams(window.location.search);
+      if (!params.get("notificationTarget")) return;
+      if (params.get("date")?.match(/^\d{4}-\d{2}-\d{2}$/)) setWeekStart(mondayOfWeek(params.get("date")!));
+      setCoverageFilter("all"); setDoctorFilter("all"); setDispatchSubTab("coverage");
+      if (viewMode === "care") { setHorseFilter(params.get("horse") ?? "all"); if (isHeadVet) setScope("all"); }
+    };
+    syncTarget(); window.addEventListener("workspace-tab-change", syncTarget);
+    return () => window.removeEventListener("workspace-tab-change", syncTarget);
+  }, [viewMode, isHeadVet]);
+
+  const hasActiveFilters = horseFilter !== "all" || scope !== "mine" || includeContext;
+
+  useEffect(() => {
+    if (viewMode !== "care") return;
+    const navigateWeek = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.isComposing) return;
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest("input, select, textarea, button, a, [contenteditable]:not([contenteditable='false']), [role='switch'], [role='dialog'], [role='slider'], [role='combobox']")) return;
+      if (createOpen || projectionTarget || reassignTarget || bookId || moveId || completeId || document.querySelector("dialog[open], [aria-modal='true']")) return;
+      event.preventDefault();
+      setWeekStart((current) => addCalendarDays(current, event.key === "ArrowLeft" ? -7 : 7));
+    };
+    window.addEventListener("keydown", navigateWeek);
+    return () => window.removeEventListener("keydown", navigateWeek);
+  }, [viewMode, createOpen, projectionTarget, reassignTarget, bookId, moveId, completeId]);
 
   const weekOptions = useMemo(() => {
     const options = [];
@@ -2059,50 +1896,21 @@ function CarePanel({
       const year = monday.getFullYear();
       const mStr = `${String(monday.getDate()).padStart(2, "0")}/${String(monday.getMonth() + 1).padStart(2, "0")}`;
       const sStr = `${String(sunday.getDate()).padStart(2, "0")}/${String(sunday.getMonth() + 1).padStart(2, "0")}`;
-      options.push({ key, weekNum, year, label: `Week ${weekNum}, ${year}`, fullLabel: `Week ${weekNum}, ${year} (${mStr} - ${sStr})` });
+      options.push({ key, weekNum, year, label: `Week ${weekNum}, ${year}`, fullLabel: `${mStr}${year !== sunday.getFullYear() ? `/${year}` : ""} - ${sStr}/${sunday.getFullYear()}` });
     }
     return options;
   }, [currentWeekStart]);
+  const activeRules = useMemo(() => activeRecurringRules(schedules, horseFilter,
+    scope === "mine" ? currentUser?.id ?? "" : undefined), [schedules, horseFilter, scope, currentUser]);
   const calendarItems = useMemo<CalendarCareItem[]>(() => {
-    const dueItems = schedules.flatMap((schedule): CalendarCareItem[] => {
-      if (!schedule.frequency_days && schedule.event_status === "Completed") return [];
-      const overdue = (Boolean(schedule.is_overdue) || schedule.next_due_date < today()) && (schedule.event_status !== "Completed" || Boolean(schedule.frequency_days));
-      const dueIsThisWeek = schedule.next_due_date >= from && schedule.next_due_date <= to;
-      const pinOverdueToToday = weekStart === currentWeekStart && schedule.next_due_date < from && overdue;
-      if (!dueIsThisWeek && !pinOverdueToToday) return [];
-      const linkedEvents = events.filter((event) =>
-        event.schedule_id === schedule.id || Boolean(schedule.calendar_event_id && schedule.calendar_event_id === (event.event_id ?? event.id)),
-      );
-      const dueDateIsShown = linkedEvents.some((event) => event.event_date === schedule.next_due_date);
-      const appointmentIsBooked = Boolean(schedule.calendar_event_id) && !["Cancelled", "Completed"].includes(schedule.event_status ?? "");
-      if (dueDateIsShown || appointmentIsBooked) return [];
-
-      const horseName = horses.find((horse) => horse.id === schedule.horse_id)?.horse_name ?? schedule.horse_name ?? "Ngựa";
-      return [{
-        id: `periodic-${schedule.id}`,
-        event_id: `periodic-${schedule.id}`,
-        event_date: pinOverdueToToday ? today() : schedule.next_due_date,
-        due_date: schedule.next_due_date,
-        start_time: null,
-        end_time: null,
-        status: "Scheduled",
-        event_type: "PeriodicCare",
-        care_type: schedule.care_type,
-        title: schedule.care_type,
-        horse_name: horseName,
-        horse: { id: schedule.horse_id, horse_name: horseName },
-        schedule_id: schedule.id,
-        is_periodic_due: true,
-        assigned_doctor: schedule.assigned_doctor ?? (schedule.doctor_name ? { name: schedule.doctor_name } : null),
-      }];
-    });
+    const dueItems = buildCareProjections(activeRules, events, horses, from, to);
     const primaryCareItems: CalendarCareItem[] = [
       ...events.map((event) => ({ ...event, context: false })),
       ...dueItems,
     ];
     try {
       const exportCareForTrainer = primaryCareItems
-        .filter((ev) => ev.status !== "Cancelled")
+        .filter((ev) => ev.status !== "Cancelled" && !ev.is_periodic_due)
         .map((ev) => {
           const hId = ev.horse?.id ?? ev.horse_id ?? schedules.find((s) => s.id === ev.schedule_id)?.horse_id ?? "";
           const hObj = horses.find((h) => h.id === hId);
@@ -2190,11 +1998,14 @@ function CarePanel({
       ...(includeContext ? mergedContextEvents : []),
     ];
     return items.filter((event) => {
+      if (event.status === "Cancelled") return false;
+      const schedule = schedules.find((item) => item.id === event.schedule_id);
+      if (!event.context && effectiveScope === "mine" && !isAssignedDoctor(event, schedule, currentUser)) return false;
       if (horseFilter === "all") return true;
       const eventHorseId = event.horse?.id ?? event.horse_id ?? schedules.find((schedule) => schedule.id === event.schedule_id)?.horse_id;
       return eventHorseId === horseFilter;
     });
-  }, [contextEvents, currentWeekStart, events, from, horseFilter, horses, includeContext, schedules, to, weekStart]);
+  }, [activeRules, contextEvents, currentUser, effectiveScope, events, from, horseFilter, horses, includeContext, schedules, to]);
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, index) => {
       const date = addCalendarDays(weekStart, index);
@@ -2208,19 +2019,19 @@ function CarePanel({
     }),
     [calendarItems, weekStart],
   );
-  const weeklyCareEvents = weekDays.flatMap((day) => day.events).filter((event) => !event.context && event.status !== "Cancelled");
+  const weeklyCareEvents = weekDays.flatMap((day) => day.events).filter((event) => !event.context && !event.is_periodic_due && event.status !== "Cancelled");
+  const weeklyProjectedEvents = weekDays.flatMap((day) => day.events).filter((event) => event.is_periodic_due);
   const weeklyTrainingEvents = weekDays.flatMap((day) => day.events).filter((event) => Boolean(event.context) && event.status !== "Cancelled");
   const weeklyCompletedCount = weeklyCareEvents.filter((event) => event.status === "Completed").length;
-  const weeklyTodayCount = weeklyCareEvents.filter((event) => event.event_date === today() && event.status !== "Completed").length;
+  const weeklyTodayCount = (viewMode === "dispatch" ? events : weeklyCareEvents).filter((event) => !event.context && event.event_date === today() && event.status === "Scheduled").length;
   const weeklyOverdueCount = weeklyCareEvents.filter((event) => {
     const schedule = schedules.find((item) => item.id === event.schedule_id || Boolean(item.calendar_event_id && item.calendar_event_id === (event.event_id ?? event.id)));
     return isEventOverdue(event, schedule);
   }).length;
   const weeklyPendingCount = Math.max(0, weeklyCareEvents.filter((event) => event.status === "Scheduled").length - weeklyOverdueCount);
   const filteredSchedules = schedules.filter((schedule) => horseFilter === "all" || schedule.horse_id === horseFilter);
-  const weeklyDueRuleCount = filteredSchedules.filter((schedule) =>
-    (schedule.frequency_days || schedule.event_status !== "Completed") && ((schedule.next_due_date >= from && schedule.next_due_date <= to) || (weekStart === currentWeekStart && (Boolean(schedule.is_overdue) || schedule.next_due_date < today()) && schedule.next_due_date < from)),
-  ).length;
+  const weeklyDueRuleCount = weeklyProjectedEvents.length;
+  const nearestDueDate = weeklyProjectedEvents.map((event) => event.event_date).sort()[0];
 
   const horseCoverage = useMemo(() => {
     return horses.map((h) => {
@@ -2261,11 +2072,14 @@ function CarePanel({
 
   const displaySlots = showAllSlots ? TIMETABLE_SLOTS : activeSlots;
 
+  const careLoadId = useRef({ value: 0 });
   const load = useCallback(async () => {
+    const requestId = ++careLoadId.current.value;
     setLoading(true); setError("");
     const [scheduleResult, calendarResult] = await Promise.allSettled([
-      veterinarianApi.schedules(), veterinarianApi.calendar(from, to, includeContext, scope),
+      veterinarianApi.allSchedules(), veterinarianApi.calendar(calendarFrom, calendarTo, includeContext, effectiveScope),
     ]);
+    if (requestId !== careLoadId.current.value) return;
     const failures: string[] = [];
     if (scheduleResult.status === "fulfilled") setSchedules(scheduleResult.value.data);
     else { setSchedules([]); failures.push(`Quy tắc chăm sóc: ${veterinarianError(scheduleResult.reason)}`); }
@@ -2274,36 +2088,30 @@ function CarePanel({
     } else { setEvents([]); setContextEvents([]); failures.push(`Lịch chăm sóc: ${veterinarianError(calendarResult.reason)}`); }
     setError(failures.join(" · "));
     setLoading(false);
-  }, [from, includeContext, scope, to]);
-  useEffect(() => { void load(); }, [load]);
-
+  }, [calendarFrom, calendarTo, effectiveScope, includeContext]);
   useEffect(() => {
-    let active = true;
-    veterinarianApi
-      .veterinarians()
-      .then((res) => {
-        if (active && Array.isArray(res)) setDoctors(res);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, []);
+    const requestState = careLoadId.current;
+    void load();
+    return () => { ++requestState.value; };
+  }, [load]);
 
   const loadWorkloads = useCallback(async () => {
+    setWorkloadsLoading(true);
+    setWorkloadsError("");
     try {
-      const res = await veterinarianApi.workloads();
-      if (Array.isArray(res)) setWorkloads(res);
-    } catch {
-      // Workload loading is non-blocking
+      const res = await veterinarianApi.veterinarians();
+      if (!Array.isArray(res)) throw new Error("Dữ liệu danh sách bác sĩ không hợp lệ.");
+      setDoctors(res.map((doctor) => ({ ...doctor, name: formatDoctorDisplayName(doctor.name) })));
+    } catch (reason) {
+      setWorkloadsError(veterinarianError(reason));
+    } finally {
+      setWorkloadsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (isHeadVet) {
-      void loadWorkloads();
-    }
-  }, [isHeadVet, loadWorkloads]);
+    void loadWorkloads();
+  }, [loadWorkloads]);
 
   async function handleReassign(scheduleId: string, doctorId: string) {
     if (!doctorId) return;
@@ -2352,8 +2160,9 @@ function CarePanel({
       const warnings = result && typeof result === "object" && "warnings" in result ? (result as { warnings?: unknown[] }).warnings : undefined;
       const feedback = warnings?.length ? `${message} Lần tiếp theo chưa được chốt; hãy kiểm tra cảnh báo và đặt lịch sau.` : message;
       setBookId(""); setMoveId(""); setCompleteId(""); await load(); onChanged(feedback); setNotice(feedback);
+      return true;
     }
-    catch (reason) { setError(veterinarianError(reason)); }
+    catch (reason) { setError(veterinarianError(reason)); return false; }
     finally { setBusy(false); }
   }
   async function submitBook(event: FormEvent<HTMLFormElement>, id: string) {
@@ -2373,7 +2182,7 @@ function CarePanel({
       start_time: startTime,
       end_time: endTime,
     };
-    await act(() => veterinarianApi.bookSchedule(id, values), "Đã chốt ca làm việc và tạo thông báo nhắc.");
+    return act(() => veterinarianApi.bookSchedule(id, values), "Đã chốt ca làm việc và tạo thông báo nhắc.");
   }
   async function submitMove(event: FormEvent<HTMLFormElement>, id: string) {
     event.preventDefault();
@@ -2420,26 +2229,29 @@ function CarePanel({
 
   const filteredCoverage = useMemo(() => {
     return horseCoverage.filter((item) => {
+      if (doctorFilter !== "all" && !item.horseRules.some((rule) => String(rule.assigned_doctor_id ?? rule.assigned_doctor?.id ?? "") === doctorFilter)) return false;
+      if (coverageFilter === "today") return events.some((event) => event.event_date === today() && event.status === "Scheduled" && (event.horse?.id ?? event.horse_id) === item.horse.id);
       if (coverageFilter === "uncovered") return item.isUncovered;
       if (coverageFilter === "overdue") return item.hasOverdue;
       if (coverageFilter === "covered") return !item.isUncovered && !item.hasOverdue;
       return true;
     });
-  }, [horseCoverage, coverageFilter]);
+  }, [horseCoverage, coverageFilter, doctorFilter, events]);
 
   const dispatchFilteredRules = useMemo(() => {
     return [...filteredSchedules]
-      .filter((s) => doctorFilter === "all" || String(s.assigned_doctor_id ?? "") === doctorFilter)
+      .filter(isActiveCareSchedule)
+      .filter((s) => doctorFilter === "all" || String(s.assigned_doctor_id ?? s.assigned_doctor?.id ?? "") === doctorFilter)
       .sort((left, right) => left.next_due_date.localeCompare(right.next_due_date));
   }, [filteredSchedules, doctorFilter]);
 
   return <SectionCard
     title={
       viewMode === "dispatch"
-        ? "Bàn Điều phối Chăm sóc & Phân công Bác sĩ"
+        ? "Điều phối chăm sóc"
         : isHeadVet
         ? "Thời khóa biểu Chăm sóc Thú y"
-        : "Lịch chăm sóc của tôi"
+        : "Lịch của tôi"
     }
     description={
       viewMode === "dispatch"
@@ -2460,13 +2272,13 @@ function CarePanel({
             {viewMode === "dispatch" ? "Xem Thời khóa biểu tuần →" : "← Bàn điều phối & Phân công"}
           </button>
         )}
-        {!isHeadVet && viewMode === "care" && (
+        {viewMode === "care" && (
           <button
             type="button"
             className="soft-button h-10 px-3 text-xs font-semibold text-slate-700"
             onClick={() => setShowRulesDrawer((v) => !v)}
           >
-            {showRulesDrawer ? "Ẩn quy tắc định kỳ" : `Quy tắc định kỳ (${filteredSchedules.length})`}
+            {showRulesDrawer ? "Ẩn quy tắc định kỳ" : `Quy tắc định kỳ (${activeRules.length})`}
           </button>
         )}
         <button
@@ -2477,13 +2289,45 @@ function CarePanel({
             setCreateOpen(true);
           }}
         >
-          + Tạo lịch định kỳ
+          Tạo quy tắc
         </button>
       </div>
     }
   >
     <ErrorLine>{error}</ErrorLine>
     {notice && <div className="mb-3"><Notice>{notice}</Notice></div>}
+
+    {projectionTarget && (
+      <Modal title="Xác nhận tạo ca chăm sóc" busy={busy} onClose={() => setProjectionTarget(null)}>
+        <p className="mt-3 text-sm text-slate-600">
+          {careTypeLabels[projectionTarget.care_type ?? ""] ?? projectionTarget.care_type}
+          {" · "}{projectionTarget.horse?.horse_name} · Dự kiến ngày {formatDayMonth(projectionTarget.event_date)}.
+          Xác nhận để tạo ca thực tế và thông báo nhắc.
+        </p>
+        {error && <div role="alert" className="mt-3 text-sm text-rose-700">{error}</div>}
+        <form className="mt-4 space-y-3" onSubmit={async (event) => {
+          event.preventDefault();
+          if (busy || !projectionTarget.schedule_id) return;
+          const success = await submitBook(event, projectionTarget.schedule_id);
+          if (success) setProjectionTarget(null);
+        }}>
+          <Field label="Ngày hẹn" name="event_date" type="date" required defaultValue={projectionTarget.event_date} />
+          <label className="block">
+            <span className="field-label">Ca chăm sóc</span>
+            <select name="slot_time_range" className="field-control" required defaultValue={(() => {
+              const slot = TIMETABLE_SLOTS.find((item) => item.id === getEventSlot(projectionTarget)) ?? TIMETABLE_SLOTS[0];
+              return `${slot.startTime}|${slot.endTime}`;
+            })()}>
+              {TIMETABLE_SLOTS.map((slot) => <option key={slot.id} value={`${slot.startTime}|${slot.endTime}`}>Ca {slot.id}: {slot.timeRange}</option>)}
+            </select>
+          </label>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="soft-button" disabled={busy} onClick={() => setProjectionTarget(null)}>Hủy</button>
+            <button type="submit" className="gold-button" disabled={busy}>{busy ? "Đang tạo ca…" : "Xác nhận tạo ca"}</button>
+          </div>
+        </form>
+      </Modal>
+    )}
 
     {/* Reassign Doctor Modal */}
     {reassignTarget && (
@@ -2646,297 +2490,98 @@ function CarePanel({
     {/* ===================================================================== */}
     {viewMode === "dispatch" ? (
       <div className="space-y-5">
-        {/* KPI tổng quan (5 ô gọn) */}
-        <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 xl:grid-cols-5">
-          <StatTile tone="indigo" label="Đội ngũ bác sĩ" value={workloads.length || doctors.length} hint="Đang hoạt động trong CLB" />
-          <StatTile tone="emerald" label="Độ phủ chăm sóc" value={coveredCount} suffix={`/${horses.length}`} hint="Ngựa có quy tắc còn hiệu lực" />
-          <StatTile tone="blue" label="Ca hôm nay" value={weeklyTodayCount} hint="Chưa hoàn thành" />
-          <StatTile
-            tone="amber"
-            highlight={uncoveredCount > 0}
-            label="Chưa có lịch"
-            value={uncoveredCount}
-            hint="Cần thiết lập lịch chăm sóc"
+        <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-3" data-dispatch-kpis>
+          <StatTile plain label="Độ phủ" value={`${coveredCount}/${horses.length}`} hint={`${uncoveredCount} ngựa chưa có lịch`}
             active={dispatchSubTab === "coverage" && coverageFilter === "uncovered"}
-            onClick={() => { setDispatchSubTab("coverage"); setCoverageFilter("uncovered"); }}
-          />
-          <StatTile
-            tone="rose"
-            highlight={overdueHorsesCount > 0}
-            label="Ngựa quá hạn"
-            value={overdueHorsesCount}
-            hint="Cần đôn đốc / đổi bác sĩ"
+            onClick={() => { setDispatchSubTab("coverage"); setDoctorFilter("all"); setCoverageFilter(uncoveredCount ? "uncovered" : "all"); }} />
+          <StatTile plain tone="rose" label="Ngựa quá hạn" value={overdueHorsesCount} hint="Cần đôn đốc / đổi bác sĩ" highlight={overdueHorsesCount > 0}
+            tooltip="Đếm ngựa có ít nhất một quy tắc quá hạn; mỗi ngựa tính một lần."
             active={dispatchSubTab === "coverage" && coverageFilter === "overdue"}
-            onClick={() => { setDispatchSubTab("coverage"); setCoverageFilter("overdue"); }}
-          />
+            onClick={() => { setDispatchSubTab("coverage"); setDoctorFilter("all"); setCoverageFilter("overdue"); }} />
+          <StatTile plain label="Ca hôm nay" value={weeklyTodayCount} hint={weeklyTodayCount ? "Chưa hoàn thành" : "Không có ca hôm nay"}
+            active={dispatchSubTab === "coverage" && coverageFilter === "today"}
+            onClick={() => { setDispatchSubTab("coverage"); setDoctorFilter("all"); setCoverageFilter("today"); }} />
         </div>
 
-        {/* Doctor Workloads Grid */}
-        {workloads.length > 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Users size={17} className="text-indigo-700" />
-                <h4 className="text-sm font-black text-slate-900">Phân bổ tải công việc theo Bác sĩ</h4>
-              </div>
-              {doctorFilter !== "all" ? (
-                <button
-                  type="button"
-                  onClick={() => setDoctorFilter("all")}
-                  className="rounded-lg bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-800 hover:bg-indigo-200"
-                >
-                  Đang lọc 1 bác sĩ · Bấm để xem tất cả
-                </button>
-              ) : (
-                <span className="text-xs text-slate-500">Bấm vào thẻ bác sĩ để lọc nhanh các ca phụ trách</span>
-              )}
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {workloads.map((doc) => {
-                const isMe = currentUser?.id && String(doc.id) === String(currentUser.id);
-                const isHead = doc.role_name === "HEAD_VETERINARIAN";
-                const isSelectedDoc = doctorFilter === String(doc.id);
-                return (
-                  <button
-                    key={doc.id}
-                    type="button"
-                    onClick={() => {
-                      const nextDoc = isSelectedDoc ? "all" : String(doc.id);
-                      setDoctorFilter(nextDoc);
-                      if (nextDoc !== "all") setDispatchSubTab("rules");
-                    }}
-                    className={`rounded-xl border p-3.5 text-left transition shadow-xs ${
-                      isSelectedDoc
-                        ? "border-indigo-600 bg-indigo-50/70 ring-2 ring-indigo-500/20"
-                        : "border-slate-200 bg-slate-50/50 hover:border-indigo-300 hover:bg-white"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-slate-900">
-                        BS. {doc.name} {isMe ? <span className="text-indigo-600 font-semibold">(Tôi)</span> : ""}
-                      </span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${isHead ? "bg-amber-100 text-amber-900 border border-amber-300" : "bg-slate-200 text-slate-700"}`}>
-                        {isHead ? "Trưởng ban" : "Bác sĩ"}
-                      </span>
-                    </div>
-                    <div className="mt-3 grid grid-cols-3 gap-1.5 text-center text-xs">
-                      <div className="rounded-lg bg-white border border-slate-200/80 py-1.5">
-                        <div className="text-[10px] text-slate-500 font-medium">Đang nhận</div>
-                        <div className="text-sm font-black text-slate-900">{doc.total_schedules}</div>
-                      </div>
-                      <div className="rounded-lg bg-emerald-50 border border-emerald-200/80 py-1.5">
-                        <div className="text-[10px] text-emerald-700 font-medium">Hôm nay</div>
-                        <div className="text-sm font-black text-emerald-900">{doc.today_count}</div>
-                      </div>
-                      <div className={`rounded-lg border py-1.5 ${doc.overdue_count > 0 ? "bg-rose-50 border-rose-300 text-rose-900 font-black" : "bg-white border-slate-200/80 text-slate-500"}`}>
-                        <div className="text-[10px] font-medium">Quá hạn</div>
-                        <div className="text-sm">{doc.overdue_count}</div>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+        {isHeadVet && <section className="rounded-xl border border-slate-200 bg-white p-4" aria-label="Phân bổ bác sĩ">
+          <div className="mb-3 flex items-center gap-2">
+            <h4 className="text-sm font-semibold text-slate-900">Phân bổ bác sĩ</h4>
+            <span tabIndex={0} className="rounded text-slate-400 focus-visible:ring-2 focus-visible:ring-blue-400" title="Đếm các quy tắc còn hiệu lực theo ID bác sĩ được phân công. Bấm chip để lọc danh sách quy tắc; lịch một lần đã hoàn thành hoặc hủy được xem trong Lịch chăm sóc." aria-label="Giải thích phân bổ bác sĩ"><CircleHelp size={14} /></span>
+            {doctorFilter !== "all" && <button type="button" className="ml-auto text-xs font-semibold text-blue-700 hover:underline" onClick={() => setDoctorFilter("all")}>Bỏ lọc</button>}
           </div>
-        )}
-
-        {/* Segmented Control for Coverage vs Rules */}
-        <div className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
-            <div className="inline-flex rounded-lg border border-slate-300 bg-white p-1">
-              <button
-                type="button"
-                onClick={() => setDispatchSubTab("coverage")}
-                className={`rounded-md px-3.5 py-1.5 text-xs font-bold transition ${
-                  dispatchSubTab === "coverage"
-                    ? "bg-slate-900 text-white shadow-xs"
-                    : "text-slate-700 hover:bg-slate-100"
-                }`}
-              >
-                Độ phủ chăm sóc toàn đàn ({horses.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setDispatchSubTab("rules")}
-                className={`rounded-md px-3.5 py-1.5 text-xs font-bold transition ${
-                  dispatchSubTab === "rules"
-                    ? "bg-slate-900 text-white shadow-xs"
-                    : "text-slate-700 hover:bg-slate-100"
-                }`}
-              >
-                Danh sách Quy tắc & Phân công ({dispatchFilteredRules.length})
-              </button>
-            </div>
-
-            {dispatchSubTab === "coverage" ? (
-              <div className="flex flex-wrap items-center gap-1.5">
-                {([
-                  { id: "all", label: `Tất cả (${horses.length})` },
-                  { id: "uncovered", label: `Chưa có lịch (${uncoveredCount})` },
-                  { id: "overdue", label: `Quá hạn (${overdueHorsesCount})` },
-                  { id: "covered", label: `Đầy đủ (${Math.max(0, coveredCount - overdueHorsesCount)})` },
-                ] as const).map((pill) => (
-                  <button
-                    key={pill.id}
-                    type="button"
-                    onClick={() => setCoverageFilter(pill.id)}
-                    className={`rounded-full px-3 py-1 text-xs font-bold transition ${
-                      coverageFilter === pill.id
-                        ? "bg-blue-600 text-white"
-                        : "bg-white border border-slate-300 text-slate-700 hover:bg-slate-100"
-                    }`}
-                  >
-                    {pill.label}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={horseFilter}
-                  onChange={(e) => setHorseFilter(e.target.value)}
-                  className="field-control h-8 px-2.5 text-xs font-semibold text-slate-900 border-slate-300 bg-white"
-                >
-                  <option value="all">Tất cả ngựa</option>
-                  {horses.map((h) => (
-                    <option key={h.id} value={h.id}>{h.horse_name}</option>
-                  ))}
-                </select>
-                <select
-                  value={doctorFilter}
-                  onChange={(e) => setDoctorFilter(e.target.value)}
-                  className="field-control h-8 px-2.5 text-xs font-semibold text-slate-900 border-slate-300 bg-white"
-                >
-                  <option value="all">Tất cả bác sĩ</option>
-                  {doctors.map((d) => (
-                    <option key={d.id} value={String(d.id)}>BS. {d.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+          {(workloadsLoading || loading) && <p role="status" className="text-xs text-slate-500">Đang tải phân công…</p>}
+          {workloadsError && <div role="alert" className="text-sm text-rose-700">{workloadsError}<button type="button" className="ml-2 underline" onClick={() => void loadWorkloads()}>Thử lại</button></div>}
+          <div className="flex flex-wrap gap-2">
+            {workloads.filter((doc) => doc.total_schedules > 0 || showIdleDoctors).map((doc) => {
+              const selected = doctorFilter === String(doc.id);
+              return <button key={doc.id} type="button" aria-pressed={selected}
+                onClick={() => { setDoctorFilter(selected ? "all" : String(doc.id)); setDispatchSubTab("rules"); }}
+                className={`inline-flex flex-wrap items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition ${selected ? "border-blue-500 bg-blue-50 text-blue-900 ring-1 ring-blue-200" : doc.overdue_count > 0 ? "border-rose-200 bg-white text-slate-800 hover:bg-rose-50" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}>
+                <span className="font-semibold">{doc.name}</span>
+                {doc.role_name === "HEAD_VETERINARIAN" && <span className="text-[10px] text-slate-500">Trưởng ban</span>}
+                {doc.total_schedules > 0 && <span>· {doc.total_schedules} đang nhận</span>}
+                {doc.overdue_count > 0 && <span className="text-rose-700">· {doc.overdue_count} quá hạn</span>}
+              </button>;
+            })}
           </div>
+          {workloads.some((doc) => doc.total_schedules === 0) && <button type="button" aria-expanded={showIdleDoctors} className="mt-2 text-xs text-slate-500 hover:text-blue-700" onClick={() => setShowIdleDoctors((value) => !value)}>
+            {showIdleDoctors ? "Thu gọn bác sĩ chưa có việc" : `${workloads.filter((doc) => doc.total_schedules === 0).length} bác sĩ chưa có việc`}
+          </button>}
+        </section>}
 
+        <div className="rounded-xl border border-slate-200 bg-white shadow-xs">
+          <div className="flex flex-wrap gap-4 border-b border-slate-200 px-4" role="tablist" aria-label="Bảng điều phối">
+            <button id="dispatch-coverage-tab" type="button" role="tab" aria-controls="dispatch-results" aria-selected={dispatchSubTab === "coverage"} onClick={() => setDispatchSubTab("coverage")}
+              className={`border-b-2 py-3 text-xs font-semibold ${dispatchSubTab === "coverage" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-900"}`}>Độ phủ chăm sóc</button>
+            <button id="dispatch-rules-tab" type="button" role="tab" aria-controls="dispatch-results" aria-selected={dispatchSubTab === "rules"} onClick={() => setDispatchSubTab("rules")}
+              title="Danh sách quy tắc còn hiệu lực, lọc theo ngựa và bác sĩ được phân công."
+              className={`border-b-2 py-3 text-xs font-semibold ${dispatchSubTab === "rules" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-900"}`}>Danh sách quy tắc</button>
+          </div>
+          <div className="flex flex-wrap gap-2 border-b border-slate-100 px-4 py-3">
+            {dispatchSubTab === "coverage" ? <>
+              {([{ id: "all", label: "Tất cả" }, { id: "uncovered", label: "Chưa có lịch" }, { id: "overdue", label: "Quá hạn" }, { id: "covered", label: "Đầy đủ" }] as const).map((pill) => <button key={pill.id} type="button" aria-pressed={coverageFilter === pill.id} onClick={() => setCoverageFilter(pill.id)}
+                className={`rounded-full border px-3 py-1 text-xs ${coverageFilter === pill.id ? "border-blue-200 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"}`}>{pill.label}</button>)}
+              {coverageFilter === "today" && <button type="button" className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs text-blue-800" onClick={() => setCoverageFilter("all")}>Ca hôm nay · Bỏ lọc</button>}
+            </> : <>
+              <select aria-label="Ngựa trong danh sách quy tắc" value={horseFilter} onChange={(event) => setHorseFilter(event.target.value)} className="field-control h-8 max-w-full px-2 text-xs">
+                <option value="all">Tất cả ngựa</option>{horses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}</option>)}
+              </select>
+              <select aria-label="Bác sĩ trong danh sách quy tắc" value={doctorFilter} onChange={(event) => setDoctorFilter(event.target.value)} className="field-control h-8 max-w-full px-2 text-xs">
+                <option value="all">Tất cả bác sĩ</option>{doctors.map((doctor) => <option key={doctor.id} value={String(doctor.id)}>{doctor.name}</option>)}
+              </select>
+            </>}
+          </div>
+          <div id="dispatch-results" role="tabpanel" aria-labelledby={dispatchSubTab === "coverage" ? "dispatch-coverage-tab" : "dispatch-rules-tab"}>
           {dispatchSubTab === "coverage" ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50/70 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
-                  <tr>
-                    <th className="px-4 py-3">Ngựa & Vị trí chuồng</th>
-                    <th className="px-4 py-3">Quy tắc chăm sóc đang áp dụng</th>
-                    <th className="px-4 py-3">Hạn gần nhất & Bác sĩ</th>
-                    <th className="px-4 py-3">Trạng thái</th>
-                    <th className="px-4 py-3 text-right">Thao tác điều phối</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {filteredCoverage.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
-                        Không có ngựa nào thuộc nhóm bộ lọc này.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredCoverage.map((item) => {
-                      const boxStr = item.horse.stable_box
-                        ? `Khu ${item.horse.stable_box.section ?? "A"} · Chuồng ${item.horse.stable_box.box_code}`
-                        : "Khu chuồng chung";
-                      return (
-                        <tr key={item.horse.id} className="hover:bg-slate-50/80">
-                          <td className="px-4 py-3 font-bold text-slate-900">
-                            <div>{item.horse.horse_name}</div>
-                            <div className="text-[11px] font-normal text-slate-500">{boxStr}</div>
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">
-                            {item.horseRules.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {item.horseRules.map((r) => (
-                                  <span key={r.id} className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-800 border border-slate-200">
-                                    {careTypeLabels[r.care_type] ?? r.care_type}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="italic text-slate-400">Chưa thiết lập quy tắc nào</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700">
-                            {item.nearestSchedule ? (
-                              <div>
-                                <div className="font-bold text-slate-900">{displayDate(item.nearestSchedule.next_due_date)}</div>
-                                <div className="text-[11px] text-slate-600">
-                                  BS: <span className="font-semibold">{item.nearestSchedule.doctor_name ?? "Chưa gán"}</span>
-                                </div>
-                              </div>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            {item.hasOverdue ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[11px] font-black text-rose-900 border border-rose-300">
-                                <AlertTriangle size={11} /> Quá hạn ({item.overdueRules.length})
-                              </span>
-                            ) : item.isUncovered ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-bold text-amber-900 border border-amber-300">
-                                Chưa có lịch
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-900 border border-emerald-300">
-                                ✓ Đầy đủ
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                type="button"
-                                className="rounded-lg bg-amber-500 px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-amber-600 shadow-xs"
-                                onClick={() => {
-                                  onSelectHorse?.(item.horse.id);
-                                  setCreateHorseId(item.horse.id);
-                                  setCreateOpen(true);
-                                }}
-                              >
-                                + Giao lịch
-                              </button>
-                              {item.nearestSchedule && (
-                                <>
-                                  <button
-                                    type="button"
-                                    className="rounded-lg bg-indigo-50 px-2.5 py-1.5 text-[11px] font-bold text-indigo-800 hover:bg-indigo-100 border border-indigo-200"
-                                    onClick={() => {
-                                      setReassignTarget(item.nearestSchedule ?? null);
-                                      setReassignDoctorId(item.nearestSchedule?.assigned_doctor_id ? String(item.nearestSchedule.assigned_doctor_id) : "");
-                                    }}
-                                  >
-                                    Đổi BS
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-200 border border-slate-300"
-                                    onClick={() => {
-                                      onSelectHorse?.(item.horse.id);
-                                      setHorseFilter(item.horse.id);
-                                      if (item.nearestSchedule) {
-                                        setWeekStart(mondayOfWeek(item.nearestSchedule.next_due_date));
-                                      }
-                                      onSwitchView?.("care");
-                                    }}
-                                  >
-                                    Xem lịch →
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
+            <div className="overflow-x-auto rounded-b-xl">
+              <table className="w-full min-w-[640px] text-left text-xs">
+                <thead className="border-b border-slate-200 bg-slate-50 text-slate-600"><tr>
+                  <th className="px-4 py-3 font-semibold">Ngựa & vị trí</th><th className="px-4 py-3 font-semibold">Quy tắc và hạn</th><th className="px-4 py-3 font-semibold">Trạng thái</th><th className="px-4 py-3 text-right font-semibold">Thao tác</th>
+                </tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {loading ? <tr><td colSpan={4} className="p-6 text-center text-slate-500">Đang tải điều phối…</td></tr> : filteredCoverage.length === 0 ? <tr><td colSpan={4} className="p-6 text-center text-slate-500">Không có ngựa khớp bộ lọc.</td></tr> : filteredCoverage.map((item) => {
+                    const openRules = () => { setHorseFilter(item.horse.id); setDoctorFilter("all"); setDispatchSubTab("rules"); };
+                    const openCalendar = () => { onSelectHorse?.(item.horse.id); setHorseFilter(item.horse.id); if (item.nearestSchedule) setWeekStart(mondayOfWeek(item.nearestSchedule.next_due_date)); onSwitchView?.("care"); };
+                    const assign = () => { onSelectHorse?.(item.horse.id); setCreateHorseId(item.horse.id); setCreateOpen(true); };
+                    return <tr data-notification-target={item.horse.id} key={item.horse.id} className="hover:bg-slate-50/60">
+                      <td className="px-4 py-3"><div className="font-semibold text-slate-900">{item.horse.horse_name}</div><div className="mt-1 text-[11px] text-slate-500">{formatStableSection(item.horse.stable_box?.section)}{item.horse.stable_box?.box_code ? ` · Chuồng ${item.horse.stable_box.box_code}` : ""}</div></td>
+                      <td className="px-4 py-3 text-slate-700">{[...item.horseRules].sort((a, b) => a.next_due_date.localeCompare(b.next_due_date)).map((rule) => <div key={rule.id} className="py-0.5">{careTypeLabels[rule.care_type] ?? rule.care_type} · {displayDate(rule.next_due_date)} · {rule.doctor_name || "Chưa phân công"}</div>)}</td>
+                      <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] ${item.hasOverdue ? "border-rose-200 bg-rose-50 text-rose-800" : "border-slate-200 bg-slate-50 text-slate-600"}`} title={item.hasOverdue ? "Đếm quy tắc quá hạn của ngựa, không phải số ca." : undefined}>{item.hasOverdue ? `${item.overdueRules.length} quy tắc quá hạn` : item.isUncovered ? "Chưa có lịch" : "Đầy đủ"}</span></td>
+                      <td className="px-4 py-3"><div className="flex items-start justify-end gap-1.5">
+                        <button type="button" className={item.isUncovered ? "gold-button h-8 whitespace-nowrap px-3 text-xs" : "soft-button h-8 whitespace-nowrap px-3 text-xs"} onClick={item.isUncovered ? assign : item.hasOverdue ? openRules : openCalendar}>{item.isUncovered ? "+ Giao lịch" : item.hasOverdue ? "Đổi BS" : "Xem lịch"}</button>
+                        <details className="text-left"><summary aria-label={`Thao tác khác cho ${item.horse.horse_name}`} className="cursor-pointer list-none rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">⋯</summary><div className="mt-2 flex min-w-28 flex-col gap-2 text-xs">
+                          {!item.isUncovered && <button type="button" className="text-left text-slate-600 hover:text-blue-700" onClick={assign}>Giao lịch</button>}
+                          {item.nearestSchedule && !item.hasOverdue && <button type="button" className="text-left text-slate-600 hover:text-blue-700" onClick={openRules}>Đổi BS</button>}
+                          {item.hasOverdue && <button type="button" className="text-left text-slate-600 hover:text-blue-700" onClick={openCalendar}>Xem lịch</button>}
+                        </div></details>
+                      </div></td>
+                    </tr>;
+                  })}
                 </tbody>
               </table>
             </div>
           ) : (
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50/70 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
@@ -2979,7 +2624,7 @@ function CarePanel({
                           <td className="px-4 py-3">
                             <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-800 border border-slate-200">
                               <User size={12} className="text-indigo-600" />
-                              {schedule.doctor_name ? `BS. ${schedule.doctor_name}` : "Chưa phân công"}
+                              {schedule.doctor_name ? schedule.doctor_name : "Chưa phân công"}
                             </span>
                           </td>
                           <td className="px-4 py-3">
@@ -3007,6 +2652,7 @@ function CarePanel({
                               >
                                 Đổi BS
                               </button>
+                              <details className="text-left"><summary aria-label="Thao tác khác" className="cursor-pointer list-none rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">⋯</summary>
                               <button
                                 type="button"
                                 className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-200 border border-slate-300"
@@ -3018,6 +2664,7 @@ function CarePanel({
                               >
                                 Xem trên lịch →
                               </button>
+                              </details>
                             </div>
                           </td>
                         </tr>
@@ -3028,6 +2675,7 @@ function CarePanel({
               </table>
             </div>
           )}
+          </div>
         </div>
       </div>
     ) : (
@@ -3036,17 +2684,17 @@ function CarePanel({
       /* ===================================================================== */
       <div>
         {/* Optional Rules Drawer for regular Veterinarians */}
-        {!isHeadVet && showRulesDrawer && (
-          <div className="mb-4 rounded-xl border border-slate-300 bg-white p-4 shadow-xs">
+        {showRulesDrawer && (
+          <div ref={rulesDrawerRef} tabIndex={-1} role="region" aria-label="Quy tắc định kỳ đang hoạt động" className="mb-4 rounded-xl border border-slate-300 bg-white p-4 shadow-xs focus:outline-none focus:ring-2 focus:ring-indigo-400">
             <div className="mb-2 flex items-center justify-between">
-              <h4 className="text-sm font-bold text-slate-900">Quy tắc định kỳ đang theo dõi ({filteredSchedules.length})</h4>
+              <h4 className="text-sm font-bold text-slate-900">Quy tắc định kỳ đang theo dõi ({activeRules.length})</h4>
               <button type="button" className="text-xs font-semibold text-slate-500 hover:text-slate-800" onClick={() => setShowRulesDrawer(false)}>Đóng ✕</button>
             </div>
             <div className="divide-y divide-slate-200 max-h-60 overflow-y-auto">
-              {filteredSchedules.length === 0 ? (
+              {activeRules.length === 0 ? (
                 <p className="py-3 text-xs text-slate-500">Chưa có quy tắc định kỳ nào.</p>
               ) : (
-                [...filteredSchedules].sort((a, b) => a.next_due_date.localeCompare(b.next_due_date)).map((schedule) => {
+                [...activeRules].sort((a, b) => a.next_due_date.localeCompare(b.next_due_date)).map((schedule) => {
                   const horseName = horses.find((h) => h.id === schedule.horse_id)?.horse_name ?? schedule.horse_name ?? "Ngựa";
                   const isOverdue = isScheduleOverdue(schedule);
                   return (
@@ -3058,7 +2706,7 @@ function CarePanel({
                       <button
                         type="button"
                         className={`rounded px-2 py-1 text-[11px] font-bold ${isOverdue ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-800"}`}
-                        onClick={() => setWeekStart(schedule.next_due_date < today() ? currentWeekStart : mondayOfWeek(schedule.next_due_date))}
+                        onClick={() => setWeekStart(mondayOfWeek(schedule.next_due_date))}
                       >
                         Đến tuần này
                       </button>
@@ -3070,14 +2718,77 @@ function CarePanel({
           </div>
         )}
 
-        {/* Compact Week Selector & Filter Toolbar */}
-        <div className="mb-4 rounded-xl border border-slate-300 bg-white p-3.5 shadow-xs">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            {/* Week selector + Quick navigation buttons on a single row */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="relative w-full sm:w-72">
+        {/* Thống kê tuần (gọn) */}
+        <div className="mb-4 grid grid-cols-2 items-stretch gap-2.5 lg:grid-cols-4">
+          <StatTile tone="blue" label="Cần thực hiện" value={weeklyPendingCount} hint={`Tổng ${weeklyCareEvents.length} ca trong tuần`} />
+          <StatTile tone="rose" highlight={weeklyOverdueCount > 0} label="Quá hạn" value={weeklyOverdueCount} hint="Đã qua giờ hẹn" />
+          <StatTile tone="emerald" label="Đã hoàn thành" value={weeklyCompletedCount} suffix={weeklyCareEvents.length ? `/${weeklyCareEvents.length}` : undefined} hint="Đã ghi nhận kết quả" />
+          <StatTile tone="indigo" label="Quy tắc đến hạn" value={weeklyDueRuleCount} tooltip="Chỉ tính lịch dự kiến chưa chốt ca. Số quy tắc đang hoạt động áp dụng cùng bộ lọc Ngựa/Bác sĩ với danh sách quy tắc."
+            hint={weeklyDueRuleCount > 0 ? `Gần nhất: ${nearestDueDate?.slice(0, 10).split("-").reverse().slice(0, 2).join("/")}` : activeRules.length > 0 ? `${activeRules.length} quy tắc đang hoạt động` : "Chưa có quy tắc"}
+            hintAction={activeRules.length === 0 ? <button type="button" className="font-semibold text-indigo-700 underline underline-offset-2" onClick={() => { setCreateHorseId(selectedHorse.id); setCreateOpen(true); }}>Tạo mới</button> : undefined} active={showRulesDrawer} onClick={activeRules.length === 0 ? undefined : () => {
+            setShowRulesDrawer(true);
+            if (showRulesDrawer) {
+              rulesDrawerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              rulesDrawerRef.current?.focus({ preventScroll: true });
+            }
+          }} />
+        </div>
+
+        {/* MAIN TIMETABLE CARD: "Thời khóa biểu tuần" */}
+        <div className="care-calendar-card mb-6 rounded-xl border border-slate-300 bg-white shadow-sm">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-slate-200 bg-white px-5 py-3.5">
+            <div>
+              <h3 className="text-base font-black text-slate-900">
+                Lịch ca trong tuần
+              </h3>
+            </div>
+
+
+            <div className="flex flex-wrap items-center gap-2.5 sm:ml-auto">
+              <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ${weeklyCareEvents.length ? "bg-blue-100 text-blue-900" : "bg-slate-100 text-slate-600"}`}>
+                🩺 {weeklyCareEvents.length} ca y tế
+              </span>
+              <span className={`inline-flex items-center rounded-full border border-dashed px-3 py-1 text-xs font-bold ${weeklyProjectedEvents.length ? "border-indigo-300 bg-indigo-50 text-indigo-900" : "border-slate-300 bg-slate-100 text-slate-600"}`}>
+                {weeklyProjectedEvents.length} lịch định kỳ dự kiến
+              </span>
+              {includeContext && (
+                <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${weeklyTrainingEvents.length ? "border-violet-200 bg-violet-100 text-violet-900" : "border-slate-300 bg-slate-100 text-slate-600"}`}>
+                  🐎 {weeklyTrainingEvents.length} lịch tập/đua
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="care-calendar-toolbar" role="region" aria-label="Thanh công cụ lịch ca">
+            <div className="care-calendar-navigation">
+                <button
+                  type="button"
+                  className={`inline-flex h-9 items-center gap-1 rounded-lg px-3.5 text-xs font-bold transition ${
+                    weekStart === currentWeekStart
+                      ? "border border-blue-400 bg-blue-50 text-blue-800 cursor-default disabled:opacity-100"
+                      : "border border-slate-300 bg-white text-slate-800 hover:border-blue-400 hover:bg-blue-50"
+                  }`}
+                  disabled={weekStart === currentWeekStart}
+                  onClick={() => setWeekStart(currentWeekStart)}
+                >
+                  Tuần hiện tại
+                </button>
+            <div className="care-calendar-week-picker" role="group" aria-label="Điều hướng tuần">
+                <button
+                  type="button"
+                  aria-label="Tuần trước"
+                  className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 hover:bg-slate-50"
+                  onClick={() => setWeekStart(addCalendarDays(weekStart, -7))}
+                  aria-keyshortcuts="ArrowLeft"
+                  title="Tuần trước (←)"
+                >
+                  <ArrowLeft size={13} />
+                </button>
+              <div className="relative min-w-0">
                 <select
                   value={weekStart}
+                  title={weekOptions.find((option) => option.key === weekStart)?.fullLabel}
+                  aria-label="Tuần đang xem"
                   onChange={(e) => setWeekStart(e.target.value)}
                   className="w-full appearance-none rounded-lg border border-slate-300 bg-white py-2 pl-3 pr-9 text-xs font-bold text-slate-950 shadow-xs transition hover:border-slate-400 focus:border-blue-600 focus:outline-none cursor-pointer"
                 >
@@ -3089,97 +2800,60 @@ function CarePanel({
                 </select>
                 <CalendarDays className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-600" size={15} />
               </div>
-
-              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
-                  className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 hover:bg-slate-50"
-                  onClick={() => setWeekStart(addCalendarDays(weekStart, -7))}
-                >
-                  <ArrowLeft size={13} /> Tuần trước
-                </button>
-                <button
-                  type="button"
-                  className={`inline-flex h-9 items-center gap-1 rounded-lg px-3.5 text-xs font-bold transition ${
-                    weekStart === currentWeekStart
-                      ? "bg-[#1D4ED8] text-white"
-                      : "border border-slate-300 bg-white text-slate-800 hover:bg-slate-50"
-                  }`}
-                  onClick={() => setWeekStart(currentWeekStart)}
-                >
-                  Tuần hiện tại
-                </button>
-                <button
-                  type="button"
+                  aria-label="Tuần sau"
                   className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-800 hover:bg-slate-50"
                   onClick={() => setWeekStart(addCalendarDays(weekStart, 7))}
+                  aria-keyshortcuts="ArrowRight"
+                  title="Tuần sau (→)"
                 >
-                  Tuần sau <ArrowRight size={13} />
+                  <ArrowRight size={13} />
                 </button>
-              </div>
             </div>
-
-            {/* Filters */}
-            <div className="flex flex-wrap items-center gap-2">
+            </div>
+            <div className="care-calendar-filters">
+              <label className="care-calendar-filter">
+              <span className="text-[11px] font-semibold text-slate-500">Ngựa</span>
               <select
                 value={horseFilter}
                 onChange={(event) => setHorseFilter(event.target.value)}
-                className="field-control h-9 min-w-36 px-2.5 text-xs font-semibold text-slate-900 border-slate-300"
+                className="field-control h-9 w-full min-w-0 px-2.5 text-xs font-semibold text-slate-900 border-slate-300"
                 aria-label="Lọc theo ngựa"
               >
                 <option value="all">Tất cả ngựa ({horses.length})</option>
                 {horses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}</option>)}
               </select>
+              </label>
+              <label className="care-calendar-filter">
+              <span className="text-[11px] font-semibold text-slate-500">Bác sĩ</span>
               <select
                 value={scope}
                 onChange={(event) => setScope(event.target.value as "mine" | "all")}
-                className="field-control h-9 min-w-36 px-2.5 text-xs font-semibold text-slate-900 border-slate-300"
-                aria-label="Phạm vi bác sĩ"
+                className="field-control h-9 w-full min-w-0 px-2.5 text-xs font-semibold text-slate-900 border-slate-300"
+                aria-label="Bác sĩ"
               >
-                <option value="mine">Ca khám của tôi</option>
+                <option value="mine">{currentUser?.fullName ?? "Bác sĩ đang đăng nhập"} (tôi)</option>
                 <option value="all">Tất cả bác sĩ</option>
               </select>
-              <label className="inline-flex h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 text-xs font-semibold text-slate-800">
-                <input type="checkbox" checked={includeContext} onChange={(event) => setIncludeContext(event.target.checked)} className="rounded text-blue-600 accent-blue-600" />
-                Kèm lịch tập & đua
               </label>
-            </div>
-          </div>
-        </div>
 
-        {/* Thống kê tuần (gọn) */}
-        <div className="mb-4 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-          <StatTile tone="blue" label="Cần thực hiện" value={weeklyPendingCount} hint={`Tổng ${weeklyCareEvents.length} ca trong tuần`} />
-          <StatTile tone="rose" highlight={weeklyOverdueCount > 0} label="Quá hạn" value={weeklyOverdueCount} hint="Đã qua giờ hẹn" />
-          <StatTile tone="emerald" label="Đã hoàn thành" value={weeklyCompletedCount} suffix={weeklyCareEvents.length ? `/${weeklyCareEvents.length}` : undefined} hint="Đã ghi nhận kết quả" />
-          <StatTile tone="indigo" label="Quy tắc đến hạn" value={weeklyDueRuleCount} hint="Lịch định kỳ rơi vào tuần" />
-        </div>
-
-        {/* MAIN TIMETABLE CARD: "Thời khóa biểu tuần" */}
-        <div className="rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden mb-6">
-          <div className="flex flex-wrap items-center justify-between border-b border-slate-200 bg-white px-5 py-3.5">
-            <div>
-              <h3 className="text-base font-black text-slate-900">
-                Thời khóa biểu tuần ({formatDayMonth(weekStart)} - {formatDayMonth(to)})
-              </h3>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2.5">
-              <button
-                type="button"
-                onClick={() => setShowAllSlots(!showAllSlots)}
-                className="text-xs font-bold text-blue-700 hover:text-blue-900 hover:underline"
-              >
-                {showAllSlots ? "Thu gọn ca trống" : "Hiện đủ 6 ca"}
-              </button>
-              <span className="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-xs font-bold text-blue-900">
-                🩺 {weeklyCareEvents.length} ca y tế
-              </span>
-              {includeContext && (
-                <span className="inline-flex items-center rounded-full bg-violet-100 px-3 py-1 text-xs font-bold text-violet-900 border border-violet-200">
-                  🐎 {weeklyTrainingEvents.length} lịch tập/đua
-                </span>
-              )}
+              <div className="care-calendar-display-options" role="group" aria-label="Tùy chọn hiển thị">
+              <label className="inline-flex min-h-9 shrink-0 cursor-pointer items-center gap-2 text-xs font-semibold text-slate-700">
+                <input type="checkbox" role="switch" aria-label="Hiển thị lịch tập và đua" aria-checked={includeContext} checked={includeContext} onChange={(event) => setIncludeContext(event.target.checked)} className="peer sr-only" />
+                <span aria-hidden="true" className="relative h-5 w-9 shrink-0 rounded-full bg-slate-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:bg-blue-600 peer-checked:after:translate-x-4 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 peer-focus-visible:ring-offset-2" />
+                Hiển thị lịch tập và đua
+              </label>
+            <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600">
+              <ListFilter size={14} aria-hidden="true" />
+              <input type="checkbox" role="switch" aria-label="Thu gọn ca trống" aria-checked={!showAllSlots} checked={!showAllSlots} onChange={(event) => setShowAllSlots(!event.target.checked)} className="peer sr-only" />
+              <span aria-hidden="true" className="relative h-5 w-9 rounded-full bg-slate-300 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:bg-blue-600 peer-checked:after:translate-x-4 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500" />
+              Thu gọn ca trống
+            </label>
+              </div>
+              {hasActiveFilters && <button type="button" className="h-9 shrink-0 rounded-lg px-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 hover:text-slate-900" onClick={() => {
+                setHorseFilter("all"); setScope("mine"); setIncludeContext(false);
+              }}><X size={12} className="mr-1 inline" aria-hidden="true" />Xóa bộ lọc</button>}
             </div>
           </div>
 
@@ -3279,8 +2953,28 @@ function CarePanel({
                               const currentSlotObj = TIMETABLE_SLOTS.find((s) => s.id === getEventSlot(event)) ?? TIMETABLE_SLOTS[0];
                               const defaultSlotValue = `${currentSlotObj.startTime}|${currentSlotObj.endTime}`;
 
+                              if (event.is_periodic_due) return (
+                                <button
+                                  key={event.id}
+                                  data-notification-target={event.horse?.id ?? event.horse_id}
+                                  type="button"
+                                  data-care-projection
+                                  aria-label={`Dự kiến: ${eventName} - ${horseName}, ngày ${formatDayMonth(event.event_date)}, ca ${currentSlotObj.id}`}
+                                  className={`w-full rounded-lg border-2 border-dashed border-indigo-300 bg-indigo-50/70 p-2.5 text-left text-indigo-950 transition hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-600 `}
+                                  onClick={() => { setError(""); setProjectionTarget(event); }}
+                                  disabled={!canManage || busy}
+                                  title={!canManage ? "Chỉ bác sĩ phụ trách hoặc trưởng ban thú y được chốt ca" : "Xác nhận tạo ca chăm sóc"}
+                                >
+                                  <span className="mb-1 inline-block rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold">Dự kiến</span>
+                                  <span className="block text-xs font-bold">{eventName} - {horseName}</span>
+                                  <span className="mt-1 block text-[11px]">{timeStr} · {doctorName}</span>
+                                  <span className="mt-1 block text-[10px]">{canManage ? "Nhấn để tạo ca thực tế" : "Chờ bác sĩ phụ trách chốt ca"}</span>
+                                </button>
+                              );
+
                               return (
                                 <article
+                                  data-notification-target={event.horse?.id ?? event.horse_id}
                                   key={event.event_id ?? event.id ?? `${day.date}-${index}`}
                                   className={`rounded-lg p-2.5 shadow-xs transition hover:shadow-md ${
                                     isTrainingEvent
@@ -3427,7 +3121,7 @@ function CarePanel({
                                         <span>Chốt ca lịch hẹn</span>
                                         <button type="button" className="text-[10px] text-slate-500 hover:text-slate-800" onClick={() => setBookId("")}>✕</button>
                                       </div>
-                                      <Field label="Ngày hẹn" name="event_date" type="date" required min={today()} defaultValue={event.event_date && event.event_date >= today() ? event.event_date : today()} />
+                                      <Field label="Ngày hẹn" name="event_date" type="date" required defaultValue={event.event_date} />
                                       <label className="block">
                                         <span className="field-label text-xs font-bold text-slate-800">Chọn ca làm việc <span className="text-rose-600">*</span></span>
                                         <select
@@ -3455,7 +3149,7 @@ function CarePanel({
                                         <span>Dời sang ca khác</span>
                                         <button type="button" className="text-[10px] text-slate-500 hover:text-slate-800" onClick={() => setMoveId("")}>✕</button>
                                       </div>
-                                      <Field label="Ngày mới" name="event_date" type="date" required min={today()} defaultValue={event.event_date && event.event_date >= today() ? event.event_date : today()} />
+                                      <Field label="Ngày mới" name="event_date" type="date" required defaultValue={event.event_date} />
                                       <label className="block">
                                         <span className="field-label text-xs font-bold text-slate-800">Chọn ca làm việc mới <span className="text-rose-600">*</span></span>
                                         <select
@@ -3540,86 +3234,5 @@ function CarePanel({
     </div>
       </div>
     )}
-  </SectionCard>;
-}
-
-function NotificationsPanel({
-  horses,
-  activities,
-  initialActionItems = [],
-  actionsLoading = false,
-  actionsError = "",
-  onUnread,
-  onActionCount,
-  onOpenAction,
-}: {
-  horses: VetHorse[];
-  activities: VetActivity[];
-  initialActionItems?: VetActionItem[];
-  actionsLoading?: boolean;
-  actionsError?: string;
-  onUnread: (count: number) => void;
-  onActionCount: (count: number) => void;
-  onOpenAction: (horseId: string, nextTab: NotificationActionTab) => void;
-}) {
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [unread, setUnread] = useState(0);
-  const [actions, setActions] = useState<VetActionItem[]>(initialActionItems);
-  const [unreadOnly, setUnreadOnly] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    setActions(initialActionItems);
-    onActionCount(initialActionItems.length);
-  }, [initialActionItems, onActionCount]);
-  const load = useCallback(async () => {
-    setLoading(true); setError("");
-    try { const result = await veterinarianApi.notifications(unreadOnly); setNotifications(result.data); setUnread(result.unread_count); onUnread(result.unread_count); }
-    catch (reason) { setError(veterinarianError(reason)); }
-    finally { setLoading(false); }
-  }, [onUnread, unreadOnly]);
-  useEffect(() => { void load(); }, [load]);
-
-  async function markRead(id: string) {
-    setBusy(true); setError("");
-    try { await veterinarianApi.readNotification(id); await load(); window.dispatchEvent(new Event(NOTIFICATION_COUNT_CHANGED_EVENT)); }
-    catch (reason) { setError(veterinarianError(reason)); }
-    finally { setBusy(false); }
-  }
-  async function markAll() {
-    setBusy(true); setError("");
-    try { await veterinarianApi.readAllNotifications(); await load(); window.dispatchEvent(new Event(NOTIFICATION_COUNT_CHANGED_EVENT)); }
-    catch (reason) { setError(veterinarianError(reason)); }
-    finally { setBusy(false); }
-  }
-  return <SectionCard title="Thông báo" description="Việc cần chăm sóc và cập nhật sức khỏe được tổng hợp từ hồ sơ ngựa; thông báo tự làm mới mỗi phút." icon={Bell} action={<div className="flex gap-2"><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => setUnreadOnly((value) => !value)}>{unreadOnly ? "Xem tất cả" : "Chưa đọc"}</button><button type="button" className="soft-button h-9 px-3 text-xs" disabled={busy || unread === 0} onClick={() => void markAll()}>Đọc tất cả</button></div>}>
-    <ErrorLine>{error}</ErrorLine>
-    {activities.length > 0 && <section className="mb-5 rounded-xl border border-sky-200 bg-sky-50/50 p-3 sm:p-4" aria-label="Hoạt động gần đây">
-      <div className="mb-3"><h4 className="font-semibold text-equine-navy">Hoạt động gần đây</h4></div>
-      <div className="space-y-2">{activities.slice(0, 8).map((activity) => <article key={activity.id} className="flex flex-col gap-3 rounded-lg border border-sky-100 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0"><p className="font-semibold text-equine-navy">{activity.horseName}</p><p className="mt-1 text-sm text-slate-700">{activity.message}</p><p className="mt-1 text-xs text-slate-500">{new Date(activity.createdAt).toLocaleString("vi-VN")}</p></div>
-        {activity.horseId && <button type="button" className="soft-button h-9 shrink-0 px-3 text-xs" onClick={() => onOpenAction(activity.horseId!, activity.actionTab)}>Mở hồ sơ</button>}
-      </article>)}</div>
-    </section>}
-    <section className="mb-5 rounded-xl border border-equine-line bg-white p-3 sm:p-4 shadow-sm" aria-label="Việc cần xử lý">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div><h4 className="font-semibold text-equine-navy">Việc cần xử lý</h4></div>
-        {!actionsLoading && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{actions.length} việc</span>}
-      </div>
-      <ErrorLine>{actionsError}</ErrorLine>
-      {actionsLoading ? <Notice>Đang kiểm tra hồ sơ sức khỏe và lịch chăm sóc...</Notice> : actions.length === 0 ? <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-500">Hiện không có chấn thương hoặc lịch chăm sóc nào cần xử lý.</p> : <div className="space-y-2">{actions.map((item) => <article key={item.id} className={`flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between ${item.priority === "urgent" ? "border-rose-200 bg-rose-50/60" : "border-equine-line bg-slate-50"}`}>
-        <div className="min-w-0"><p className="font-semibold text-equine-navy">{item.title}</p><p className="mt-1 text-sm text-slate-600">{item.detail}</p></div>
-        <button type="button" className="soft-button h-9 shrink-0 px-3 text-xs" onClick={() => onOpenAction(item.horseId, item.actionTab)}>{item.actionLabel}</button>
-      </article>)}</div>}
-    </section>
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-t border-equine-line pt-4"><div><h4 className="font-semibold text-equine-navy">Thông báo đã đến hạn</h4></div></div>
-    {loading ? <Notice>Đang tải thông báo...</Notice> : notifications.length === 0 ? <Empty>{unreadOnly ? "Không có thông báo chưa đọc." : "Chưa có thông báo đã đến hạn."}</Empty> : <div className="space-y-2">{notifications.map((item) => {
-      const formatted = formatNotificationMessage(item.message, horses);
-      return <article key={item.id} className={`flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between ${item.is_read ? "border-equine-line bg-white" : "border-blue-200 bg-blue-50/40"}`}>
-        <div><p className="text-sm font-medium text-equine-navy">{formatted.message}</p><p className="mt-1 text-xs text-slate-500">{displayDate(item.scheduled_at ?? item.created_at)}{item.is_read ? " · Đã đọc" : " · Chưa đọc"}</p></div>
-        <div className="flex shrink-0 gap-2">{formatted.horseId && <button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => onOpenAction(formatted.horseId!, "overview")}>Mở hồ sơ ngựa</button>}{!item.is_read && <button type="button" className="soft-button h-9 px-3 text-xs" disabled={busy} onClick={() => void markRead(item.id)}>Đánh dấu đã đọc</button>}</div>
-      </article>;
-    })}</div>}
   </SectionCard>;
 }

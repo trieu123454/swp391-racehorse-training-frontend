@@ -1,4 +1,5 @@
 "use client";
+import { formatDoctorDisplayName } from "@/lib/display-format";
 import { Routes } from "@/routes/Routes";
 
 import Link from "next/link";
@@ -24,6 +25,7 @@ import {
 import { HorseImage, Notice, StatusBadge } from "@/components/horses/HorseUI";
 import HorseRegistrationPanel from "@/components/horse-owner/HorseRegistrationPanel";
 import { errorMessage, horseGender } from "@/api/horses/api";
+import { useLinkedNotificationHorse } from "@/hooks/use-notification-target";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import {
   getOwnerHorseDashboard,
@@ -40,6 +42,7 @@ const workspaceTabIds: readonly Tab[] = ["overview", "health", "training", "race
 export default function HorseOwnerWorkspace() {
   const [horses, setHorses] = useState<OwnerHorse[]>([]);
   const [selectedId, setSelectedId] = useState("");
+  useLinkedNotificationHorse(horses, setSelectedId);
   const [dashboard, setDashboard] = useState<OwnerDashboard | null>(null);
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
   const [year, setYear] = useState(new Date().getFullYear());
@@ -465,7 +468,7 @@ function HealthPanel({ dashboard, latestWeight }: { dashboard: OwnerDashboard; l
       <Panel title="Chỉ số khám gần đây" icon={HeartPulse}>
         {dashboard.health_exams.length === 0 ? <Empty>Chưa có lần khám nào được ghi nhận.</Empty> : <div className="space-y-3">{dashboard.health_exams.map((exam) => (
           <article key={exam.id} className="rounded-xl border border-equine-line bg-white p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-semibold text-equine-navy">{formatDateTime(exam.exam_date)}{exam.doctor_name ? ` · Bác sĩ ${exam.doctor_name}` : ""}</h4>{exam.body_condition_score != null && <span className="rounded-full bg-equine-mist px-3 py-1 text-xs font-semibold">Điểm thể trạng {exam.body_condition_score}/5</span>}</div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-semibold text-equine-navy">{formatDateTime(exam.exam_date)}{exam.doctor_name ? ` · Bác sĩ ${formatDoctorDisplayName(exam.doctor_name)}` : ""}</h4>{exam.body_condition_score != null && <span className="rounded-full bg-equine-mist px-3 py-1 text-xs font-semibold">Điểm thể trạng {exam.body_condition_score}/5</span>}</div>
             <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-3"><p>Thân nhiệt: <strong>{exam.temperature_c == null ? "—" : `${exam.temperature_c} °C`}</strong></p><p>Nhịp tim: <strong>{exam.heart_rate == null ? "—" : `${exam.heart_rate} lần/phút`}</strong></p><p>Nhịp thở: <strong>{exam.respiratory_rate == null ? "—" : `${exam.respiratory_rate} lần/phút`}</strong></p></div>
             {exam.gait_assessment && <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">Đánh giá dáng đi: {exam.gait_assessment}</p>}
           </article>
@@ -1120,12 +1123,12 @@ function money(value: number) {
 
 function formatDate(value: string) {
   const date = new Date(`${value.slice(0, 10)}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium" }).format(date);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
 }
 
 function formatDateTime(value: string) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium", timeStyle: "short" }).format(date);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(date);
 }
 
 function formatTime(value: string) {
