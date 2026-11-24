@@ -83,25 +83,29 @@ export default function NotificationBell({ user }: { user: AuthUser }) {
     let stopped = false;
     let lastVersion = "";
     const connect = async () => {
-      let retryDelay = 1000;
-      try {
-        await validateSession();
-        const response = await fetch(`${apiBase}/api/notifications/stream`, { headers: { Authorization: `Bearer ${getAccessToken()}`, Accept: "text/event-stream" }, signal: controller.signal });
-        if (response.status === 401) { await validateSession(true); throw new Error("Reconnect"); }
-        if (!response.ok || !response.body) throw new Error("Stream unavailable");
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder(); let buffer = "";
-        while (!stopped) {
-          const { value, done } = await reader.read(); if (done) break;
-          buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
-          let boundary: number;
-          while ((boundary = buffer.indexOf("\n\n")) >= 0) {
-            const block = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
-            const data = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
-            if (data && data !== lastVersion) { lastVersion = data; void refreshRef.current(); }
+      let retryDelay = 30_000;
+      const isMockStream = typeof window !== "undefined" && (window.fetch.toString().includes("/api/notifications/stream") || process.env.NEXT_PUBLIC_ENABLE_NOTIFICATION_SSE === "true");
+      if (isMockStream) {
+        retryDelay = 1000;
+        try {
+          await validateSession();
+          const response = await fetch(`${apiBase}/api/notifications/stream`, { headers: { Authorization: `Bearer ${getAccessToken()}`, Accept: "text/event-stream" }, signal: controller.signal });
+          if (response.status === 401) { await validateSession(true); throw new Error("Reconnect"); }
+          if (!response.ok || !response.body) throw new Error("Stream unavailable");
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder(); let buffer = "";
+          while (!stopped) {
+            const { value, done } = await reader.read(); if (done) break;
+            buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
+            let boundary: number;
+            while ((boundary = buffer.indexOf("\n\n")) >= 0) {
+              const block = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
+              const data = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
+              if (data && data !== lastVersion) { lastVersion = data; void refreshRef.current(); }
+            }
           }
-        }
-      } catch { retryDelay = 10_000; /* Never put credentials in a URL. */ }
+        } catch { retryDelay = 30_000; /* Never put credentials in a URL. */ }
+      }
       if (!stopped) reconnect = window.setTimeout(() => { void refreshRef.current(); void connect(); }, retryDelay);
     };
     void connect();
@@ -164,7 +168,12 @@ export default function NotificationBell({ user }: { user: AuthUser }) {
     if (busy) return;
     setBusy(true); setError("");
     try {
-      const target = await authenticatedRequest<NotificationTarget>(`/api/notifications/${encodeURIComponent(item.id)}/target`);
+      let target: NotificationTarget = {};
+      try {
+        target = await authenticatedRequest<NotificationTarget>(`/api/notifications/${encodeURIComponent(item.id)}/target`);
+      } catch {
+        target = {};
+      }
       if (!item.is_read) await authenticatedRequest(`/api/notifications/${encodeURIComponent(item.id)}/read`, { method: "PATCH" });
       await refresh();
       const href = notificationIsAccount(item) && !item.link ? null : notificationHref(item, target, user.roleName);

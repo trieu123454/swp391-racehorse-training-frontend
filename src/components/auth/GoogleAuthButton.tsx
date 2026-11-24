@@ -20,6 +20,7 @@ declare global {
             callback: (response: GoogleCredentialResponse) => void;
             use_fedcm_for_button?: boolean;
           }): void;
+          cancel?(): void;
           renderButton(
             element: HTMLElement,
             options: Record<string, string | number>,
@@ -76,6 +77,10 @@ export function GoogleAuthButton({
     const deactivate = () => {
       active = false;
       if (identity.callback === handleCredential) identity.callback = undefined;
+      window.google?.accounts?.id?.cancel?.();
+      document
+        .querySelectorAll('iframe[src*="accounts.google.com/gsi"], #credential_picker_container')
+        .forEach((el) => el.remove());
     };
     const failed = () => {
       if (active) setConfigured(false);
@@ -87,7 +92,7 @@ export function GoogleAuthButton({
         window.google.accounts.id.initialize({
           client_id: clientId,
           callback: (response) => window.equineGoogleIdentity?.callback?.(response),
-          use_fedcm_for_button: true,
+          use_fedcm_for_button: false,
         });
         identity.clientId = clientId;
       }

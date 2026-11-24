@@ -456,14 +456,20 @@ export async function ensurePlanForHorse(
     return exactCoveringPlan;
   }
 
-  // 2. Nếu có giáo án bao phủ ngày tập nhưng chưa gắn buổi tập nào (schedules_count === 0) hoặc cùng cường độ, cập nhật luôn thông số sang regimen đã chọn để không bị lệch (VD: đang Thấp -> cập nhật thành Vừa)
+  // 2. Nếu có giáo án bao phủ ngày tập:
+  //    - Chỉ gọi updatePlan khi giáo án đó chưa gắn buổi tập nào (training_schedules_count === 0) VÀ khác thông số regimen,
+  //      để không bao giờ vướng lỗi 409 PLAN_UPDATE_TOO_LATE (cấm sửa khi còn < 24h trước buổi tập đã lên lịch).
   const coveringPlan = existingPlans.find((plan) => {
     const afterStart = !plan.start_date || plan.start_date <= eventDate;
     const beforeEnd = !plan.end_date || plan.end_date >= eventDate;
     return afterStart && beforeEnd;
   });
   if (coveringPlan) {
-    if ((coveringPlan.training_schedules_count ?? 0) === 0 || coveringPlan.target_intensity === regimen.target_intensity) {
+    const alreadyMatches =
+      coveringPlan.target_intensity === regimen.target_intensity &&
+      coveringPlan.target_distance_meters === regimen.target_distance_meters &&
+      (coveringPlan.target_track_surface ?? "").toLowerCase() === regimen.target_track_surface.toLowerCase();
+    if (!alreadyMatches && (coveringPlan.training_schedules_count ?? 0) === 0) {
       try {
         const updated = await headTrainerApi.updatePlan(coveringPlan.id, {
           stage_name: regimen.stage_name,
