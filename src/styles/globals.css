@@ -580,6 +580,49 @@ select {
   55% { box-shadow: 0 0 0 5px transparent; }
 }
 
+@keyframes es-progress-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+@keyframes es-pop-in {
+  0% { opacity: 0; transform: scale(0.85); }
+  65% { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes es-panel-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.es-progress-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.es-progress-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: es-progress-shimmer 1.15s linear infinite;
+}
+
+.es-pop-in {
+  animation: es-pop-in 260ms var(--ease-expo) both;
+}
+
+.es-panel-in {
+  animation: es-panel-in 220ms var(--ease-expo) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -592,8 +635,14 @@ select {
   .hero-content,
   .auth-card,
   .mobile-menu,
-  .horse-badge i {
+  .horse-badge i,
+  .es-pop-in,
+  .es-panel-in {
     animation: none !important;
+  }
+
+  .es-progress-shimmer::after {
+    display: none;
   }
 
   .hero-image {

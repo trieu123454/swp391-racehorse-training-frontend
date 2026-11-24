@@ -62,7 +62,7 @@ function metricDate(date?: string | null) {
   const parsed = new Date(date);
   return Number.isNaN(parsed.getTime())
     ? date
-    : parsed.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    : parsed.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function shortDate(date?: string | null) {
@@ -70,7 +70,7 @@ function shortDate(date?: string | null) {
   const parsed = new Date(date);
   return Number.isNaN(parsed.getTime())
     ? date.slice(5)
-    : parsed.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+    : parsed.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function numberLabel(number: number, digits = 1) {
@@ -176,6 +176,19 @@ export default function TrainingAnalysisPanel({
     if (!horseId) {
       setLoading(false);
       return;
+    }
+    if (from && to && from > to) {
+      setError("Ngày bắt đầu không được lớn hơn ngày kết thúc.");
+      setLoading(false);
+      return;
+    }
+    if (from && to) {
+      const spanDays = Math.round((Date.parse(`${to}T00:00:00`) - Date.parse(`${from}T00:00:00`)) / 86_400_000);
+      if (spanDays > 366) {
+        setError("Khoảng ngày phân tích tối đa 366 ngày.");
+        setLoading(false);
+        return;
+      }
     }
 
     setLoading(true);
@@ -292,6 +305,7 @@ export default function TrainingAnalysisPanel({
               <input
                 type="date"
                 aria-label="Từ ngày"
+                max={to || undefined}
                 className="field-control h-8 px-2.5 text-xs"
                 value={from}
                 onChange={(event) => setFrom(event.target.value)}
@@ -300,6 +314,7 @@ export default function TrainingAnalysisPanel({
               <input
                 type="date"
                 aria-label="Đến ngày"
+                min={from || undefined}
                 className="field-control h-8 px-2.5 text-xs"
                 value={to}
                 onChange={(event) => setTo(event.target.value)}

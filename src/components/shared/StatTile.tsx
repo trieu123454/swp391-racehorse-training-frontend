@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Info } from "lucide-react";
 
 export type StatTone = "slate" | "indigo" | "emerald" | "amber" | "rose" | "blue";
 
@@ -24,6 +25,9 @@ export function StatTile({
   highlight = false,
   onClick,
   active = false,
+  tooltip,
+  hintAction,
+  plain = false,
 }: {
   label: string;
   value: ReactNode;
@@ -33,21 +37,24 @@ export function StatTile({
   highlight?: boolean;
   onClick?: () => void;
   active?: boolean;
+  tooltip?: string;
+  hintAction?: ReactNode;
+  plain?: boolean;
 }) {
   const t = TONES[tone];
   const base = `relative flex w-full overflow-hidden rounded-xl border bg-white text-left shadow-xs transition ${
-    highlight ? t.alert : "border-slate-200"
+    highlight ? (plain ? "border-rose-300" : t.alert) : "border-slate-200"
   } ${active ? "ring-2 ring-slate-900/15" : ""} ${onClick ? "hover:border-slate-400 cursor-pointer" : ""}`;
   const body = (
     <>
-      <span className={`w-1 shrink-0 ${highlight || tone === "indigo" || tone === "emerald" || tone === "blue" ? t.bar : "bg-slate-200"}`} />
+      {!plain && <span className={`w-1 shrink-0 ${highlight || tone === "indigo" || tone === "emerald" || tone === "blue" ? t.bar : "bg-slate-200"}`} />}
       <span className="flex min-w-0 flex-1 flex-col px-3.5 py-2.5">
-        <span className="truncate text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</span>
-        <span className={`mt-0.5 text-2xl font-black leading-tight ${highlight || tone !== "amber" && tone !== "rose" ? t.value : "text-slate-700"}`}>
+        <span className="flex min-w-0 items-center gap-1 text-[11px] font-bold uppercase tracking-wide text-slate-500"><span className="truncate">{label}</span>{tooltip && <span tabIndex={0} title={tooltip} aria-label={tooltip} className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"><Info size={12} /></span>}</span>
+        <span className={`mt-0.5 text-2xl font-black leading-tight ${plain ? (highlight ? "text-rose-900" : "text-slate-900") : highlight || tone !== "amber" && tone !== "rose" ? t.value : "text-slate-700"}`}>
           {value}
           {suffix != null && <span className="ml-0.5 text-sm font-bold text-slate-400">{suffix}</span>}
         </span>
-        {hint != null && <span className="mt-0.5 truncate text-[11px] text-slate-500">{hint}</span>}
+        {hint != null && <span className="mt-0.5 flex min-w-0 items-baseline gap-1 text-[11px] text-slate-500"><span className="min-w-0 truncate">{hint}</span>{hintAction && <span className="shrink-0">{hintAction}</span>}</span>}
       </span>
     </>
   );

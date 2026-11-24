@@ -7,6 +7,89 @@
   color: #101732;
 }
 
+.care-calendar-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 12px 20px;
+  background: #FFFFFF;
+  border-bottom: 1px solid #E2E8F0;
+  box-shadow: 0 3px 6px rgb(15 23 42 / 5%);
+}
+
+.care-calendar-navigation,
+.care-calendar-filters,
+.care-calendar-display-options {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+
+.care-calendar-week-picker {
+  display: grid;
+  grid-template-columns: auto minmax(170px, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.care-calendar-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 144px;
+  min-width: 0;
+}
+
+.care-calendar-display-options {
+  align-items: center;
+  border-left: 1px solid #E2E8F0;
+  padding-left: 12px;
+}
+
+@media (max-width: 1199px) {
+  .care-calendar-navigation,
+  .care-calendar-filters {
+    flex-basis: 100%;
+  }
+  .care-calendar-display-options {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}
+
+@media (max-width: 639px) {
+  .care-calendar-toolbar {
+    padding: 12px;
+  }
+  .care-calendar-navigation,
+  .care-calendar-filters {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .care-calendar-week-picker {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .care-calendar-filter {
+    width: 100%;
+  }
+  .care-calendar-display-options {
+    order: 1;
+    flex-direction: column;
+    align-items: flex-start;
+    border-left: 0;
+    border-top: 1px solid #E2E8F0;
+    padding: 12px 0 0;
+  }
+}
+
 .horse-access > * {
   max-width: 520px;
   width: 100%;
@@ -57,11 +140,17 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
+  padding-bottom: var(--horse-account-height, 96px);
+  scroll-padding-bottom: var(--horse-account-height, 96px);
   margin-right: -4px;
   scrollbar-width: thin;
 }
 
 .horse-sidebar-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: #FFFFFF;
   margin-top: auto;
   flex-shrink: 0;
   padding-top: 12px;
@@ -766,7 +855,7 @@ progress::-moz-progress-bar {
 }
 
 @media (max-width: 700px) {
-  .horse-date-pill {
+  .horse-topbar .horse-date-pill {
     display: none;
   }
 
@@ -803,23 +892,34 @@ progress::-moz-progress-bar {
   }
 }
 
-/* ============================================================
-   FUNCTIONAL WORKSPACE TYPOGRAPHY: ZERO BOLD TEXT / REGULAR WEIGHT
-   Enforces regular (400) font-weight across all functional pages
-   ============================================================ */
-.horse-app,
-.horse-app *,
-.dashboard-workspace,
-.dashboard-workspace *,
-.horse-dialog,
-.horse-dialog *,
-.horse-sidebar,
-.horse-sidebar *,
-.horse-topbar,
-.horse-topbar *,
-.workspace-role,
-.workspace-role * {
-  font-weight: 400 !important;
+.equine-horse { display: block; overflow: visible; }
+.equine-horse__tail { transform-box: fill-box; transform-origin: 90% 10%; animation: equine-tail 6s ease-in-out infinite; }
+.equine-horse__eye { transform-box: fill-box; transform-origin: center; animation: equine-blink 7s infinite; }
+.equine-horse__torso { transform-box: fill-box; transform-origin: center bottom; animation: equine-breathe 4s ease-in-out infinite; }
+.equine-horse--eating .equine-horse__neck { transform: rotate(35deg); transform-box: fill-box; transform-origin: 20% 85%; animation: equine-eat 6s ease-in-out infinite; }
+.equine-horse--sick .equine-horse__neck { transform-box: fill-box; transform-origin: 20% 85%; transform: rotate(12deg); }
+.equine-horse--sick .equine-horse__tail { animation: none; }
+.equine-horse--lying .equine-horse__torso { animation: none; }
+.stable-yard-figure-wrap:has(.equine-horse) { height: 101px; }
+.equine-horse__leg { transform-box: view-box; }
+.equine-horse__leg--hindLeft, .equine-horse__leg--hindRight { transform-origin: 26% 49%; }
+.equine-horse__leg--frontLeft, .equine-horse__leg--frontRight { transform-origin: 59% 49%; }
+.stable-yard-horse[data-motion="walk"] .equine-horse__leg--hindLeft,
+.stable-yard-horse[data-motion="walk"] .equine-horse__leg--frontRight { animation: equine-step .8s ease-in-out infinite; }
+.stable-yard-horse[data-motion="walk"] .equine-horse__leg--hindRight,
+.stable-yard-horse[data-motion="walk"] .equine-horse__leg--frontLeft { animation: equine-step .8s ease-in-out -.4s infinite; }
+.stable-yard-horse[data-motion="trot"] .equine-horse__leg--hindLeft,
+.stable-yard-horse[data-motion="trot"] .equine-horse__leg--frontRight { animation: equine-step .36s ease-in-out infinite; }
+.stable-yard-horse[data-motion="trot"] .equine-horse__leg--hindRight,
+.stable-yard-horse[data-motion="trot"] .equine-horse__leg--frontLeft { animation: equine-step .36s ease-in-out -.18s infinite; }
+.stable-yard-horse[data-motion="graze"] .equine-horse__neck { transform-box: fill-box; transform-origin: 20% 85%; animation: equine-eat 6s ease-in-out infinite; }
+@keyframes equine-step { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(10deg); } }
+@keyframes equine-tail { 0%, 65%, 100% { transform: rotate(0); } 75% { transform: rotate(10deg); } 85% { transform: rotate(-7deg); } }
+@keyframes equine-blink { 0%, 92%, 96%, 100% { transform: scaleY(1); } 94% { transform: scaleY(.08); } }
+@keyframes equine-breathe { 0%, 100% { scale: 1 1; } 50% { scale: 1.006 1.018; } }
+@keyframes equine-eat { 0%, 100% { transform: rotate(12deg); } 40%, 70% { transform: rotate(40deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .equine-horse * { animation: none !important; transition: none !important; }
 }
 
 .stable-yard-stall {
@@ -867,11 +967,11 @@ progress::-moz-progress-bar {
   min-height: 220px;
   overflow: hidden;
   isolation: isolate;
-  border: 9px solid #68482e;
-  border-top-width: 7px;
+  border: 6px solid #504438;
+  border-top-width: 5px;
   border-radius: 0 0 15px 15px;
-  background: #f2e7d3;
-  box-shadow: inset 0 0 0 3px #b99363, inset 0 0 0 6px rgba(255, 249, 231, .8);
+  background: radial-gradient(ellipse at 78% 25%, #fffcf0, transparent 55%), linear-gradient(100deg, #c8bda8, #ece6d7 40%, #e1d8c5);
+  box-shadow: inset 0 0 0 1px #a48d70, inset 0 12px 25px #322c2630;
 }
 
 .stable-yard-scene::before {
@@ -893,14 +993,20 @@ progress::-moz-progress-bar {
   pointer-events: none;
 }
 
+.stable-yard-stage {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+}
+
 .stable-yard-ceiling {
   position: absolute;
   top: 0;
   right: 0;
   left: 0;
-  height: 17%;
+  height: 42px;
   min-height: 35px;
-  background: repeating-linear-gradient(90deg, #382619 0 8px, #68482e 8px 12px, #48301e 12px 17px, #765538 17px 60px);
+  background: repeating-linear-gradient(90deg, #41392e 0 9px, #756149 9px 12px, #514332 12px 16px, #8a7154 16px 110px);
   box-shadow: 0 5px 8px rgba(38, 25, 16, .28);
 }
 
@@ -921,28 +1027,28 @@ progress::-moz-progress-bar {
 .stable-yard-planks {
   position: absolute;
   right: 0;
-  bottom: 22%;
+  bottom: var(--stable-floor, 45%);
   left: 0;
   height: 23%;
   background:
-    repeating-linear-gradient(90deg, transparent 0 22px, rgba(58, 34, 18, .55) 22px 25px, rgba(226, 190, 143, .38) 25px 27px, transparent 27px 48px),
-    repeating-linear-gradient(2deg, transparent 0 18px, rgba(57, 36, 20, .26) 18px 20px),
-    linear-gradient(90deg, #835a36, #a77a4d 18%, #8d623c 36%, #ad8052 54%, #855a35 74%, #a77a4d);
+    repeating-linear-gradient(90deg, transparent 0 57px, #3d302433 57px 59px, #ebd8ae55 59px 60px, transparent 60px 118px),
+    repeating-linear-gradient(1deg, transparent 0 9px, #4932210d 9px 10px, transparent 10px 17px),
+    linear-gradient(90deg, #92724f, #ae906b 30%, #947754 65%, #b19772);
   box-shadow: inset 0 5px 8px rgba(58, 37, 19, .17), 0 2px 4px rgba(44, 30, 18, .2);
 }
 
 .stable-yard-window {
   position: absolute;
-  top: 20%;
+  top: 44px;
   right: 12%;
-  width: 70px;
-  height: 82px;
+  width: 65px;
+  height: 70px;
   border: 6px solid #674529;
   border-radius: 36px 36px 6px 6px;
   background:
     linear-gradient(90deg, transparent calc(50% - 1px), rgba(205, 218, 216, .75) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
     linear-gradient(180deg, transparent 52%, rgba(205, 218, 216, .75) 52% 54%, transparent 54%),
-    linear-gradient(145deg, #29434b, #15282e 58%, #1e353a);
+    linear-gradient(180deg, #b4d8e3, #e5eee2 57%, #8a9d70 58%, #536d4c);
   box-shadow: 0 0 0 2px #b18b5e, inset 0 0 0 2px rgba(229, 239, 232, .18), 0 4px 8px rgba(52, 35, 22, .2);
 }
 
@@ -957,6 +1063,22 @@ progress::-moz-progress-bar {
 
 .stable-yard-window i:first-child { top: 34%; }
 .stable-yard-window i:last-child { top: 69%; }
+
+.stable-yard-window--left {
+  right: auto;
+  left: 13%;
+}
+
+.stable-yard-hay-roll {
+  position: absolute;
+  left: 36%;
+  bottom: calc(var(--stable-floor, 150px) - 17px);
+  z-index: 2;
+  width: 72px;
+  height: 54px;
+  background: url("/images/stable-hay-roll.svg") center / contain no-repeat;
+  pointer-events: none;
+}
 
 .stable-yard-pillar {
   position: absolute;
@@ -974,7 +1096,7 @@ progress::-moz-progress-bar {
 
 .stable-yard-led-lights {
   position: absolute;
-  top: 17%;
+  top: 42px;
   right: 8%;
   left: 8%;
   height: 2px;
@@ -1010,25 +1132,27 @@ progress::-moz-progress-bar {
   right: 0;
   bottom: 0;
   left: 0;
-  height: 23%;
+  height: var(--stable-floor, 45%);
   background:
-    repeating-linear-gradient(14deg, transparent 0 7px, rgba(255, 238, 170, .7) 7px 8px, transparent 8px 14px),
-    repeating-linear-gradient(169deg, transparent 0 11px, rgba(153, 104, 40, .36) 11px 12px, transparent 12px 19px),
-    linear-gradient(180deg, #edcf83 0%, #dfb85f 48%, #c99642 100%);
-  box-shadow: inset 0 5px 8px rgba(117, 77, 29, .2), 0 -2px 4px rgba(104, 70, 32, .18);
+    url("/images/stable-straw.svg"),
+    radial-gradient(ellipse at 24% 72%, #8c734b45, transparent 36%),
+    radial-gradient(ellipse at 76% 25%, #ead39d70, transparent 55%),
+    linear-gradient(180deg, #a28a5c, #b69b66 48%, #c6ab75);
+  background-size: 340px 213px, auto, auto, auto;
+  box-shadow: inset 0 8px 14px #51412f35, 0 -1px 3px #68503026;
 }
 
 .stable-yard-hay {
   position: absolute;
   right: 6%;
-  bottom: 19%;
+  bottom: var(--stable-floor, 44%);
   z-index: 2;
   width: 44px;
   height: 28px;
   border: 1px solid #b28a3b;
-  border-radius: 5px;
-  background: repeating-linear-gradient(0deg, #e3bf6d 0 5px, #d4ac52 5px 7px);
-  box-shadow: 0 3px 4px rgba(76, 57, 29, .14);
+  border-radius: 3px 6px 4px 3px;
+  background: url("/images/stable-straw.svg") center / 95px 60px, linear-gradient(165deg, #e3c98c, #b49556);
+  box-shadow: inset 0 2px 2px #fff1ba66, inset -3px -3px 4px #7b622e44, 1px 4px 5px #4c391d30;
   transform: skewY(-4deg);
   pointer-events: none;
 }
@@ -1037,8 +1161,9 @@ progress::-moz-progress-bar {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 1px;
-  background: rgba(142, 104, 35, .45);
+  width: 2px;
+  background: #796a42;
+  box-shadow: 1px 0 0 #e7d5a06b;
 }
 
 .stable-yard-hay span:nth-child(1) { left: 12px; }
@@ -1049,8 +1174,8 @@ progress::-moz-progress-bar {
   position: absolute;
   left: 0;
   z-index: 3;
-  width: 150px;
-  height: 130px;
+  width: 120px;
+  height: 108px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1074,9 +1199,9 @@ progress::-moz-progress-bar {
   bottom: 0;
   left: 50%;
   display: block;
-  width: 150px;
-  height: 130px;
-  transform: translateX(-50%) scale(.76);
+  width: 120px;
+  height: 108px;
+  transform: translateX(-50%) scale(.92);
   transform-origin: center bottom;
   transition: transform 180ms ease-in-out;
 }
@@ -1087,11 +1212,12 @@ progress::-moz-progress-bar {
 
 .stable-yard-horse__name-pill {
   position: absolute;
-  top: 22px;
-  left: 99%;
+  top: -4px;
+  left: 50%;
   z-index: 2;
   display: flex;
-  max-width: 146px;
+  max-width: 118px;
+  width: max-content;
   align-items: center;
   gap: 5px;
   overflow: hidden;
@@ -1105,17 +1231,56 @@ progress::-moz-progress-bar {
   text-overflow: ellipsis;
   white-space: nowrap;
   box-shadow: 0 2px 5px rgba(49, 58, 44, .16);
-  transform: translateX(-100%);
+  transform: translateX(-50%);
 }
 
 .stable-yard-horse[data-direction="left"] .stable-yard-horse__name-pill {
-  left: 1%;
-  transform: translateX(0);
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .stable-yard-horse__name-pill > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.stable-yard-horse__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.stable-yard-horse:hover,
+.stable-yard-horse:focus-within { z-index: 8; }
+
+.stable-yard-horse:hover .stable-yard-horse__name-pill {
+  border-color: #719285;
+  background: #fff;
+}
+
+.stable-yard-daylight {
+  position: absolute;
+  top: 125px;
+  right: 5%;
+  width: 55%;
+  height: 230px;
+  background: linear-gradient(125deg, transparent 10%, #fff8d838 40%, #fffce51a 65%, transparent 80%);
+  transform: skewX(-22deg);
+  pointer-events: none;
+}
+
+.stable-yard-trough {
+  position: absolute;
+  left: 6%;
+  bottom: var(--stable-floor, 45%);
+  width: 52px;
+  height: 22px;
+  border: 3px solid #58635e;
+  border-top: 5px solid #879b97;
+  border-radius: 4px 4px 12px 12px;
+  background: linear-gradient(#728780 0 20%, #45554f 25% 100%);
+  box-shadow: 2px 4px 5px #302e2826;
 }
 
 .stable-yard-horse__health-dot {
@@ -1131,17 +1296,17 @@ progress::-moz-progress-bar {
   bottom: 0;
   left: 50%;
   display: block;
-  width: 142px;
-  height: 95px;
+  width: 114px;
+  height: 101px;
   transform: translateX(-50%);
 }
 
 .stable-yard-figure {
   display: block;
-  width: 142px;
-  height: 95px;
+  width: 114px;
+  height: auto;
   overflow: visible;
-  filter: drop-shadow(0 3px 2px rgba(50, 41, 29, .2));
+  filter: drop-shadow(0 2px 1px rgba(50, 41, 29, .12));
   transform-origin: center;
   transition: transform 180ms ease-in-out;
 }

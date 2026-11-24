@@ -1,0 +1,349 @@
+.equine-sidebar {
+  width: 272px;
+  flex: 0 0 272px;
+  padding: 16px 12px 12px;
+  transition:
+    width 200ms ease,
+    flex-basis 200ms ease,
+    transform 200ms ease;
+  z-index: 45;
+}
+.equine-sidebar-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 72px;
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+.equine-sidebar-brand > a {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.equine-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: #1040c5;
+  color: white;
+  font-size: 25px;
+  font-weight: 800;
+  font-style: italic;
+}
+.equine-sidebar .horse-sidebar-scroll {
+  margin: 0;
+  padding: 0 0 var(--horse-account-height, 72px);
+}
+.equine-sidebar nav {
+  display: block;
+}
+.equine-menu-section + .equine-menu-section {
+  margin-top: 18px;
+}
+.equine-section-label {
+  padding: 8px 4px;
+  margin: 0 4px 8px;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 10px;
+  font-weight: 600 !important;
+  letter-spacing: 0.07em;
+  color: #6a87ae !important;
+  white-space: nowrap;
+}
+.equine-sidebar .equine-menu-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 46px;
+  gap: 10px;
+  margin-bottom: 4px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 8px !important;
+  color: #42516a;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  background: transparent;
+  text-decoration: none;
+}
+.equine-menu-row:hover {
+  background: #f1f5fb !important;
+}
+.equine-menu-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 8px;
+  background: #f0f4fa;
+  color: #58708d;
+}
+.equine-menu-text {
+  flex: 1;
+  white-space: nowrap;
+}
+.equine-sidebar .equine-menu-row.active {
+  background: linear-gradient(120deg, #1040c5, #2456dd) !important;
+  color: white !important;
+}
+.equine-menu-row.active .equine-menu-icon {
+  background: rgb(255 255 255 / 15%);
+  color: white;
+}
+.equine-menu-row.has-active-child {
+  color: #1040c5;
+  background: #eff5ff;
+}
+.equine-menu-row.has-active-child .equine-menu-icon {
+  color: #1040c5;
+  background: #e2ecff;
+}
+.equine-menu-chevron {
+  flex-shrink: 0;
+  transition: transform 150ms ease;
+}
+.equine-menu-chevron.is-expanded {
+  transform: rotate(90deg);
+}
+.equine-menu-badge {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 20px;
+  background: #dbeafe;
+  color: #1040c5;
+  font-size: 10px;
+}
+.equine-sidebar .equine-submenu {
+  margin: 4px 0 10px 30px;
+  border-left: 1px solid #dbe3ed;
+  padding-left: 12px;
+}
+.equine-sidebar .equine-submenu[hidden] {
+  display: none;
+}
+.equine-sidebar .equine-submenu a {
+  min-height: 36px;
+  padding: 6px;
+  font-size: 12px;
+  gap: 9px;
+  background: none !important;
+}
+.equine-submenu a > span {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  background: #94a3b8;
+  border-radius: 50%;
+}
+.equine-sidebar .equine-submenu a[aria-current="page"] {
+  color: #1040c5;
+  font-weight: 600;
+}
+.equine-submenu a[aria-current="page"] > span {
+  background: #1040c5;
+}
+.equine-sidebar-footer {
+  padding: 12px 0 0;
+}
+.equine-account-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: white;
+}
+.equine-account-card > div {
+  flex: 1;
+  min-width: 0;
+}
+.equine-account-card strong,
+.equine-account-card small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.equine-account-card strong {
+  font-size: 12px;
+  color: #101732;
+}
+.equine-account-card small {
+  font-size: 10px;
+  color: #64748b;
+}
+.equine-account-card button {
+  padding: 6px;
+  color: #64748b;
+  border-radius: 6px;
+}
+.equine-account-card button:hover {
+  color: #be123c;
+  background: #fff1f2;
+}
+.equine-sidebar-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.equine-sidebar.is-collapsed {
+  width: 72px;
+  flex-basis: 72px;
+  padding: 16px 8px 12px;
+}
+.is-collapsed .equine-sidebar-brand {
+  justify-content: center;
+}
+.is-collapsed .equine-section-label {
+  height: 12px;
+  font-size: 0;
+  padding: 0;
+  margin: 0 8px 8px;
+}
+.equine-sidebar.is-collapsed .equine-menu-row {
+  justify-content: center;
+  width: 48px;
+  min-height: 48px;
+  margin: 0 auto 5px;
+  padding: 4px;
+  background: transparent !important;
+}
+.is-collapsed .equine-menu-icon {
+  width: 40px;
+  height: 40px;
+  flex-basis: 40px;
+}
+.is-collapsed .equine-menu-text,
+.is-collapsed .equine-menu-chevron,
+.is-collapsed .equine-menu-badge {
+  display: none;
+}
+.is-collapsed
+  .equine-menu-row:is(.active, .has-active-child)
+  .equine-menu-icon {
+  color: white;
+  background: linear-gradient(135deg, #1040c5, #4272eb);
+  box-shadow: 0 3px 8px rgb(16 64 197 / 20%);
+}
+.equine-account-trigger {
+  margin: 4px auto;
+  border: 0;
+}
+.equine-sidebar-flyout {
+  position: fixed;
+  z-index: 55;
+  min-width: 120px;
+  max-width: min(260px, calc(100vw - 92px));
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  padding: 0 6px 6px 0;
+  font-family: "Be Vietnam Pro", sans-serif;
+}
+.equine-flyout-label {
+  width: fit-content;
+  padding: 8px 14px;
+  border-radius: 20px;
+  background: #2f3645;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgb(15 23 42 / 12%);
+}
+.equine-flyout-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  margin-top: 6px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgb(15 23 42 / 15%);
+}
+.equine-flyout-card a,
+.equine-flyout-card button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 2px solid transparent;
+  border-radius: 20px;
+  background: #2f3645;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.equine-flyout-card a:hover,
+.equine-flyout-card button:hover {
+  background: #414d63;
+}
+.equine-flyout-card a[aria-current="page"] {
+  border-color: #60a5fa;
+}
+.equine-account-flyout > span {
+  padding: 2px 6px 6px;
+  color: #475569;
+  font-size: 11px;
+}
+.equine-sidebar :is(a, button):focus-visible,
+.equine-sidebar-flyout :is(a, button):focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+.equine-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 59;
+  background: rgb(15 23 42 / 40%);
+}
+@media (min-width: 1024px) {
+  .equine-sidebar {
+    position: sticky;
+    top: 0;
+    left: auto;
+    height: 100dvh;
+  }
+}
+@media (max-width: 1023px) {
+  .horse-app {
+    display: block;
+  }
+  .equine-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 272px;
+    height: 100dvh;
+    max-width: 85vw;
+    z-index: 60;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition:
+      transform 200ms ease,
+      visibility 200ms;
+  }
+  .equine-sidebar.is-open {
+    width: 272px;
+    z-index: 60;
+    transform: translateX(0);
+    visibility: visible;
+  }
+  .equine-sidebar-brand {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .equine-sidebar,
+  .equine-menu-chevron {
+    transition: none;
+  }
+}

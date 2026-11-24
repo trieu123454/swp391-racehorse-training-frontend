@@ -1,7 +1,4 @@
-import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, authenticatedRequest, validateSession } from "@/api/client";
-import { getAccessToken } from "@/lib/session";
-
-const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080";
+import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, authenticatedRequest, authenticatedUploadWithProgress } from "@/api/client";
 
 const HORSE_CACHE_TTL_MS = 45_000;
 const horseListCache = new Map<string, { data: HorsePage; expiresAt: number }>();
@@ -46,6 +43,7 @@ export type Horse = {
   id: string;
   horse_name: string;
   breed: string | null;
+  gender?: string | null;
   birth_year: number | null;
   height_cm: number | null;
   current_weight_kg: number | null;
@@ -81,6 +79,7 @@ export type OwnerPage = { items: Owner[]; hasMore: boolean; page: number; size: 
 export type HorseInput = {
   horseName: string;
   breed: string | null;
+  gender?: string | null;
   birthYear: number | null;
   heightCm: number | null;
   currentWeightKg: number | null;
@@ -147,6 +146,21 @@ export async function listHorses(params: {
   return res;
 }
 
+export function peekCachedHorse(id: string): Horse | null {
+  if (!id) return null;
+  const detail = horseDetailCache.get(id);
+  if (detail) return detail.data;
+  for (const entry of horseListCache.values()) {
+    const found = entry.data.items?.find((item) => item.id === id);
+    if (found) return found;
+  }
+  return null;
+}
+
+export function peekCachedStables(): Stable[] | null {
+  return horseStablesCache.get("all")?.data ?? null;
+}
+
 export async function getHorse(id: string) {
   const now = Date.now();
   const cached = horseDetailCache.get(id);
@@ -181,6 +195,56 @@ export function getHorseOwnershipHistory(id: string) {
   return horseRequest<OwnershipHistoryEntry[]>(`/${id}/ownership-history`);
 }
 
+export function getHorseDocumentUrl(horseId: string, docId: string, download = false) {
+  return horseRequest<{ url: string; expiresIn: number }>(
+    `/${encodeURIComponent(horseId)}/documents/${encodeURIComponent(docId)}/url?download=${download ? "true" : "false"}`,
+  );
+}
+
+export async function openFreshDocument(
+  fetchUrl: () => Promise<{ url: string }>,
+  fallbackUrl: string,
+  downloadFilename?: string,
+) {
+  if (downloadFilename) {
+    let targetUrl = fallbackUrl;
+    try {
+      const result = await fetchUrl();
+      if (result.url) targetUrl = result.url;
+    } catch {
+      // Fallback to existing signed URL if fresh signing fails.
+    }
+    if (!targetUrl) return;
+    const anchor = document.createElement("a");
+    anchor.href = targetUrl;
+    anchor.download = downloadFilename;
+    anchor.rel = "noopener noreferrer";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    return;
+  }
+
+  const win = window.open("", "_blank");
+  if (win) win.opener = null;
+  let targetUrl = fallbackUrl;
+  try {
+    const result = await fetchUrl();
+    if (result.url) targetUrl = result.url;
+  } catch {
+    // Fallback to existing signed URL if fresh signing fails.
+  }
+  if (!targetUrl) {
+    win?.close();
+    return;
+  }
+  if (win && !win.closed) {
+    win.location.replace(targetUrl);
+  } else {
+    window.open(targetUrl, "_blank", "noopener,noreferrer");
+  }
+}
+
 export async function getHorseStables() {
   const now = Date.now();
   const cached = horseStablesCache.get("all");
@@ -203,6 +267,13 @@ export async function saveHorse(input: HorseInput, id?: string) {
     body: JSON.stringify(input),
   });
   invalidateHorseCaches();
+  if (res?.id) {
+    const now = Date.now();
+    horseDetailCache.set(res.id, { data: res, expiresAt: now + HORSE_CACHE_TTL_MS });
+    if (res.image_signed_url) {
+      horseImageUrlCache.set(res.id, { url: res.image_signed_url, expiresAt: now + 240_000 });
+    }
+  }
   return res;
 }
 
@@ -221,50 +292,19 @@ export async function uploadHorseImage(
   progress: (value: number) => void,
   signal: AbortSignal,
 ): Promise<string> {
-  await validateSession();
-  if (signal.aborted) throw new DOMException("Đã hủy tải ảnh", "AbortError");
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const abort = () => xhr.abort();
-    signal.addEventListener("abort", abort, { once: true });
-    xhr.open("POST", `${base}/api/horses/images`);
-    xhr.setRequestHeader("Authorization", `Bearer ${getAccessToken()}`);
-    xhr.timeout = 60000;
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) progress(Math.round((e.loaded / e.total) * 100));
-    };
-    xhr.onloadend = () => signal.removeEventListener("abort", abort);
-    xhr.onerror = () =>
-      reject(
-        new Error(
-          "Không kết nối được máy chủ. Bạn có thể lưu hồ sơ và bổ sung ảnh sau.",
-        ),
-      );
-    xhr.ontimeout = () =>
-      reject(new Error("Tải ảnh quá thời gian chờ. Vui lòng thử lại."));
-    xhr.onabort = () =>
-      reject(new DOMException("Đã hủy tải ảnh", "AbortError"));
-    xhr.onload = () => {
-      let body: { imagePath?: string; message?: string } = {};
-      try {
-        body = JSON.parse(xhr.responseText);
-      } catch {
-        // Use the safe fallback below.
-      }
-      if (xhr.status >= 200 && xhr.status < 300 && body.imagePath)
-        resolve(body.imagePath);
-      else
-        reject(
-          new ApiRequestError(
-            body.message || "Không tải được ảnh. Bạn vẫn có thể lưu hồ sơ.",
-            xhr.status,
-          ),
-        );
-    };
-    const data = new FormData();
-    data.append("file", file);
-    xhr.send(data);
-  });
+  const data = new FormData();
+  data.append("file", file);
+  const body = await authenticatedUploadWithProgress<{ imagePath?: string }>(
+    "/api/horses/images",
+    "POST",
+    data,
+    (fraction) => progress(Math.round(fraction * 100)),
+    signal,
+  );
+  if (!body?.imagePath) {
+    throw new ApiRequestError("Không tải được ảnh. Bạn vẫn có thể lưu hồ sơ.", 500);
+  }
+  return body.imagePath;
 }
 
 export const statusLabels: Record<string, string> = {
@@ -275,6 +315,19 @@ export const statusLabels: Record<string, string> = {
   "Under Observation": "Cần theo dõi",
   Sick: "Đang bệnh",
 };
+
+export const genderLabels: Record<string, string> = {
+  Male: "Đực",
+  Stallion: "Đực",
+  Colt: "Đực",
+  Female: "Cái",
+  Mare: "Cái",
+  Filly: "Cái",
+  Gelding: "Đực thiến",
+};
+
+export const horseGender = (value?: string | null) =>
+  value ? (genderLabels[value] || value) : null;
 
 export const horseStatus = (value: string) => statusLabels[value] || value;
 export const errorMessage = (error: unknown) =>

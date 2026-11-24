@@ -45,6 +45,8 @@ export type HealthExam = {
   id: string;
   horse_id: string;
   exam_date: string;
+  exam_type?: string | null;
+  conclusion?: string | null;
   doctor_id?: number;
   doctor?: VetPerson | null;
   temperature_c: number | string | null;
@@ -254,6 +256,8 @@ function call<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   });
 }
 
+let workloadEndpointUnavailable = false;
+
 export const veterinarianApi = {
   overview(section?: string) {
     const query = queryString({ section });
@@ -342,6 +346,23 @@ export const veterinarianApi = {
     const query = queryString({ horse_id: horse, page: 1, limit: 100 });
     return call<ApiPage<CareSchedule>>(`/api/periodic-care-schedules?${query}`);
   },
+  async allSchedules(horse?: string) {
+    const first = await veterinarianApi.schedules(horse);
+    if (!Array.isArray(first.data)) throw new Error("Dữ liệu lịch chăm sóc không hợp lệ.");
+    const data = [...first.data];
+    const limit = first.limit || 100;
+    const pageCount = Math.ceil(first.total / limit);
+    for (let start = 2; start <= pageCount; start += 4) {
+      const pages = await Promise.all(Array.from({ length: Math.min(4, pageCount - start + 1) }, (_, index) =>
+        call<ApiPage<CareSchedule>>(`/api/periodic-care-schedules?${queryString({ horse_id: horse, page: start + index, limit })}`),
+      ));
+      for (const result of pages) {
+        if (!Array.isArray(result.data)) throw new Error("Dữ liệu lịch chăm sóc không hợp lệ.");
+        data.push(...result.data);
+      }
+    }
+    return { ...first, data };
+  },
   calendar(from: string, to: string, includeContext = false, scope: "mine" | "all" = "mine") {
     const query = queryString({ from, to, scope, include_context: includeContext, page: 1, limit: 100 });
     return call<CareCalendar>(`/api/vet/calendar?${query}`);
@@ -373,8 +394,8 @@ export const veterinarianApi = {
   veterinarians() {
     return call<{ id: number | string; name: string; email: string; role_name?: string }[]>("/api/veterinarians");
   },
-  workloads() {
-    return call<{
+  async workloads() {
+    type Workload = {
       id: number | string;
       name: string;
       email: string;
@@ -382,7 +403,56 @@ export const veterinarianApi = {
       total_schedules: number;
       overdue_count: number;
       today_count: number;
-    }[]>("/api/veterinarian/workload");
+    };
+    if (!workloadEndpointUnavailable) {
+      try {
+        const response = await call<Workload[] | { data: Workload[] } | { items: Workload[] }>("/api/veterinarian/workload");
+        const items = Array.isArray(response) ? response : response && ("data" in response ? response.data : "items" in response ? response.items : undefined);
+        if (!Array.isArray(items)) throw new Error("Dữ liệu tải công việc bác sĩ không hợp lệ.");
+        return items;
+      } catch (error) {
+        if (!(error instanceof ApiRequestError) || error.status !== 404) throw error;
+        workloadEndpointUnavailable = true;
+      }
+    }
+
+    // Older backends have no workload endpoint. Count the complete schedule list
+    // by assigned doctor instead; never substitute invented doctor statistics.
+    const [doctors, firstPage] = await Promise.all([
+      veterinarianApi.veterinarians(),
+      veterinarianApi.schedules(),
+    ]);
+    if (!Array.isArray(doctors) || !Array.isArray(firstPage.data)) {
+      throw new Error("Dữ liệu phân bổ công việc bác sĩ không hợp lệ.");
+    }
+    const schedules = [...firstPage.data];
+    const pageSize = firstPage.limit || 100;
+    const pageCount = Math.ceil(firstPage.total / pageSize);
+    for (let page = 2; page <= pageCount; page++) {
+      const result = await call<ApiPage<CareSchedule>>(`/api/periodic-care-schedules?${queryString({ page, limit: pageSize })}`);
+      if (!Array.isArray(result.data)) throw new Error("Dữ liệu lịch chăm sóc không hợp lệ.");
+      schedules.push(...result.data);
+    }
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    return doctors.map((doctor): Workload => {
+      const assigned = schedules.filter((schedule) => {
+        const doctorId = schedule.assigned_doctor_id ?? schedule.assigned_doctor?.id;
+        return doctorId != null && String(doctorId) === String(doctor.id)
+          && (Boolean(schedule.frequency_days) || !["Completed", "Cancelled"].includes(schedule.event_status ?? ""));
+      });
+      return {
+        ...doctor,
+        total_schedules: assigned.length,
+        today_count: assigned.filter((schedule) => (schedule.event?.event_date ?? schedule.next_due_date) === today && !["Completed", "Cancelled"].includes(schedule.event_status ?? "")).length,
+        overdue_count: assigned.filter((schedule) => {
+          const endTime = schedule.event?.end_time?.slice(0, 5);
+          return Boolean(schedule.is_overdue) || schedule.next_due_date < today
+            || (schedule.next_due_date === today && Boolean(endTime && time > endTime) && schedule.event_status === "Scheduled");
+        }).length,
+      };
+    });
   },
   reassignSchedule(id: string, assignedDoctorId: number | string | null) {
     return call<CareSchedule>(`/api/periodic-care-schedules/${id}/reassign`, "PATCH", {

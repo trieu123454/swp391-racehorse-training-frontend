@@ -836,4 +836,3 @@ export function enhanceTrackEnvironment(
   arch.traverse((part) => excludedFromOptimization.add(part));
   track.add(arch);
 }
-

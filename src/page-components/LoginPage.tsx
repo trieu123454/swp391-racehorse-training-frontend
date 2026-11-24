@@ -93,12 +93,12 @@ export default function LoginPage() {
   return (
     <main className="auth-page auth-page--standard overflow-x-hidden">
       <div className="auth-topbar">
-        <a
+        <Link
           className="auth-back"
           href={Routes.home}
         >
           <ArrowLeft size={17} /> Về trang chủ
-        </a>
+        </Link>
       </div>
 
       <div className="auth-layout">
@@ -109,6 +109,9 @@ export default function LoginPage() {
             <h1 className="auth-title">
               Đăng nhập
             </h1>
+            <p className="auth-subtitle">
+              Truy cập không gian quản lý và vận hành câu lạc bộ ngựa đua.
+            </p>
 
 
             <form className="auth-form" onSubmit={handleSubmit}>

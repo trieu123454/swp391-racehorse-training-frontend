@@ -9,11 +9,10 @@ import type { AuthUser } from "@/lib/types";
 import { Brand } from "./Brand";
 
 const links = [
-  ["Giới thiệu", Routes.homeSection("gioi-thieu")],
-  ["Tầm nhìn", Routes.homeSection("tam-nhin")],
-  ["Giá trị cốt lõi", Routes.homeSection("gia-tri")],
-  ["Hệ sinh thái", Routes.homeSection("vai-tro")],
-  ["Vận hành", Routes.homeSection("van-hanh")],
+  ["Vai trò", Routes.homeSection("vai-tro")],
+  ["Phân hệ", Routes.homeSection("van-hanh")],
+  ["Về Equine", Routes.homeSection("gioi-thieu")],
+  ["An toàn y tế", Routes.homeSection("an-toan")],
 ];
 
 export function SiteHeader() {
@@ -30,7 +29,7 @@ export function SiteHeader() {
   const systemLabel = currentUser ? "Vào bảng điều khiển" : "Truy cập hệ thống";
 
   return (
-    <header className="site-header fixed inset-x-0 top-0 z-50 border-b border-slate-200 bg-white/95 text-[#1F2125] backdrop-blur-md">
+    <header className="site-header fixed inset-x-0 top-0 z-50 border-b border-slate-200 bg-white/95 text-[#101732] backdrop-blur-md">
       <div className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-8 px-6 sm:px-8 lg:h-[84px] lg:px-12">
         <Link
           aria-label="Equine Racehorse System - Về trang chủ"
@@ -46,7 +45,7 @@ export function SiteHeader() {
         >
           {links.map(([label, href]) => (
             <Link
-              className="nav-link shrink-0 whitespace-nowrap text-[15px] font-normal text-[#1F2125] transition-colors hover:text-[#1464F4] xl:text-base"
+              className="nav-link shrink-0 whitespace-nowrap text-[15px] font-medium text-[#101732] transition-colors hover:text-[#1040C5] xl:text-base"
               href={href}
               key={label}
             >
@@ -86,7 +85,7 @@ export function SiteHeader() {
           <div className="flex flex-col divide-y divide-slate-100">
             {links.map(([label, href]) => (
               <Link
-                className="py-3.5 text-base font-medium text-[#1F2125] transition-colors hover:text-[#1464F4]"
+                className="py-3.5 text-base font-medium text-[#101732] transition-colors hover:text-[#1040C5]"
                 href={href}
                 key={label}
                 onClick={() => setOpen(false)}

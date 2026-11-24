@@ -3,35 +3,88 @@ import { Routes } from "@/routes/Routes";
 /* eslint-disable @next/next/no-img-element */
 
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Save, Upload, X } from "lucide-react";
 import { useHorseUser } from "@/components/horses/HorseShell";
 import { Notice } from "@/components/horses/HorseUI";
-import { errorMessage, getHorse, getHorseStables, saveHorse, uploadHorseImage, type Stable } from "@/api/horses/api";
+import { errorMessage, getHorse, getHorseStables, peekCachedHorse, peekCachedStables, saveHorse, uploadHorseImage, type Horse, type Stable } from "@/api/horses/api";
+
+function formFromHorse(currentHorse: Horse, nextStables: Stable[]) {
+  return {
+    horseName: currentHorse.horse_name,
+    breed: currentHorse.breed ?? "",
+    gender: currentHorse.gender ?? "",
+    birthYear: currentHorse.birth_year == null ? "" : String(currentHorse.birth_year),
+    heightCm: currentHorse.height_cm == null ? "" : String(currentHorse.height_cm),
+    currentWeightKg: currentHorse.current_weight_kg == null ? "" : String(currentHorse.current_weight_kg),
+    pedigreeFather: currentHorse.pedigree_father ?? "",
+    pedigreeMother: currentHorse.pedigree_mother ?? "",
+    microchipNumber: currentHorse.microchip_number ?? "",
+    passportNumber: currentHorse.passport_number ?? "",
+    stableBoxId: currentHorse.stable_box_id ?? nextStables[0]?.id ?? "",
+  };
+}
 
 export default function EditHorsePage() {
   const router = useRouter();
   const user = useHorseUser();
   const params = useParams<{ id: string }>();
   const horseId = params?.id ?? "";
-  const [horse, setHorse] = useState<Awaited<ReturnType<typeof getHorse>> | null>(null);
-  const [form, setForm] = useState<{ horseName: string; breed: string; birthYear: number; heightCm: string; currentWeightKg: string; pedigreeFather: string; pedigreeMother: string; microchipNumber: string; passportNumber: string; stableBoxId: string }>({ horseName: "", breed: "", birthYear: 2024, heightCm: "", currentWeightKg: "", pedigreeFather: "", pedigreeMother: "", microchipNumber: "", passportNumber: "", stableBoxId: "" });
+  const initialHorse = peekCachedHorse(horseId);
+  const initialStables = peekCachedStables() ?? [];
+  const hydratedFromCacheRef = useRef(Boolean(initialHorse));
+  const [horse, setHorse] = useState<Horse | null>(initialHorse);
+  const [form, setForm] = useState(() => initialHorse ? formFromHorse(initialHorse, initialStables) : { horseName: "", breed: "", gender: "", birthYear: "", heightCm: "", currentWeightKg: "", pedigreeFather: "", pedigreeMother: "", microchipNumber: "", passportNumber: "", stableBoxId: "" });
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [imagePath, setImagePath] = useState<string | null>(null);
+  const [imagePath, setImagePath] = useState<string | null>(initialHorse?.image_url ?? null);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
-  const [stables, setStables] = useState<Stable[]>([]);
+  const [stables, setStables] = useState<Stable[]>(initialStables);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const isManager = !user || user.roleName === "CLUB_MANAGER";
+
   useEffect(() => {
+    if (!isManager) return;
+    let active = true;
+    const cachedHorse = peekCachedHorse(horseId);
+    const cachedStables = peekCachedStables() ?? [];
+    if (cachedHorse) {
+      setHorse(cachedHorse);
+      setStables(cachedStables);
+      setForm(formFromHorse(cachedHorse, cachedStables));
+      setImagePath(cachedHorse.image_url);
+      hydratedFromCacheRef.current = true;
+    }
     Promise.all([getHorse(horseId), getHorseStables()]).then(([currentHorse, nextStables]) => {
+      if (!active) return;
       setHorse(currentHorse);
       setStables(nextStables);
-      setForm({ horseName: currentHorse.horse_name, breed: currentHorse.breed ?? "", birthYear: currentHorse.birth_year ?? 2024, heightCm: currentHorse.height_cm == null ? "" : String(currentHorse.height_cm), currentWeightKg: currentHorse.current_weight_kg == null ? "" : String(currentHorse.current_weight_kg), pedigreeFather: currentHorse.pedigree_father ?? "", pedigreeMother: currentHorse.pedigree_mother ?? "", microchipNumber: currentHorse.microchip_number ?? "", passportNumber: currentHorse.passport_number ?? "", stableBoxId: currentHorse.stable_box_id });
-      setImagePath(currentHorse.image_url);
-    }).catch((reason) => setError(errorMessage(reason)));
-  }, [horseId]);
+      if (!hydratedFromCacheRef.current) {
+        setForm(formFromHorse(currentHorse, nextStables));
+        setImagePath(currentHorse.image_url);
+      }
+    }).catch((reason) => {
+      if (active && !cachedHorse) setError(errorMessage(reason));
+    });
+    return () => { active = false; };
+  }, [horseId, isManager]);
+
+  if (user && user.roleName !== "CLUB_MANAGER") {
+    return (
+      <main className="min-h-screen bg-slate-50 p-6">
+        <div className="mx-auto max-w-[800px] rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <Notice error>Chỉ Club Manager mới có quyền chỉnh sửa hồ sơ ngựa.</Notice>
+          <div className="mt-4">
+            <button type="button" className="gold-button" onClick={() => router.push(Routes.horse(horseId))}>
+              Quay lại chi tiết
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (!horse && !error) {
     return (
@@ -58,33 +111,58 @@ export default function EditHorsePage() {
     );
   }
 
-  if (user && user.roleName !== "CLUB_MANAGER" && user.roleName !== "HEAD_TRAINER") {
-    return (
-      <main className="min-h-screen bg-slate-50 p-6">
-        <div className="mx-auto max-w-[800px] rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <Notice error>Chỉ Club Manager hoặc HLV Trưởng mới có quyền chỉnh sửa hồ sơ ngựa.</Notice>
-          <div className="mt-4">
-            <button type="button" className="gold-button" onClick={() => router.push(Routes.horse(horseId))}>
-              Quay lại chi tiết
-            </button>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
   const safeHorse = horse;
+  const stableOptions: (Stable & { isCurrentUnavailable?: boolean })[] =
+    safeHorse.stable_box_id && !stables.some((item) => item.id === safeHorse.stable_box_id)
+      ? [
+          {
+            id: safeHorse.stable_box_id,
+            box_code: safeHorse.box_code ?? safeHorse.stable_box_id,
+            section: safeHorse.section ?? "Chuồng hiện tại",
+            capacity: 0,
+            occupied: 0,
+            isCurrentUnavailable: true,
+          },
+          ...stables,
+        ]
+      : stables;
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!form.horseName.trim()) {
-      setError("Tên ngựa không được để trống.");
+    const trimmedName = form.horseName.trim();
+    if (trimmedName.length < 2) {
+      setError("Tên ngựa phải có ít nhất 2 ký tự.");
+      return;
+    }
+    const currentYear = new Date().getFullYear();
+    const parsedBirthYear = form.birthYear.trim() ? Number(form.birthYear.trim()) : null;
+    if (parsedBirthYear !== null && (!Number.isInteger(parsedBirthYear) || parsedBirthYear < 1900 || parsedBirthYear > currentYear)) {
+      setError(`Năm sinh phải là số nguyên từ 1900 đến ${currentYear}.`);
+      return;
+    }
+    if (!form.stableBoxId) {
+      setError("Vui lòng chọn chuồng trại cho ngựa.");
       return;
     }
     setSaving(true);
     setError("");
 
-    void saveHorse({ horseName: form.horseName, breed: form.breed || null, birthYear: form.birthYear || null, heightCm: form.heightCm ? Number(form.heightCm) : null, currentWeightKg: form.currentWeightKg ? Number(form.currentWeightKg) : null, pedigreeFather: form.pedigreeFather || null, pedigreeMother: form.pedigreeMother || null, microchipNumber: form.microchipNumber || null, passportNumber: form.passportNumber || null, stableBoxId: form.stableBoxId, ownerId: safeHorse.owner_id, imagePath, confirmOwnerChange: false }, safeHorse.id).then(() => {
+    void saveHorse({
+      horseName: trimmedName,
+      breed: form.breed.trim() || null,
+      gender: form.gender.trim() || null,
+      birthYear: parsedBirthYear,
+      heightCm: form.heightCm.trim() ? Number(form.heightCm.trim()) : null,
+      currentWeightKg: form.currentWeightKg.trim() ? Number(form.currentWeightKg.trim()) : null,
+      pedigreeFather: form.pedigreeFather.trim() || null,
+      pedigreeMother: form.pedigreeMother.trim() || null,
+      microchipNumber: form.microchipNumber.trim() || null,
+      passportNumber: form.passportNumber.trim() || null,
+      stableBoxId: form.stableBoxId,
+      ownerId: safeHorse.owner_id,
+      imagePath,
+      confirmOwnerChange: false,
+    }, safeHorse.id).then(() => {
       setSaving(false);
       router.push(Routes.horse(safeHorse.id));
     }).catch((reason) => { setSaving(false); setError(errorMessage(reason)); });
@@ -122,17 +200,27 @@ export default function EditHorsePage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
               <span className="field-label">Tên ngựa</span>
-              <input value={form.horseName} onChange={(event) => setForm({ ...form, horseName: event.target.value })} className="field-control w-full" />
+              <input maxLength={100} value={form.horseName} onChange={(event) => setForm({ ...form, horseName: event.target.value })} className="field-control w-full" />
             </label>
 
             <label className="block">
               <span className="field-label">Giống ngựa</span>
-              <input value={form.breed} onChange={(event) => setForm({ ...form, breed: event.target.value })} className="field-control w-full" />
+              <input maxLength={50} value={form.breed} onChange={(event) => setForm({ ...form, breed: event.target.value })} className="field-control w-full" />
+            </label>
+
+            <label className="block">
+              <span className="field-label">Giới tính</span>
+              <select value={form.gender} onChange={(event) => setForm({ ...form, gender: event.target.value })} className="field-control w-full cursor-pointer">
+                <option value="">Chưa cập nhật</option>
+                <option value="Male">Đực</option>
+                <option value="Female">Cái</option>
+                <option value="Gelding">Đực thiến</option>
+              </select>
             </label>
 
             <label className="block">
               <span className="field-label">Năm sinh</span>
-              <input type="number" value={form.birthYear} onChange={(event) => setForm({ ...form, birthYear: Number(event.target.value) || 0 })} className="field-control w-full" />
+              <input type="number" min={1900} max={new Date().getFullYear()} placeholder="Ví dụ: 2021" value={form.birthYear} onChange={(event) => setForm({ ...form, birthYear: event.target.value })} className="field-control w-full" />
             </label>
 
             <label className="block">
@@ -148,20 +236,22 @@ export default function EditHorsePage() {
             <label className="block">
               <span className="field-label">Hộp chuồng</span>
               <select value={form.stableBoxId} onChange={(event) => setForm({ ...form, stableBoxId: event.target.value })} className="field-control w-full cursor-pointer">
-                {stables.map((stable) => (
-                  <option key={stable.id} value={stable.id}>{stable.box_code} - {stable.section}</option>
+                {stableOptions.map((stable) => (
+                  <option key={stable.id} value={stable.id}>
+                    {stable.box_code} - {stable.section}{stable.isCurrentUnavailable ? " (Chuồng hiện tại)" : ` (${stable.occupied}/${stable.capacity})`}
+                  </option>
                 ))}
               </select>
             </label>
 
             <label className="block">
               <span className="field-label">Tên cha (Sire)</span>
-              <input value={form.pedigreeFather} onChange={(event) => setForm({ ...form, pedigreeFather: event.target.value })} className="field-control w-full" />
+              <input maxLength={100} value={form.pedigreeFather} onChange={(event) => setForm({ ...form, pedigreeFather: event.target.value })} className="field-control w-full" />
             </label>
 
             <label className="block">
               <span className="field-label">Tên mẹ (Dam)</span>
-              <input value={form.pedigreeMother} onChange={(event) => setForm({ ...form, pedigreeMother: event.target.value })} className="field-control w-full" />
+              <input maxLength={100} value={form.pedigreeMother} onChange={(event) => setForm({ ...form, pedigreeMother: event.target.value })} className="field-control w-full" />
             </label>
             <label className="block">
               <span className="field-label">Số microchip (nếu có)</span>

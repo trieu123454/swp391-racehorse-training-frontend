@@ -1,3 +1,4 @@
+import "@/styles/notifications.css";
 import type { Metadata } from "next";
 import "@fontsource/be-vietnam-pro/400.css";
 import "@fontsource/be-vietnam-pro/500.css";
@@ -7,6 +8,7 @@ import "@fontsource/be-vietnam-pro/700.css";
 import "@/styles/globals.css";
 import "@/styles/horses.css";
 import "@/styles/design.css";
+import "@/styles/sidebar.css";
 
 export const metadata: Metadata = {
   title: "Equine | Racehorse System",

@@ -4,14 +4,26 @@ import { Routes } from "@/routes/Routes";
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import HorseShell, { useHorseUser } from "@/components/horses/HorseShell";
 import { ApiRequestError, validateSession } from "@/api/client";
+import { veterinarianApi } from "@/api/veterinarian/api";
 import { roleForSlug, routeForRole } from "@/lib/roles";
-import VeterinarianWorkspace from "@/components/veterinarian/VeterinarianWorkspace";
-import HorseOwnerWorkspace from "@/components/horse-owner/HorseOwnerWorkspace";
-import HeadTrainerWorkspace from "@/components/head-trainer/HeadTrainerWorkspace";
-import GroomWorkspace from "@/components/groom/GroomWorkspace";
-import ClubManagerWorkspace from "@/components/club-manager/ClubManagerWorkspace";
+const VeterinarianWorkspace = dynamic(() => import("@/components/veterinarian/VeterinarianWorkspace"), {
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải phân hệ…</p>,
+});
+const HorseOwnerWorkspace = dynamic(() => import("@/components/horse-owner/HorseOwnerWorkspace"), {
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải phân hệ…</p>,
+});
+const HeadTrainerWorkspace = dynamic(() => import("@/components/head-trainer/HeadTrainerWorkspace"), {
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải phân hệ…</p>,
+});
+const GroomWorkspace = dynamic(() => import("@/components/groom/GroomWorkspace"), {
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải phân hệ…</p>,
+});
+const ClubManagerWorkspace = dynamic(() => import("@/components/club-manager/ClubManagerWorkspace"), {
+  loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải phân hệ…</p>,
+});
 
 export default function RoleDashboardPage() {
   const role = useParams<{ role: string }>()?.role ?? "";
@@ -35,7 +47,7 @@ export default function RoleDashboardPage() {
       })
       .catch((reason: unknown) => {
         if (!active) return;
-        if (reason instanceof ApiRequestError && reason.status === 401) {
+        if (reason instanceof ApiRequestError && [400, 401, 403].includes(reason.status)) {
           router.replace(Routes.login);
           return;
         }
@@ -75,6 +87,13 @@ export default function RoleDashboardPage() {
 
 function RoleDashboardContent() {
   const user = useHorseUser();
+  useEffect(() => {
+    if (user.roleName === "VETERINARIAN" || user.roleName === "HEAD_VETERINARIAN") {
+      // Start the request while the workspace JavaScript downloads. The API
+      // client shares this request/cache with the workspace when it mounts.
+      void veterinarianApi.overview().catch(() => {});
+    }
+  }, [user.id, user.roleName]);
 
   return (
     <section className="dashboard-workspace">

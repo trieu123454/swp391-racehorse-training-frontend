@@ -20,7 +20,11 @@ export default function NewHorsePage() {
           </Notice>
         </div>
         <div className="mt-5 flex flex-wrap gap-2">
-          {isManager && <Link className="gold-button" href={Routes.dashboardTab(Routes.dashboardRole("club-manager"), "horse-requests")}>Mở yêu cầu chờ duyệt</Link>}
+          {isManager ? (
+            <Link className="gold-button" href={Routes.dashboardTab(Routes.dashboardRole("club-manager"), "horse-requests")}>Mở yêu cầu chờ duyệt</Link>
+          ) : (
+            <Link className="gold-button" href={Routes.horses}>Mở biểu mẫu đăng ký ngựa</Link>
+          )}
           <Link className="soft-button" href={Routes.horses}>Quay lại danh sách</Link>
         </div>
       </div>

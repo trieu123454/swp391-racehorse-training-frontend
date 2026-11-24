@@ -180,8 +180,48 @@ export function handleRoleChange(id: string, action: "approve" | "reject") {
   return request(`/role-change-requests/${id}`, { method: "PATCH", body: JSON.stringify({ action }) });
 }
 
+export type HorseRegistrationStatusFilter =
+  | "PENDING"
+  | "NEEDS_INFORMATION"
+  | "AWAITING_OWNER_CONSENT"
+  | "APPROVED"
+  | "REJECTED"
+  | "ALL";
+
+export async function listHorseRegistrationRequests(status: HorseRegistrationStatusFilter = "PENDING") {
+  try {
+    const response = await request<unknown>(`/horse-registration-requests?status=${encodeURIComponent(status)}`);
+    if (Array.isArray(response)) return response as ManagerHorseRegistrationRequest[];
+    if (response && typeof response === "object") {
+      if ("items" in response && Array.isArray(response.items)) {
+        return response.items as ManagerHorseRegistrationRequest[];
+      }
+      if ("data" in response && Array.isArray(response.data)) {
+        return response.data as ManagerHorseRegistrationRequest[];
+      }
+    }
+    throw new Error("Dữ liệu danh sách hồ sơ chờ duyệt không hợp lệ. Vui lòng thử lại.");
+  } catch (error) {
+    if (error instanceof ApiRequestError && error.status === 404) {
+      throw new Error("Dịch vụ chưa hỗ trợ tải danh sách hồ sơ chờ duyệt. Cần cập nhật backend.");
+    }
+    throw error;
+  }
+}
+
+
 export function listPendingHorseRegistrationRequests() {
-  return request<ManagerHorseRegistrationRequest[]>("/horse-registration-requests");
+  return listHorseRegistrationRequests("PENDING");
+}
+
+export function getPendingHorseRegistrationCount() {
+  return request<{ count: number }>("/horse-registration-requests/pending-count");
+}
+
+export function getManagerRegistrationDocumentUrl(requestId: string, docId: string, download = false) {
+  return request<{ url: string; expiresIn: number }>(
+    `/horse-registration-requests/${encodeURIComponent(requestId)}/documents/${encodeURIComponent(docId)}/url?download=${download ? "true" : "false"}`,
+  );
 }
 
 export function reviewHorseRegistrationRequest(id: string, input: {
@@ -194,6 +234,123 @@ export function reviewHorseRegistrationRequest(id: string, input: {
     method: "PATCH",
     body: JSON.stringify(input),
   });
+}
+
+export type OfficialRace = {
+  id: string;
+  race_name: string;
+  grade: string | null;
+  distance_category: string | null;
+  distance_meters: number | null;
+  race_date: string;
+  location: string | null;
+  description: string | null;
+  status: "Scheduled" | "Completed" | "Cancelled" | string;
+  cancel_reason: string | null;
+  registered_count: number;
+  blocked_count: number;
+  completed_count: number;
+  cancelled_count: number;
+  total_prize_amount: number;
+};
+
+export type OfficialRaceEntry = {
+  entry_id: string;
+  horse_id: string;
+  horse_name: string;
+  current_status: string;
+  readiness_status: string;
+  is_training_locked: boolean;
+  owner_name: string | null;
+  registered_by_name: string | null;
+  status: "Registered" | "Blocked" | "Completed" | "Cancelled" | string;
+  cancel_reason: string | null;
+  result_position: number | null;
+  prize_amount: number | null;
+  created_at: string;
+};
+
+export type CompetitionLeaderboardItem = {
+  horse_id: string;
+  horse_name: string;
+  completed_races: number;
+  wins: number;
+  podiums: number;
+  best_position: number | null;
+  total_prize: number;
+};
+
+export type CompetitionReport = {
+  from: string;
+  to: string;
+  summary: {
+    total_races: number;
+    registered: number;
+    blocked: number;
+    completed: number;
+    cancelled: number;
+    wins: number;
+    podiums: number;
+    total_prize: number;
+  };
+  leaderboard: CompetitionLeaderboardItem[];
+  recent_results: {
+    entry_id: string;
+    horse_id: string;
+    horse_name: string;
+    race_id: string;
+    race_name: string;
+    grade: string | null;
+    race_date: string;
+    location: string | null;
+    result_position: number;
+    prize_amount: number | null;
+  }[];
+};
+
+export function listOfficialRaces() {
+  return request<{ data: OfficialRace[] }>("/races");
+}
+
+export function updateOfficialRace(raceId: string, input: {
+  race_name?: string;
+  race_date?: string;
+  grade?: string | null;
+  distance_category?: string | null;
+  distance_meters?: number | null;
+  location?: string | null;
+  description?: string | null;
+}) {
+  return request<OfficialRace>(`/races/${encodeURIComponent(raceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function cancelOfficialRace(raceId: string, reason: string) {
+  return request<OfficialRace>(`/races/${encodeURIComponent(raceId)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function listOfficialRaceEntries(raceId: string) {
+  return request<{ race: OfficialRace; data: OfficialRaceEntry[] }>(`/races/${encodeURIComponent(raceId)}/entries`);
+}
+
+export function cancelOfficialRaceEntry(entryId: string, reason: string) {
+  return authenticatedRequest<Record<string, unknown>>(`/api/race-entries/${encodeURIComponent(entryId)}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function getCompetitionReport(from?: string, to?: string) {
+  const params = new URLSearchParams();
+  if (from) params.set("from", from);
+  if (to) params.set("to", to);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<CompetitionReport>(`/competition-report${suffix}`);
 }
 
 export const clubManagerError = (error: unknown) => {

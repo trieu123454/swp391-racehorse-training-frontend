@@ -2,35 +2,79 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, Shield, ShieldAlert, X } from "lucide-react";
-import { getHorseImageUrl, horseStatus, type Horse } from "@/api/horses/api";
+import { horseRequest, horseStatus, type Horse } from "@/api/horses/api";
+import { APP_MUTATION_COMPLETED_EVENT, SWR_CACHE_UPDATED_EVENT } from "@/api/client";
 
-export function HorseImage({ horse, preview }: { horse?: Horse; preview?: string }) {
-  const directUrl = preview || horse?.image_signed_url || (horse?.image_url && (horse.image_url.startsWith("http://") || horse.image_url.startsWith("https://") || horse.image_url.startsWith("/") || horse.image_url.startsWith("blob:")) ? horse.image_url : undefined);
+export function HorseImage({ horse, preview, priority = false }: { horse?: Horse; preview?: string; priority?: boolean }) {
+  const directUrl = preview || horse?.image_signed_url || (horse?.image_url && /^(https?:\/\/|\/|blob:)/.test(horse.image_url) ? horse.image_url : undefined);
+  const containerRef = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(priority);
+  useEffect(() => {
+    if (visible) return;
+    const element = containerRef.current;
+    if (!element || typeof IntersectionObserver === "undefined") { setVisible(true); return; }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) { setVisible(true); observer.disconnect(); }
+    }, { rootMargin: "200px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [visible]);
   const [url, setUrl] = useState<string | undefined>(directUrl);
-  const [loaded, setLoaded] = useState(Boolean(directUrl));
+  const [loadedSrc, setLoadedSrc] = useState<string>();
   useEffect(() => {
     if (directUrl) {
       setUrl(directUrl);
       return;
     }
     setUrl(undefined);
-    setLoaded(false);
-    if (!horse?.image_url || !horse?.id) return;
+    setLoadedSrc(undefined);
+    // Role-specific lists may omit image_url. The horse ID is the shared source
+    // of truth for resolving the current, authorized image URL.
+    if (!horse?.id || preview || !visible) return;
     let active = true;
-    const refresh = () => getHorseImageUrl(horse.id, horse.image_url)
-      .then(signedUrl => { if (active) setUrl(signedUrl); }).catch(() => { if (active) setUrl(undefined); });
+    let refreshing = false;
+    const refresh = async () => {
+      if (refreshing || document.visibilityState === "hidden") return;
+      refreshing = true;
+      try {
+        const data = await horseRequest<{ hasImage: boolean; url?: string }>(`/${encodeURIComponent(horse.id)}/image`);
+        if (active) setUrl(data.hasImage ? data.url : undefined);
+      } catch {
+        // Keep a working image during transient API failures; retry on refresh.
+      } finally {
+        refreshing = false;
+      }
+    };
+    const onMutation = (event: Event) => {
+      const path = (event as CustomEvent<{ path?: string }>).detail?.path;
+      if (path?.startsWith("/api/horses") || path?.startsWith("/api/horse-owner/horse-registration-requests")) void refresh();
+    };
     void refresh();
-    const timer = setInterval(refresh, 240000);
-    return () => { active = false; clearInterval(timer); };
-  }, [horse?.id, horse?.image_url, directUrl]);
-  const [broken, setBroken] = useState(false);
-  useEffect(() => setBroken(false), [preview, url, directUrl]);
+    const timer = setInterval(() => void refresh(), 240000);
+    const onCacheUpdate = (event: Event) => {
+      const paths = (event as CustomEvent<{ paths?: string[] }>).detail?.paths;
+      if (!paths || paths.includes(`/api/horses/${encodeURIComponent(horse.id)}/image`)) void refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener(APP_MUTATION_COMPLETED_EVENT, onMutation);
+    window.addEventListener(SWR_CACHE_UPDATED_EVENT, onCacheUpdate);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener(APP_MUTATION_COMPLETED_EVENT, onMutation);
+      window.removeEventListener(SWR_CACHE_UPDATED_EVENT, onCacheUpdate);
+    };
+  }, [horse?.id, horse?.image_url, directUrl, preview, visible]);
+  const [brokenSrc, setBrokenSrc] = useState<string>();
   const finalSrc = preview || directUrl || url;
-  return finalSrc && !broken
+  return <span ref={containerRef} className="block h-full w-full">{visible && finalSrc && brokenSrc !== finalSrc
     // Signed URLs expire and are authorized per user; do not cache them in Next's image optimizer.
     // eslint-disable-next-line @next/next/no-img-element
-    ? <img className={`horse-photo ${loaded ? "is-loaded" : ""}`} src={finalSrc} alt={horse?.horse_name || "Ảnh ngựa đã chọn"} onLoad={() => setLoaded(true)} onError={() => setBroken(true)} />
-    : <div className="horse-placeholder"><Shield size={36} strokeWidth={1.4} /><span>EQUINE</span><small>Chưa có ảnh hồ sơ</small></div>;
+    ? <img className={`horse-photo ${loadedSrc === finalSrc ? "is-loaded" : ""}`} src={finalSrc} loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : "auto"} decoding="async" alt={horse?.horse_name || "Ảnh ngựa đã chọn"} onLoad={() => setLoadedSrc(finalSrc)} onError={() => setBrokenSrc(finalSrc)} />
+    : <span className="horse-placeholder"><Shield size={36} strokeWidth={1.4} /><span>EQUINE</span><small>Chưa có ảnh hồ sơ</small></span>}</span>;
 }
 
 export function StatusBadge({ horse }: { horse: Horse }) {
