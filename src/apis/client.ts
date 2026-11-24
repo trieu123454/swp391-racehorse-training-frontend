@@ -28,25 +28,30 @@ type CacheEntry = { value: unknown; freshUntil: number; staleUntil: number };
 const getResponseCache = new Map<string, CacheEntry>();
 const inFlightGets = new Map<string, Promise<unknown>>();
 let swrNotifyTimer: number | null = null;
+const updatedGetPaths = new Set<string>();
 
-function scheduleSwrNotify() {
+function scheduleSwrNotify(path: string) {
   if (typeof window === "undefined") return;
+  updatedGetPaths.add(path);
   if (swrNotifyTimer !== null) window.clearTimeout(swrNotifyTimer);
   swrNotifyTimer = window.setTimeout(() => {
     swrNotifyTimer = null;
-    window.dispatchEvent(new Event(SWR_CACHE_UPDATED_EVENT));
+    const paths = [...updatedGetPaths];
+    updatedGetPaths.clear();
+    window.dispatchEvent(new CustomEvent(SWR_CACHE_UPDATED_EVENT, { detail: { paths } }));
   }, 60);
 }
 
-export function clearApiGetCache() {
-  getResponseCache.clear();
-  inFlightGets.clear();
+export function clearApiGetCache(pathPrefix?: string) {
+  const matches = (key: string) => !pathPrefix || key.slice(key.indexOf("|") + 1).startsWith(pathPrefix);
+  for (const key of getResponseCache.keys()) if (matches(key)) getResponseCache.delete(key);
+  for (const key of inFlightGets.keys()) if (matches(key)) inFlightGets.delete(key);
   if (typeof window === "undefined") return;
   try {
     const keys: string[] = [];
     for (let i = 0; i < window.sessionStorage.length; i++) {
       const k = window.sessionStorage.key(i);
-      if (k && (k.startsWith(GET_STORAGE_PREFIX) || k.startsWith("racehorse:api-get:v1:"))) keys.push(k);
+      if (k && (k.startsWith(GET_STORAGE_PREFIX) || k.startsWith("racehorse:api-get:v1:")) && matches(k)) keys.push(k);
     }
     keys.forEach((k) => window.sessionStorage.removeItem(k));
   } catch { /* ignore storage errors */ }
@@ -77,10 +82,13 @@ function readGetCache<T>(cacheKey: string, now: number): { value: T; isStale: bo
   return undefined;
 }
 
-function writeGetCache(cacheKey: string, value: unknown, now: number) {
+function writeGetCache(cacheKey: string, value: unknown, now: number, path: string) {
+  // Image URL endpoints sign the same object repeatedly. Reuse the URL for four
+  // minutes so polling does not force the browser to download the image again.
+  const freshTtl = /\/image(?:\?|$)/.test(path) ? 240_000 : GET_FRESH_TTL_MS;
   const entry: CacheEntry = {
     value,
-    freshUntil: now + GET_FRESH_TTL_MS,
+    freshUntil: now + freshTtl,
     staleUntil: now + GET_STALE_TTL_MS,
   };
   getResponseCache.set(cacheKey, entry);
@@ -93,7 +101,7 @@ function writeGetCache(cacheKey: string, value: unknown, now: number) {
 function announceMutationCompleted(path: string, method: string) {
   const normalizedMethod = method.toUpperCase();
   if (!["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) {
-    clearApiGetCache();
+    clearApiGetCache(path.startsWith("/api/notifications/") ? "/api/notifications" : undefined);
   }
   if (typeof window === "undefined") return;
   if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) return;
@@ -318,8 +326,8 @@ export async function authenticatedRequest<T>(path: string, options: RequestInit
     inFlightGets.set(cacheKey, promise);
     return promise
       .then((result) => {
-        writeGetCache(cacheKey, result, Date.now());
-        if (notifyOnUpdate) scheduleSwrNotify();
+        writeGetCache(cacheKey, result, Date.now(), path);
+        if (notifyOnUpdate) scheduleSwrNotify(path);
         return result;
       })
       .finally(() => {

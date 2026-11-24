@@ -75,10 +75,17 @@ export default function HorseOwnerWorkspace() {
 
   useEffect(() => {
     let active = true;
+    let transferRetryAfter = 0;
     const refreshHorses = () => {
-      void getOwnershipTransferRequests()
-        .then((items) => { if (active) setTransferRequests(items); })
-        .catch(() => {});
+      // The request panel loads its own transfers. Avoid a second request here,
+      // and give a failing server a minute before retrying on window focus.
+      const requestPanelOpen = new URLSearchParams(window.location.search).get("tab") === "horse-requests";
+      if (!requestPanelOpen && Date.now() >= transferRetryAfter) {
+        transferRetryAfter = Date.now() + 60_000;
+        void getOwnershipTransferRequests()
+          .then((items) => { if (active) setTransferRequests(items); })
+          .catch(() => {});
+      }
       return getOwnerHorses()
         .then((result) => {
           if (!active) return;

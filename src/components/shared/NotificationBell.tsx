@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Bell, CalendarPlus, Check, CheckCheck, LockKeyhole, LockKeyholeOpen, RefreshCw, ShieldAlert, Trash2, UserRoundCog, X } from "lucide-react";
+import { AlertTriangle, Bell, BellOff, CalendarPlus, Check, CheckCheck, LockKeyhole, LockKeyholeOpen, RefreshCw, ShieldAlert, Trash2, UserRoundCog, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
@@ -22,9 +22,6 @@ export default function NotificationBell({ user }: { user: AuthUser }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(new Set());
-  const [showOldAccounts, setShowOldAccounts] = useState(false);
-  const [overflowingMessages, setOverflowingMessages] = useState<Set<string>>(new Set());
   const [scrollEdges, setScrollEdges] = useState({ top: false, bottom: false });
   const list = useRef<HTMLDivElement>(null);
   const [, setClock] = useState(0);
@@ -40,10 +37,8 @@ export default function NotificationBell({ user }: { user: AuthUser }) {
     const el = list.current;
     if (!el) return;
     setScrollEdges({ top: el.scrollTop > 1, bottom: el.scrollTop + el.clientHeight < el.scrollHeight - 1 });
-    const overflowing = new Set([...el.querySelectorAll<HTMLElement>(".notification-item-description")].filter((message) => message.scrollHeight > 40).map((message) => message.id));
-    setOverflowingMessages((current) => current.size === overflowing.size && [...current].every((id) => overflowing.has(id)) ? current : overflowing);
   }, []);
-  useEffect(() => { if (!open || !list.current) return; const observer = new ResizeObserver(updateScroll); observer.observe(list.current); const frame = requestAnimationFrame(updateScroll); return () => { observer.disconnect(); cancelAnimationFrame(frame); }; }, [open, page, expandedMessages, showOldAccounts, updateScroll]);
+  useEffect(() => { if (!open || !list.current) return; const observer = new ResizeObserver(updateScroll); observer.observe(list.current); const frame = requestAnimationFrame(updateScroll); return () => { observer.disconnect(); cancelAnimationFrame(frame); }; }, [open, page, updateScroll]);
 
   const close = useCallback(() => {
     setOpen(false);
@@ -53,13 +48,13 @@ export default function NotificationBell({ user }: { user: AuthUser }) {
     const version = ++revision.current.value;
     try {
       const [results, latest] = await Promise.all([
-        Promise.all(Array.from({ length: Math.ceil(limit / 20) }, (_, index) => authenticatedRequest<Page>(`/api/notifications?unread_only=${unreadOnly}&page=${index + 1}&limit=20`))),
-        authenticatedRequest<Page>("/api/notifications?unread_only=false&page=1&limit=1"),
+        Promise.all(Array.from({ length: Math.ceil(limit / 20) }, (_, index) => authenticatedRequest<Page>(`/api/notifications?unread_only=${unreadOnly}&page=${index + 1}&limit=20`, { cache: "no-store" }))),
+        authenticatedRequest<Page>("/api/notifications?unread_only=false&page=1&limit=1", { cache: "no-store" }),
       ]);
       const result = { ...results[0], data: [...new Map(results.flatMap((result) => result.data).map((item) => [item.id, item])).values()] };
       if (version !== revision.current.value) return;
       const next = { unread: result.unread_count, latest: latest.data[0]?.id ?? null };
-      if (previous.current && next.unread > previous.current.unread && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (previous.current && next.latest !== previous.current.latest && next.unread > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         bell.current?.animate([{ transform: "rotate(0)" }, { transform: "rotate(-12deg)" }, { transform: "rotate(12deg)" }, { transform: "rotate(-8deg)" }, { transform: "rotate(0)" }], { duration: 480 });
       }
       previous.current = next;
@@ -200,30 +195,23 @@ export default function NotificationBell({ user }: { user: AuthUser }) {
         </div>
         <div ref={list} onScroll={updateScroll} className={`notification-list ${scrollEdges.top ? "has-scroll-top" : ""} ${scrollEdges.bottom ? "has-scroll-bottom" : ""}`} aria-busy={loading}>
           {error && <div role="alert" className="p-3 text-xs text-rose-700">{error}<button type="button" className="ml-2 underline" onClick={() => void refresh()}>Thử lại</button></div>}
-          {loading && !page.data.length ? <p role="status" className="p-6 text-center text-sm text-slate-500"><RefreshCw size={16} className="mr-2 inline animate-spin" />Đang tải…</p> : !page.data.length ? <div className="notification-empty"><Bell size={32} /><p>Bạn đã xem hết thông báo</p>{unreadOnly && <button type="button" onClick={() => { setUnreadOnly(false); setLimit(20); }}>Xem tất cả thông báo</button>}</div> : [false, true].flatMap((account) => ["Hôm nay", "Tuần này", "Cũ hơn"].map((group) => {
-            const grouped = page.data.filter((item) => notificationIsAccount(item) === account && notificationGroup(item) === group).sort((a, b) => b.created_at.localeCompare(a.created_at));
-            const oldAccounts = grouped.filter((item) => notificationIsAccount(item) && Date.now() - new Date(item.created_at).valueOf() > 14 * 86400000);
-            const items = grouped.filter((item) => showOldAccounts || !oldAccounts.includes(item));
-            return grouped.length > 0 && <section key={`${account}-${group}`}><h3 className="notification-group-title">{group}{account && <span className="ml-2 font-normal">· Tài khoản</span>}</h3>{items.map((item) => {
+          {loading && !page.data.length ? <p role="status" className="p-6 text-center text-sm text-slate-500"><RefreshCw size={16} className="mr-2 inline animate-spin" />Đang tải…</p> : !page.data.length && !error ? <div className="notification-empty"><BellOff size={32} /><p>Bạn đã xem hết thông báo</p></div> : ["Hôm nay", "Trước đó"].map((group) => {
+            const items = page.data.filter((item) => (notificationGroup(item) === "Hôm nay" ? "Hôm nay" : "Trước đó") === group).sort((a, b) => b.created_at.localeCompare(a.created_at));
+            return items.length > 0 && <section key={group}><h3 className="notification-group-title">{group}</h3>{items.map((item) => {
               const kind = notificationKind(item), Icon = icons[kind];
-              const { title, description, action } = notificationPresentation(item);
-              const expanded = expandedMessages.has(item.id);
+              const { title, description } = notificationPresentation(item);
               return <article key={item.id} className={`notification-item ${item.is_read ? "" : "is-unread"}`}>
                 <button type="button" disabled={busy} className="notification-item-open" onClick={() => void visit(item)}>
                   {!item.is_read && <span className="notification-unread-dot" aria-label="Chưa đọc" />}
                   <Icon size={18} className={kind === "overdue" || kind === "incident" ? "text-rose-600" : "text-blue-600"} />
-                  <span className="min-w-0 flex-1"><strong className="notification-item-title block truncate text-xs">{title}</strong><span id={`notification-message-${item.id}`} className={`notification-item-description ${expanded ? "is-expanded" : ""}`} title={description}>{description || "Thông tin liên quan đã được cập nhật."}</span><time className="mt-1 block text-[11px] text-slate-400" title={notificationExactTime(item.created_at)} dateTime={item.created_at}>{notificationRelativeTime(item.created_at)}</time></span>
+                  <span className="min-w-0 flex-1"><strong className="notification-item-title block truncate text-xs">{title}</strong><span className="notification-item-description" title={description}>{description || "Thông tin liên quan đã được cập nhật."}</span><time className="mt-1 block text-[11px] text-slate-400" title={notificationExactTime(item.created_at)} dateTime={item.created_at}>{notificationRelativeTime(item.created_at)}</time></span>
                 </button>
-                {overflowingMessages.has(`notification-message-${item.id}`) && <button type="button" className="notification-message-toggle" aria-expanded={expanded} aria-controls={`notification-message-${item.id}`} onClick={() => setExpandedMessages((current) => {
-                  const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next;
-                })}>{expanded ? "Thu gọn" : "Xem thêm"}</button>}
-                {(item.link || (!notificationIsAccount(item) && item.related_id)) && <button type="button" className="notification-link-action" disabled={busy} onClick={() => void visit(item)}>{action}</button>}
                 <div className="notification-item-actions">{!item.is_read && <button type="button" aria-label="Đánh dấu đã đọc" title="Đánh dấu đã đọc" disabled={busy} onClick={() => void mutate(`/api/notifications/${encodeURIComponent(item.id)}/read`, "PATCH")}><Check size={14} /></button>}<button type="button" aria-label="Xóa thông báo" title="Xóa" disabled={busy} onClick={() => void mutate(`/api/notifications/${encodeURIComponent(item.id)}`, "DELETE")}><Trash2 size={14} /></button></div>
               </article>;
-            })}{oldAccounts.length > 0 && <button className="notification-message-toggle" type="button" aria-expanded={showOldAccounts} onClick={() => setShowOldAccounts((value) => !value)}>{showOldAccounts ? "Thu gọn thông báo tài khoản" : `Thông báo tài khoản cũ (${oldAccounts.length})`}</button>}</section>;
-          }))}
+            })}</section>;
+          })}
         </div>
-        {(page.data.length < page.total || (unreadOnly && allTotal > page.total && page.total > 0)) && <button type="button" className="notification-load-more" disabled={loading || busy} onClick={() => { if (page.data.length < page.total) setLimit((value) => value + 20); else { setUnreadOnly(false); setLimit(20); } }}>Xem tất cả thông báo</button>}
+        {(page.data.length < page.total || (unreadOnly && allTotal > page.total)) && <button type="button" className="notification-load-more" disabled={loading || busy} onClick={() => { if (page.data.length < page.total) setLimit((value) => value + 20); else { setUnreadOnly(false); setLimit(20); } }}>Xem thông báo cũ</button>}
       </div>
     </>, document.body)}
   </>;

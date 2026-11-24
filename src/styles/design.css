@@ -663,8 +663,16 @@ h1, h2, h3, h4, .display-title {
   flex-direction: column;
 }
 .horse-topbar {
-  min-height: 68px;
-  padding: 12px 32px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  height: var(--header-h);
+  min-height: var(--header-h);
+  max-height: var(--header-h);
+  flex-shrink: 0;
+  padding: 8px 32px;
+  box-shadow: none;
+  transition: box-shadow 150ms ease;
   background: #ffffff !important;
   border-bottom: 1px solid var(--ui-line);
   display: flex;
@@ -678,6 +686,21 @@ h1, h2, h3, h4, .display-title {
   font-weight: 600;
   color: var(--ui-text);
   margin: 0;
+}
+.horse-topbar.is-scrolled { box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+/* clip avoids the implicit vertical scroll container created by overflow-x:hidden. */
+body:has(.horse-app) { overflow-x: clip; }
+:root:has(.horse-app) { --header-h: 64px; scroll-padding-top: var(--header-h); }
+.horse-workspace { overflow: visible; }
+.horse-main { animation-fill-mode: backwards; }
+.horse-main :where([id], [data-notification-target]) { scroll-margin-top: 12px; }
+.horse-main .sticky { top: var(--header-h); }
+.horse-main dialog .sticky { top: 0; }
+@media (max-width: 699px) {
+  :root:has(.horse-app) { --header-h: calc(56px + env(safe-area-inset-top, 0px)); }
+  .horse-topbar { padding: calc(6px + env(safe-area-inset-top, 0px)) 14px 6px; gap: 8px; }
+  .horse-topbar .horse-date-pill, .horse-topbar .horse-profile-copy, .horse-profile-trigger > svg { display: none; }
+  .horse-profile-trigger { padding: 4px; }
 }
 .horse-greeting-copy p {
   font-size: 11px;
@@ -714,6 +737,7 @@ h1, h2, h3, h4, .display-title {
   border-color: var(--ui-line-strong);
 }
 .horse-profile-popover {
+  z-index: 50;
   border: 1px solid var(--ui-line) !important;
   border-radius: var(--radius-lg) !important;
   box-shadow: var(--shadow-popover) !important;

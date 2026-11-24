@@ -34,7 +34,12 @@ export function useAutoRefresh(
     };
 
     const onFocus = () => trigger(false);
-    const onSwrUpdated = () => trigger(true);
+    const onSwrUpdated = (event: Event) => {
+      const paths = (event as CustomEvent<{ paths?: string[] }>).detail?.paths;
+      // A refreshed image URL must not reload every mounted workspace's data.
+      if (paths?.length && paths.every((path) => /\/image(?:\?|$)/.test(path) || path.startsWith("/api/notifications"))) return;
+      trigger(true);
+    };
     const onVisibility = () => { if (document.visibilityState === "visible") trigger(false); };
     const timer = window.setInterval(() => trigger(true), intervalMs);
 

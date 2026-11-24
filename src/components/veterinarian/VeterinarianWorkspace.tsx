@@ -111,9 +111,11 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
     try {
       const result = await veterinarianApi.overview();
       setOverview(result);
-      setSelectedId((current) => result.horses.some((horse) => horse.id === current)
-        ? current
-        : result.horses[0]?.id ?? "");
+      setSelectedId((current) => {
+        const linkedId = new URLSearchParams(window.location.search).get("horse");
+        const candidate = current || linkedId;
+        return result.horses.some((horse) => horse.id === candidate) ? candidate! : result.horses[0]?.id ?? "";
+      });
       return result;
     } catch (reason) {
       setError(veterinarianError(reason));
@@ -234,7 +236,7 @@ function HorseChoice({ horse, selected, onClick }: { horse: VetHorse; selected: 
 
 function HorseSummary({ horse }: { horse: VetHorse }) {
   return <article data-notification-target={horse.id} className="flex flex-col gap-3 rounded-lg border border-equine-line bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:p-4">
-    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md bg-equine-mist"><HorseImage horse={horse as unknown as Horse} /></div>
+    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-md bg-equine-mist"><HorseImage horse={horse as unknown as Horse} priority /></div>
     <div className="min-w-0 flex-1"><p className="eyebrow text-[10px]">Hồ sơ sức khỏe</p><h2 className="mt-0.5 font-sans text-xl font-semibold text-equine-navy">{horse.horse_name}</h2><p className="mt-1 text-sm text-slate-600">{horse.stable_box ? `Chuồng ${horse.stable_box.box_code} · Khu ${horse.stable_box.section}` : "Chưa gán chuồng"} · {statusLabels[horse.current_status] ?? horse.current_status}</p></div>
     {horse.is_training_locked && <div className={`rounded-md border px-3 py-2 text-sm ${horse.lock_level === "Critical" ? "border-rose-200 bg-rose-50 text-rose-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}><p className="flex items-center gap-2 font-bold"><LockKeyhole size={15} /> Khóa {horse.lock_level}</p><p className="mt-1 max-w-sm text-xs">{horse.lock_reason}</p></div>}
   </article>;
@@ -500,7 +502,11 @@ function ExamsPanel({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [alerts, setAlerts] = useState<HealthExam["alerts"]>([]);
+  const showExamToast = useWorkspaceToast();
+  const formatAlerts = (alerts: HealthExam["alerts"]) => (alerts ?? []).map((alert) => {
+    const label = examFields.find((field) => field.name === alert.field)?.label ?? alert.field;
+    return `${label}: ${alert.value} · ngưỡng tham khảo ${alert.normal_range}`;
+  }).join("\n");
   const [pendingSchedule, setPendingSchedule] = useState<CareSchedule | null>(null);
   const [autoCompleteCare, setAutoCompleteCare] = useState(true);
   const [diagnosisExamId, setDiagnosisExamId] = useState("");
@@ -612,12 +618,14 @@ function ExamsPanel({
     void loadDiagnoses();
   }, [autoOpenCreate, load, loadDiagnoses]);
 
-  async function openExam(id: string) {
+  async function openExam(id: string, notifyAlerts = true) {
     setError(""); setLoading(true); setDetail(null); setLogs([]);
     const [examResult, historyResult] = await Promise.allSettled([veterinarianApi.exam(id), veterinarianApi.examLogs(id)]);
     const failures: string[] = [];
     if (examResult.status === "fulfilled") {
-      setDetail(examResult.value); setAlerts(examResult.value.alerts ?? []); setEditing(false); setCreating(false);
+      setDetail(examResult.value); setEditing(false); setCreating(false);
+      const warning = formatAlerts(examResult.value.alerts);
+      if (notifyAlerts && warning) showExamToast(`Cảnh báo chỉ số · ${horse.horse_name}\n${warning}`, { variant: "warning", durationMs: 12000 });
     } else failures.push(`Chi tiết lần khám: ${veterinarianError(examResult.reason)}`);
     if (historyResult.status === "fulfilled") setLogs(historyResult.value.data);
     else failures.push(`Lịch sử chỉnh sửa: ${veterinarianError(historyResult.reason)}`);
@@ -625,15 +633,15 @@ function ExamsPanel({
     setLoading(false);
   }
   async function save(data: Record<string, unknown>) {
-    setBusy(true); setError(""); setAlerts([]);
+    setBusy(true); setError("");
     try {
       const result = editing && detail ? await veterinarianApi.updateExam(detail.id, data) : await veterinarianApi.createExam(horse.id, data as never);
       const exam = result && "exam" in result ? result.exam : result as HealthExam;
       const changed = result && "changed" in result ? result.changed : true;
       if (exam && "id" in exam) setDetail(exam);
-      setAlerts(result.alerts ?? exam?.alerts ?? []);
+      const warning = formatAlerts(result.alerts ?? exam?.alerts);
       setCreating(false); setEditing(false); await load();
-      if (exam && "id" in exam) await openExam(exam.id);
+      if (exam && "id" in exam) await openExam(exam.id, false);
 
       let msg = editing ? (changed ? "Đã cập nhật hồ sơ khám và lưu lịch sử chỉnh sửa." : "Hồ sơ không thay đổi.") : "Đã tạo hồ sơ khám.";
 
@@ -649,7 +657,8 @@ function ExamsPanel({
         }
       }
 
-      onChanged(msg);
+      if (warning) showExamToast(`${msg}\nCảnh báo chỉ số · ${horse.horse_name}\n${warning}`, { variant: "warning", durationMs: 12000 });
+      else onChanged(msg);
     } catch (reason) { setError(veterinarianError(reason)); }
     finally { setBusy(false); }
   }
@@ -682,7 +691,6 @@ function ExamsPanel({
       <div className="text-xs text-slate-500"><p>{horse.stable_box ? `Chuồng ${horse.stable_box.box_code} · Khu ${horse.stable_box.section}` : "Chưa gán chuồng"}</p><p className="mt-1">{statusLabels[horse.current_status] ?? horse.current_status} · {response.total} lần khám</p>{horse.is_training_locked && <p className="mt-1 text-amber-800">Khóa tập luyện: {horse.lock_reason || horse.lock_level}</p>}</div>
     </div>
     <ErrorLine>{error}</ErrorLine>
-    {alerts && alerts.length > 0 && <div className="my-3 space-y-2">{alerts.map((alert) => <p key={alert.field} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><AlertTriangle size={14} className="mr-2 inline" />{alert.field}: {alert.value} · ngưỡng tham khảo {alert.normal_range}</p>)}</div>}
     {creating && (
       <div ref={examEditorRef} tabIndex={-1} className="mb-5 rounded-xl border border-equine-line bg-slate-50 p-4">
         <h4 className="mb-4 font-semibold text-equine-navy">Lần khám mới</h4>
@@ -1130,6 +1138,20 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     const timer = window.setTimeout(() => setHighlightId(null), 1500);
     return () => window.clearTimeout(timer);
   }, [highlightId]);
+  const updateDialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (dialogMode !== "update") return;
+    const dialog = updateDialogRef.current;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    dialog?.showModal();
+    document.body.style.overflow = "hidden";
+    return () => {
+      dialog?.close();
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus({ preventScroll: true });
+    };
+  }, [dialogMode]);
   useEffect(() => {
     if (!dialogMode && !selectedCase && !creating) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1477,8 +1499,11 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     </>}
     {loading && <Notice>Đang tải ca chấn thương...</Notice>}
 
-    {dialogMode === "update" && <div className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialogMode(null); }}>
-      <dialog open aria-modal="true" aria-labelledby="injury-dialog-title" className="my-auto max-h-[calc(100vh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl sm:max-h-[calc(100vh-3rem)]">
+    {dialogMode === "update" && <dialog ref={updateDialogRef} aria-modal="true" aria-labelledby="injury-dialog-title" className="overflow-y-auto rounded-xl border border-slate-200 bg-white text-slate-900 shadow-2xl" style={{ position: "fixed", inset: 0, margin: "auto", padding: 0, width: "calc(100vw - 2rem)", maxWidth: "42rem", maxHeight: "calc(100dvh - 2rem)" }} onCancel={(event) => { event.preventDefault(); setDialogMode(null); }} onMouseDown={(event) => {
+      if (event.target !== event.currentTarget) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) setDialogMode(null);
+    }}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-equine-line bg-white px-4 py-3 sm:px-6">
           <h3 id="injury-dialog-title" className="text-lg font-semibold">Cập nhật · {editingCase?.bodyPart ?? "ca chấn thương"}</h3>
           <button type="button" className="min-h-11 min-w-11 rounded-md text-2xl text-slate-600 hover:bg-slate-100:bg-slate-800" aria-label="Đóng hộp thoại" onClick={() => setDialogMode(null)}>×</button>
@@ -1489,8 +1514,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
           <label className="block sm:col-span-2"><span className="field-label">Ghi chú</span><textarea name="note" rows={3} maxLength={1000} className="field-control resize-y px-3 py-2" /></label>
           <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className="soft-button min-h-11 px-4" onClick={() => setDialogMode(null)}>Hủy</button><button className="gold-button min-h-11 px-4" disabled={busy}>Lưu cập nhật</button></div>
         </form>}
-      </dialog>
-    </div>}
+    </dialog>}
 
     {selectedCase && <div className="fixed inset-0 z-[80] bg-slate-950/35" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetailsCaseId(null); }}>
       <aside role="dialog" aria-modal="true" aria-labelledby="injury-details-title" className="absolute inset-y-0 right-0 flex w-full max-w-lg flex-col border-l border-equine-line bg-white shadow-2xl">

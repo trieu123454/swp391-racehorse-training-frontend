@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
+import { ApiRequestError } from "@/api/client";
 import {
   AlertCircle,
   ArrowRight,
@@ -167,14 +168,24 @@ export default function HorseRegistrationPanel() {
   }, [horseImage]);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
-      const [nextRequests, nextTransfers] = await Promise.all([
+      const [nextRequests, nextTransfers] = await Promise.allSettled([
         getHorseRegistrationRequests(),
         getOwnershipTransferRequests(),
       ]);
-      setRequests(nextRequests);
-      setTransferRequests(nextTransfers);
-      setHistoryError("");
+      const failures: string[] = [];
+      const describeFailure = (label: string, reason: unknown) => {
+        const message = reason instanceof ApiRequestError && reason.status >= 500
+          ? `Máy chủ đang lỗi (HTTP ${reason.status}). Vui lòng thử lại sau.`
+          : errorMessage(reason);
+        failures.push(`${label}: ${message}`);
+      };
+      if (nextRequests.status === "fulfilled") setRequests(nextRequests.value);
+      else describeFailure("Hồ sơ đăng ký", nextRequests.reason);
+      if (nextTransfers.status === "fulfilled") setTransferRequests(nextTransfers.value);
+      else describeFailure("Chuyển quyền sở hữu", nextTransfers.reason);
+      setHistoryError(failures.join(" · "));
     } catch (reason) {
       setHistoryError(errorMessage(reason));
     } finally {
@@ -183,7 +194,7 @@ export default function HorseRegistrationPanel() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
-  useAutoRefresh(load, { enabled: !saving, intervalMs: 25_000 });
+  useAutoRefresh(load, { enabled: !saving && !historyError, intervalMs: 25_000 });
 
   function clearFieldError(...keys: RegistrationFieldKey[]) {
     setFieldErrors((current) => {
@@ -875,6 +886,7 @@ export default function HorseRegistrationPanel() {
             {historyError.toLowerCase().includes("authentication required")
               ? <>Đăng nhập bằng Horse Owner để gửi hồ sơ. <Link href={Routes.login} className="font-semibold underline underline-offset-2">Đăng nhập</Link>.</>
               : historyError}
+            <button type="button" className="ml-3 font-semibold underline underline-offset-2" disabled={loading || saving} onClick={() => void load()}>{loading ? "Đang tải…" : "Thử lại"}</button>
           </Notice></div>}
         </div>
 

@@ -77,3 +77,19 @@ test("all schedules loads every page and retains the horse filter", async () => 
   assert.equal(urls.length, 3);
   assert.ok(urls.every((url) => new URL(url, "http://localhost").searchParams.get("horse_id") === "horse-1"));
 });
+
+test("schedule pagination overlaps requests with a maximum of four and preserves page order", async () => {
+  let active = 0, peak = 0;
+  const api = setup(async url => {
+    const page = Number(new URL(url, "http://localhost").searchParams.get("page"));
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, page % 2 ? 5 : 10));
+    active--;
+    return { data: [{ id: page }], total: 10, limit: 1, page };
+  });
+  const result = await api.allSchedules();
+  assert.deepEqual(result.data.map(item => item.id), [1,2,3,4,5,6,7,8,9,10]);
+  assert.ok(peak > 1, "requests must overlap instead of waiting for every page");
+  assert.ok(peak <= 4, "pagination must not flood the backend");
+});

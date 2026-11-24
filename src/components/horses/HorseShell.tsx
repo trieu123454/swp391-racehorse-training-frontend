@@ -1,14 +1,15 @@
 "use client";
 
 import { Routes } from "@/routes/Routes";
+import { ShieldAlert } from "lucide-react";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { Network, Bone, Activity, ArrowUpRight, Bell, BookOpen, Boxes, CalendarDays, CheckCircle2, ChevronDown, ClipboardList, FilePlus2, HeartPulse, History, House, LayoutDashboard, LogOut, Menu, Shield, Stethoscope, Trophy, Users, Utensils, Wallet, Warehouse, X } from "lucide-react";
+import { CalendarDays, CheckCircle2, ChevronDown, LogOut, Menu, X } from "lucide-react";
 import { useNotificationTarget } from "@/hooks/use-notification-target";
 import NotificationBell from "@/components/shared/NotificationBell";
-import { Brand } from "@/components/shared/Brand";
+import EquineSidebar from "./EquineSidebar";
 import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, NOTIFICATION_COUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT, hasValidAccessToken, logout, validateSession } from "@/api/client";
 import { getPendingHorseRegistrationCount } from "@/api/club-manager/api";
 import { clearSession, getAccessToken, getLogoutRefreshToken, getUser } from "@/lib/session";
@@ -19,7 +20,8 @@ import { Notice } from "./HorseUI";
 
 const UserContext = createContext<AuthUser | null>(null);
 export function useHorseUser() { return useContext(UserContext)!; }
-const WorkspaceToastContext = createContext<(message: string) => void>(() => {});
+type ToastOptions = { variant?: "success" | "warning"; durationMs?: number };
+const WorkspaceToastContext = createContext<(message: string, options?: ToastOptions) => void>(() => {});
 export function useWorkspaceToast() { return useContext(WorkspaceToastContext); }
 
 export default function HorseShell({ children }: { children: ReactNode }) {
@@ -28,31 +30,42 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [desktop, setDesktop] = useState(true);
+  const closeSidebar = useCallback(() => setOpen(false), []);
+  useEffect(() => {
+    try { setCollapsed(localStorage.getItem("equine:sidebar-collapsed") === "true"); } catch { /* Storage may be disabled. */ }
+    const media = window.matchMedia("(min-width: 1024px)");
+    const sync = () => { setDesktop(media.matches); setOpen(false); };
+    sync(); media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+  const toggleSidebar = () => {
+    if (!desktop) { setOpen((current) => !current); return; }
+    setCollapsed((current) => {
+      try { localStorage.setItem("equine:sidebar-collapsed", String(!current)); } catch { /* Keep the in-memory choice. */ }
+      return !current;
+    });
+  };
   const [signingOut, setSigningOut] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
+  const [headerScrolled, setHeaderScrolled] = useState(false);
+  useEffect(() => {
+    const sync = () => setHeaderScrolled(window.scrollY > 0);
+    sync();
+    window.addEventListener("scroll", sync, { passive: true });
+    return () => window.removeEventListener("scroll", sync);
+  }, []);
   const [toastMessage, setToastMessage] = useState("");
+  const [toastVariant, setToastVariant] = useState<"success" | "warning">("success");
   const [pendingHorseRequestCount, setPendingHorseRequestCount] = useState(0);
   const [todayLabel, setTodayLabel] = useState("");
   const [activeTab, setActiveTab] = useState("overview");
   const profileRef = useRef<HTMLDivElement>(null);
-  const notifRef = useRef<HTMLDivElement>(null);
-  const sidebarRef = useRef<HTMLElement>(null);
-  const accountFooterRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const sidebar = sidebarRef.current;
-    const footer = accountFooterRef.current;
-    if (!sidebar || !footer) return;
-    const measure = () => sidebar.style.setProperty("--horse-account-height", `${footer.getBoundingClientRect().height}px`);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(footer);
-    return () => observer.disconnect();
-  }, [user?.id]);
   const toastTimerRef = useRef<number | null>(null);
   const router = useRouter();
   const pathname = usePathname();
-  const currentPathname = pathname ?? "";
+
   useNotificationTarget(pathname);
 
   useEffect(() => setOpen(false), [pathname]);
@@ -96,13 +109,14 @@ export default function HorseShell({ children }: { children: ReactNode }) {
       day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Ho_Chi_Minh",
     }).format(new Date()));
   }, []);
-  const showToast = useCallback((message: string) => {
+  const showToast = useCallback((message: string, options?: ToastOptions) => {
+    setToastVariant(options?.variant ?? "success");
     setToastMessage(message);
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
     toastTimerRef.current = window.setTimeout(() => {
       setToastMessage("");
       toastTimerRef.current = null;
-    }, 5000);
+    }, options?.durationMs ?? 5000);
   }, []);
   const dismissToast = useCallback(() => {
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
@@ -143,15 +157,13 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     };
   }, [loadHeaderCounts, user]);
   useEffect(() => {
-    if (!profileOpen && !notifOpen) return;
+    if (!profileOpen) return;
     function closeMenus(event: PointerEvent) {
       if (profileOpen && !profileRef.current?.contains(event.target as Node)) setProfileOpen(false);
-      if (notifOpen && !notifRef.current?.contains(event.target as Node)) setNotifOpen(false);
     }
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") {
         setProfileOpen(false);
-        setNotifOpen(false);
       }
     }
     document.addEventListener("pointerdown", closeMenus);
@@ -160,7 +172,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
       document.removeEventListener("pointerdown", closeMenus);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [profileOpen, notifOpen]);
+  }, [profileOpen]);
   useEffect(() => {
     let active = true;
     let cachedUser: AuthUser | null = null;
@@ -250,69 +262,29 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const icons: Record<string, typeof Activity> = { dispatch: Network, overview: LayoutDashboard, stables: Warehouse, plans: BookOpen, calendar: CalendarDays, simulation: Activity, analysis: Activity, races: Trophy, incidents: Shield, care: ClipboardList, inventory: Boxes, finance: Wallet, audit: History, exams: Stethoscope, medical: HeartPulse, diet: Utensils, injuries: Bone, notifications: Bell, horses: BookOpen, health: HeartPulse, training: CalendarDays, "horse-requests": FilePlus2 };
   const dashboardRoute = routeForRole(user.roleName);
   const isDashboard = pathname === dashboardRoute;
   const navigation = workspaceNavigation[user.roleName];
-  const isVetRole = user.roleName === "VETERINARIAN" || user.roleName === "HEAD_VETERINARIAN";
   const currentLabel = isDashboard
-    ? (activeTab === "notifications" && isVetRole
-      ? "Thông báo"
-      : navigation.find(item => item.id === activeTab)?.label ?? navigation[0].label)
+    ? (navigation.find(item => item.id === activeTab)?.label ?? navigation[0].label)
     : pathname?.startsWith(Routes.horses)
       ? "Hồ sơ ngựa"
       : "Quản lý tài khoản";
 
   return <UserContext.Provider value={user}><WorkspaceToastContext.Provider value={showToast}><div className="horse-app" data-role={user.roleName}>
     <a className="skip-link" href="#workspace-content">Đến nội dung chính</a>
-    {open && <button className="horse-nav-overlay" aria-label="Đóng menu" onClick={() => setOpen(false)} />}
-    <aside ref={sidebarRef} className={`horse-sidebar ${open ? "is-open" : ""}`}>
-      <div className="horse-sidebar-header shrink-0">
-        <Link href={Routes.home} className="horse-brand" aria-label="Equine - Về trang chủ"><Brand /></Link>
-        <button className="horse-mobile-close horse-icon-button" aria-label="Đóng menu" onClick={() => setOpen(false)}><X /></button>
-      </div>
-      <div className="horse-sidebar-scroll flex-1 min-h-0 overflow-y-auto">
-        <p className="horse-nav-label">CÔNG VIỆC</p>
-        <nav aria-label="Điều hướng quản lý">
-          {navigation.map(item => {
-            const Icon = icons[item.id] ?? LayoutDashboard;
-            const resolvedTab = navigation.some(entry => entry.id === activeTab)
-              ? activeTab
-              : (activeTab === "notifications" && isVetRole ? "notifications" : "overview");
-            const selected = isDashboard && resolvedTab === item.id;
-            const href = Routes.dashboardTab(dashboardRoute, item.id);
-            return <Link key={item.id} href={href} className={selected ? "active" : ""} aria-current={selected ? "page" : undefined} onClick={event => {
-              if (!isDashboard || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
-              event.preventDefault();
-              if (window.location.pathname + window.location.search !== href) window.history.pushState(null, "", href);
-              window.dispatchEvent(new Event("workspace-tab-change"));
-            }}><Icon size={18} /><span>{item.label}</span>{user.roleName === "CLUB_MANAGER" && item.id === "horse-requests" && pendingHorseRequestCount > 0 && <span className={`ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${selected ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800"}`}>{pendingHorseRequestCount > 99 ? "99+" : pendingHorseRequestCount}</span>}</Link>;
-          })}
-        </nav>
-        <p className="horse-nav-label">QUẢN LÝ CHUNG</p>
-        <nav aria-label="Hồ sơ và hệ thống">
-          {user.roleName !== "HORSE_OWNER" && (
-            <Link href={Routes.horses} className={currentPathname.startsWith(Routes.horses) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.horses) ? "page" : undefined}><BookOpen size={18} />Hồ sơ ngựa</Link>
-          )}
-          {user.roleName === "CLUB_MANAGER" && <Link href={Routes.clubManagerUsers} className={currentPathname.startsWith(Routes.clubManagerUsers) ? "active" : ""} aria-current={currentPathname.startsWith(Routes.clubManagerUsers) ? "page" : undefined}><Users size={18} />Quản lý tài khoản</Link>}
-          <Link href={Routes.home}><House size={18} />Trang chủ</Link>
-        </nav>
-      </div>
-      <div ref={accountFooterRef} className="horse-sidebar-footer shrink-0 mt-auto">
-        <div className="horse-account"><span className="horse-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span><div><strong>{user.fullName}</strong><small>{roleLabels[user.roleName]}</small></div><button aria-label={signingOut ? "Đang đăng xuất" : "Đăng xuất"} title={signingOut ? "Đang đăng xuất" : "Đăng xuất"} disabled={signingOut} onClick={signOut}><LogOut size={18} /></button></div>
-      </div>
-    </aside>
+    <EquineSidebar user={user} collapsed={collapsed} desktop={desktop} open={open} pathname={pathname ?? ""} activeTab={activeTab} pendingRequests={pendingHorseRequestCount} signingOut={signingOut} onClose={closeSidebar} onSignOut={signOut} />
     <div className="horse-workspace">
-      <header className="horse-topbar">
+      <header className={`horse-topbar${headerScrolled ? " is-scrolled" : ""}`}>
         <div className="horse-topbar-welcome">
-          <button className="horse-mobile-menu horse-icon-button" aria-label="Mở menu" aria-expanded={open} onClick={() => setOpen(true)}><Menu /></button>
+          <button className="equine-sidebar-toggle horse-icon-button" aria-label={desktop ? (collapsed ? "Mở rộng menu" : "Thu gọn menu") : (open ? "Đóng menu" : "Mở menu")} aria-expanded={desktop ? !collapsed : open} aria-controls="equine-sidebar" onClick={toggleSidebar}><Menu /></button>
           <div className="horse-greeting-copy"><h1>{currentLabel}</h1></div>
         </div>
         <div className="horse-topbar-actions">
           <span className="horse-date-pill"><CalendarDays size={16} /><span>{todayLabel || "Hôm nay"}</span></span>
           <NotificationBell key={user.id} user={user} />
           <div className="horse-profile-menu" ref={profileRef}>
-            <button type="button" className="horse-profile-trigger" aria-expanded={profileOpen} onClick={() => { setNotifOpen(false); setProfileOpen(value => !value); }}>
+            <button type="button" className="horse-profile-trigger" aria-expanded={profileOpen} onClick={() => {  setProfileOpen(value => !value); }}>
               <span className="horse-profile-avatar">{user.fullName.slice(0, 1).toUpperCase()}</span>
               <span className="horse-profile-copy"><strong>{user.fullName}</strong><small>{roleLabels[user.roleName]}</small></span>
               <ChevronDown size={16} />
@@ -321,9 +293,9 @@ export default function HorseShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
-      {toastMessage && <div role="status" aria-live="polite" className="fixed right-4 top-[5.75rem] z-[80] flex w-[calc(100vw_-_2rem)] max-w-md items-start gap-3 rounded-lg border border-emerald-200 bg-white px-4 py-3 text-sm text-emerald-950 shadow-xl sm:right-6">
-        <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" />
-        <p className="min-w-0 flex-1">{toastMessage}</p>
+      {toastMessage && <div role="status" aria-live="polite" className={`fixed right-4 top-[5.75rem] z-[80] flex w-[calc(100vw_-_2rem)] max-w-md items-start gap-3 rounded-lg border bg-white px-4 py-3 text-sm shadow-xl sm:right-6 ${toastVariant === "warning" ? "border-amber-300 text-amber-950" : "border-emerald-200 text-emerald-950"}`}>
+        {toastVariant === "warning" ? <ShieldAlert size={18} className="mt-0.5 shrink-0 text-amber-600" /> : <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-emerald-600" />}
+        <p className="min-w-0 max-h-[60vh] flex-1 overflow-y-auto whitespace-pre-line">{toastMessage}</p>
         <button type="button" className="shrink-0 rounded p-1 text-slate-500 hover:bg-slate-100" aria-label="Đóng thông báo" onClick={dismissToast}><X size={15} /></button>
       </div>}
       <main id="workspace-content" className="horse-main" key={pathname}>{children}</main>
