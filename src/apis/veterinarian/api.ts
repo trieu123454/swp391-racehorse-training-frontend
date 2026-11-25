@@ -19,6 +19,10 @@ export type VetHorse = {
   id: string;
   horse_name: string;
   image_url: string | null;
+  image_signed_url?: string | null;
+  breed?: string | null;
+  microchip_number?: string | null;
+  passport_number?: string | null;
   current_status: string;
   readiness_status: "Ready" | "NotReady" | "Unknown";
   is_training_locked: boolean;

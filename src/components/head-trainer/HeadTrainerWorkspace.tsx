@@ -1,26 +1,27 @@
 "use client";
 
-import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
 import { formatDisplayDate } from "@/lib/display-format";
-
-import { Activity, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, Ban, Bot, CalendarDays, Check, ChevronDown, CircleHelp, ClipboardList, Clock, Flag, Gauge, HeartPulse, MapPin, Medal, MessageSquare, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, Send, Sparkles, Trash2, User, Users, Utensils, Wand2, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowLeft, ArrowRight, ArrowUpRight, Ban, CalendarDays, Check, ChevronDown, CircleHelp, ClipboardList, Clock, Flag, Gauge, HeartPulse, MapPin, Medal, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, Trash2, User, Users, X } from "lucide-react";
+import dynamic from "next/dynamic";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { HorseImage, Modal, Notice } from "@/components/horses/HorseUI";
+import { WorkspaceSkeleton } from "@/components/shared/LoadingSkeletons";
+import HorseSearchPicker, { type HorseSearchFilterState } from "@/components/shared/HorseSearchPicker";
+import { filterSearchableHorses } from "@/lib/horse-search";
 import SessionTargetsEditor from "./SessionTargetsEditor";
 import TrainingAnalysisPanel from "./TrainingAnalysisPanel";
 import SensorTimeline from "./SensorTimeline";
 import RaceTrackVisualization from "./RaceTrackVisualization";
-import dynamic from "next/dynamic";
 import type { RaceTrackRunner } from "./RaceTrackScene3D";
+import { listHorses, statusLabels, type Horse } from "@/api/horses/api";
+import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
+import { useLinkedNotificationHorse } from "@/hooks/use-notification-target";
+import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
+
 const RaceTrackScene3D = dynamic(() => import("./RaceTrackScene3D"), {
   ssr: false,
   loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải mô hình 3D…</p>,
 });
-import { listHorses, type Horse } from "@/api/horses/api";
-import { useLinkedNotificationHorse } from "@/hooks/use-notification-target";
-import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
-
-
 import {
   headTrainerApi,
   headTrainerError,
@@ -458,14 +459,20 @@ export async function ensurePlanForHorse(
     return exactCoveringPlan;
   }
 
-  // 2. Nếu có giáo án bao phủ ngày tập nhưng chưa gắn buổi tập nào (schedules_count === 0) hoặc cùng cường độ, cập nhật luôn thông số sang regimen đã chọn để không bị lệch (VD: đang Thấp -> cập nhật thành Vừa)
+  // 2. Nếu có giáo án bao phủ ngày tập:
+  //    - Chỉ gọi updatePlan khi giáo án đó chưa gắn buổi tập nào (training_schedules_count === 0) VÀ khác thông số regimen,
+  //      để không bao giờ vướng lỗi 409 PLAN_UPDATE_TOO_LATE (cấm sửa khi còn < 24h trước buổi tập đã lên lịch).
   const coveringPlan = existingPlans.find((plan) => {
     const afterStart = !plan.start_date || plan.start_date <= eventDate;
     const beforeEnd = !plan.end_date || plan.end_date >= eventDate;
     return afterStart && beforeEnd;
   });
   if (coveringPlan) {
-    if ((coveringPlan.training_schedules_count ?? 0) === 0 || coveringPlan.target_intensity === regimen.target_intensity) {
+    const alreadyMatches =
+      coveringPlan.target_intensity === regimen.target_intensity &&
+      coveringPlan.target_distance_meters === regimen.target_distance_meters &&
+      (coveringPlan.target_track_surface ?? "").toLowerCase() === regimen.target_track_surface.toLowerCase();
+    if (!alreadyMatches && (coveringPlan.training_schedules_count ?? 0) === 0) {
       try {
         const updated = await headTrainerApi.updatePlan(coveringPlan.id, {
           stage_name: regimen.stage_name,
@@ -529,8 +536,6 @@ export default function HeadTrainerWorkspace() {
   const [races, setRaces] = useState<RaceOption[]>([]);
   const [horseId, setHorseId] = useState("");
   useLinkedNotificationHorse(horses, setHorseId);
-  const [horseSearch, setHorseSearch] = useState("");
-  const [horseSelectorOpen, setHorseSelectorOpen] = useState(false);
   const [plans, setPlans] = useState<TrainingPlan[]>([]);
   const [sessions, setSessions] = useState<TrainingSession[]>([]);
   const [careEvents, setCareEvents] = useState<CareCalendarEvent[]>([]);
@@ -571,7 +576,7 @@ export default function HeadTrainerWorkspace() {
   const [notice, setNotice] = useState("");
   const [editingPlan, setEditingPlan] = useState<string | null>(null);
   const [selectedPlanHorseIds, setSelectedPlanHorseIds] = useState<string[]>([]);
-  const [scheduleDraft, setScheduleDraft] = useState<{ horseId: string; planId: string; startDate: string | null; regimenKey?: RegimenLevel } | null>(null);
+  const [scheduleDraft, setScheduleDraft] = useState<{ horseId: string; planId: string; startDate: string | null; regimenKey?: RegimenLevel; preferRegimenValues?: boolean } | null>(null);
   const [lastCreatedSessionId, setLastCreatedSessionId] = useState<string | null>(null);
   const [showMetricsFor, setShowMetricsFor] = useState<string | null>(null);
   const [finishFailed, setFinishFailed] = useState(false);
@@ -586,10 +591,7 @@ export default function HeadTrainerWorkspace() {
 
   const trainableHorses = useMemo(() => horses.filter((horse) => !isHorseInjuredOrLocked(horse)), [horses]);
   const selectedHorse = useMemo(() => trainableHorses.find((horse) => horse.id === horseId) ?? trainableHorses[0] ?? null, [trainableHorses, horseId]);
-  const visibleHorseOptions = useMemo(() => {
-    const query = normalizeHorseSearch(horseSearch.trim());
-    return trainableHorses.filter((horse) => normalizeHorseSearch(`${horse.horse_name ?? ""} ${horse.box_code ?? ""} ${horse.microchip_number ?? ""} ${horse.breed ?? ""} ${horse.id}`).includes(query));
-  }, [trainableHorses, horseSearch]);
+  const activeHorse = useMemo(() => horses.find((horse) => horse.id === horseId) ?? selectedHorse, [horses, horseId, selectedHorse]);
   const featuredSimulation = activeSimulations.find((item) => item.status === "Running") ?? null;
 
   const run = useCallback(async <T,>(action: () => Promise<T>, success?: string) => {
@@ -858,12 +860,12 @@ export default function HeadTrainerWorkspace() {
     }
   }
 
-  async function createPlan(event: FormEvent<HTMLFormElement>) {
+  async function createPlan(event: FormEvent<HTMLFormElement>): Promise<boolean> {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
     const horseIds = (selectedPlanHorseIds.length ? selectedPlanHorseIds : data.getAll("horse_ids").map(String)).filter(Boolean);
-    if (horseIds.length === 0) return;
+    if (horseIds.length === 0) return false;
     const baseInput = {
       stage_name: data.get("stage_name"),
       start_date: data.get("start_date") || null,
@@ -910,12 +912,14 @@ export default function HeadTrainerWorkspace() {
         setHorseId(horseIds[0]);
         setActiveOnly(false);
         setNotice("Đã tạo giáo án.");
+        return true;
       } else {
         setSelectedPlanHorseIds(remainingIds);
         if (succeededIds.length > 0) {
           setNotice(`Đã tạo giáo án cho ${succeededIds.length}/${horseIds.length} ngựa. Các ngựa đã tạo thành công đã được bỏ chọn.`);
         }
         setError(headTrainerError(firstFailure));
+        return false;
       }
     } finally {
       setBusy(false);
@@ -973,10 +977,24 @@ export default function HeadTrainerWorkspace() {
       await Promise.all([loadOverview(), loadHorseData()]);
       if (openCalendarAfter && primaryPlan) {
         const primaryHorseId = validIds[0];
+        const planMatchesRegimen =
+          primaryPlan.target_intensity === regimen.target_intensity &&
+          primaryPlan.target_distance_meters === regimen.target_distance_meters &&
+          (primaryPlan.target_track_surface ?? "").toLowerCase() === regimen.target_track_surface.toLowerCase();
         setHorseId(primaryHorseId);
-        setScheduleDraft({ horseId: primaryHorseId, planId: primaryPlan.id, startDate: today(), regimenKey: regimen.key });
+        setScheduleDraft({
+          horseId: primaryHorseId,
+          planId: primaryPlan.id,
+          startDate: today(),
+          regimenKey: regimen.key,
+          preferRegimenValues: !planMatchesRegimen,
+        });
         selectTab("calendar");
-        setNotice(`Đã áp dụng “${regimen.stage_name}” cho ${count} ngựa và chuyển sang Lịch tập.`);
+        setNotice(
+          planMatchesRegimen
+            ? `Đã áp dụng “${regimen.stage_name}” cho ${count} ngựa và chuyển sang Lịch tập.`
+            : `Đã chuyển sang Lịch tập với thông số “${regimen.stage_name}” (gắn theo giáo án đang hiệu lực “${primaryPlan.stage_name}”).`,
+        );
       } else {
         setNotice(`Đã gán sẵn “${regimen.stage_name}” cho ${count} ngựa.`);
       }
@@ -1018,23 +1036,28 @@ export default function HeadTrainerWorkspace() {
       });
     }, `✅ Đã tạo lịch tập ngày ${eventDateValue} (${String(data.get("start_time") || "")} – ${String(data.get("end_time") || "")}).`);
     if (result) {
+      const createdId = result.training_schedule_id || result.id;
+      const normalizedResult: TrainingSession = {
+        ...result,
+        training_schedule_id: createdId,
+      };
       setScheduleDraft(null);
       const targetMonday = mondayOfWeek(eventDateValue);
       const targetSunday = plusDays(targetMonday, 6);
       setCalendarFrom(targetMonday);
       setCalendarTo(targetSunday);
       setSessions((current) => [
-        ...current.filter((s) => s.training_schedule_id !== result.training_schedule_id),
-        result,
+        ...current.filter((s) => (s.training_schedule_id || s.id) !== createdId),
+        normalizedResult,
       ]);
-      setLastCreatedSessionId(result.training_schedule_id);
+      setLastCreatedSessionId(createdId);
       setPlansRevision((current) => current + 1);
       if (targetMonday === calendarFrom) {
         await refresh();
       } else {
         await Promise.all([loadOverview(), loadHorseData()]);
       }
-      return result;
+      return normalizedResult;
     }
     return null;
   }
@@ -1148,160 +1171,97 @@ export default function HeadTrainerWorkspace() {
     return true;
   }
 
-  if (loading) return <div className="mt-10 rounded-lg border border-equine-line bg-white p-6 shadow-sm"><Notice>Đang tải dữ liệu huấn luyện…</Notice></div>;
+  if (loading) return <WorkspaceSkeleton label="Đang tải dữ liệu huấn luyện…" />;
 
-  return <section className="head-trainer-workspace mt-5" aria-label="Điều phối huấn luyện">
-    <div className="mb-4 flex justify-end gap-3">
-      <button type="button" onClick={() => void refresh()} className="soft-button" disabled={busy}><RefreshCw size={15} /> Làm mới</button>
-    </div>
-    <div className="training-hero" hidden={tab !== "overview"}>
-      <div className="training-hero__veil" />
-      <div className="training-hero__copy">
-        <p className="training-hero__eyebrow"><span className={featuredSimulation ? "training-live-dot" : "training-hero__dash"} />{featuredSimulation ? "ĐANG CÓ BUỔI TẬP TRỰC TIẾP" : "TỔNG QUAN HUẤN LUYỆN"}</p>
-        <h3>{featuredSimulation ? `Theo dõi ${featuredSimulation.horses[0]?.horse_name ?? "buổi tập"}` : "Buổi tập mô phỏng"}</h3>
+  return <section className="head-trainer-workspace" aria-label="Điều phối huấn luyện">
+    {tab === "overview" && featuredSimulation && (
+      <div className="training-hero">
+        <div className="training-hero__veil" />
+        <div className="training-hero__copy">
+          <p className="training-hero__eyebrow"><span className="training-live-dot" />ĐANG CÓ BUỔI TẬP TRỰC TIẾP</p>
+          <h3>Theo dõi {featuredSimulation.horses[0]?.horse_name ?? "buổi tập"}</h3>
 
-        <div className="training-hero__actions">
-          <button type="button" className="training-hero__primary" onClick={() => { if (featuredSimulation) selectSimulation(featuredSimulation); selectTab("simulation"); setError(""); setNotice(""); }}>
-            <Play size={16} />{featuredSimulation ? "Theo dõi buổi tập" : "Mở giả lập"}<ArrowUpRight size={16} />
-          </button>
-          <button type="button" className="training-hero__secondary" onClick={() => { selectTab("calendar"); setError(""); setNotice(""); }}><CalendarDays size={16} /> Lịch tập</button>
+          <div className="training-hero__actions">
+            <button type="button" className="training-hero__primary" onClick={() => { selectSimulation(featuredSimulation); selectTab("simulation"); setError(""); setNotice(""); }}>
+              <Play size={16} />Theo dõi buổi tập<ArrowUpRight size={16} />
+            </button>
+            <button type="button" className="training-hero__secondary" onClick={() => { selectTab("calendar"); setError(""); setNotice(""); }}><CalendarDays size={16} /> Lịch tập</button>
+          </div>
         </div>
-      </div>
-      <aside className="training-hero__summary" aria-live="polite">
-        {featuredSimulation ? <>
+        <aside className="training-hero__summary" aria-live="polite">
           <div className="training-hero__summary-top"><span>ĐANG TẬP</span><span>{Math.min(100, Math.round(featuredSimulation.elapsed_seconds / Math.max(1, featuredSimulation.duration_seconds) * 100))}%</span></div>
           <strong>{featuredSimulation.horses.length > 1 ? `${featuredSimulation.horses.length} ngựa trên sân` : featuredSimulation.horses[0]?.horse_name}</strong>
           <p>{featuredSimulation.distance_meters.toLocaleString("vi-VN")} m mục tiêu · {surfaceLabel(featuredSimulation.track_surface)}</p>
           <div className="training-hero__progress"><span style={{ width: `${Math.min(100, featuredSimulation.elapsed_seconds / Math.max(1, featuredSimulation.duration_seconds) * 100)}%` }} /></div>
-        </> : <>
-          <div className="training-hero__summary-top"><span>MẶT SÂN</span><span>03 LOẠI</span></div>
-          <strong>Cỏ · Đất · Nhân tạo</strong>
-
-          <div className="training-surface-swatches"><i className="grass" /><i className="dirt" /><i className="synthetic" /></div>
-        </>}
-      </aside>
-    </div>
-    {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
-
-    <div className="mt-5 space-y-4">
+        </aside>
+      </div>
+    )}
+    <div className={tab === "overview" && featuredSimulation ? "mt-4 space-y-4" : "space-y-4"}>
       {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} error={error} notice={notice} />
         : !horses.length ? <Notice>Chưa có hồ sơ ngựa đang hoạt động.</Notice> : <>
-        {tab !== "simulation" && tab !== "races" && tab !== "calendar" && <div className="relative flex flex-wrap items-center gap-3 rounded-xl border border-blue-200 bg-gradient-to-r from-equine-mist via-white to-slate-50 p-3.5 shadow-sm ring-1 ring-blue-100/70">
-          <label className="text-xs font-extrabold uppercase tracking-wider text-equine-navy" htmlFor="trainer-horse-search">Ngựa đang xem:</label>
-          <div className="relative flex w-full max-w-xs items-center">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              id="trainer-horse-search"
-              type="text"
-              name="horse-search"
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              onFocus={() => setHorseSelectorOpen(true)}
-              onBlur={() => setTimeout(() => setHorseSelectorOpen(false), 160)}
-              className="h-9 w-full rounded-lg border border-blue-200 bg-white pl-9 pr-8 text-xs font-semibold text-equine-navy shadow-xs outline-none focus:border-blue-500"
-              value={horseSelectorOpen ? horseSearch : `${selectedHorse?.horse_name ?? ""}${selectedHorse?.box_code ? ` (${selectedHorse.box_code})` : ""}`}
-              onChange={(event) => {
-                const value = event.target.value;
-                const query = normalizeHorseSearch(value.trim());
-                setHorseSearch(value);
-                setHorseSelectorOpen(true);
-                const firstMatch = horses.find((horse) =>
-                  normalizeHorseSearch(`${horse.horse_name ?? ""} ${horse.box_code ?? ""} ${horse.microchip_number ?? ""} ${horse.id}`).includes(query),
-                );
-                if (query && firstMatch) setHorseId(firstMatch.id);
-              }}
-              placeholder="Gõ tìm tên ngựa, mã chuồng..."
-            />
-            {horseSearch ? (
-              <button
-                type="button"
-                aria-label="Xóa tìm ngựa"
-                className="absolute right-2.5 top-1/2 z-10 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => setHorseSearch("")}
-              >
-                <X size={14} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                aria-label="Mở danh sách ngựa"
-                className="absolute right-2.5 top-1/2 z-10 -translate-y-1/2 text-slate-500 hover:text-equine-navy"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => setHorseSelectorOpen((open) => !open)}
-              >
-                <ChevronDown size={16} aria-hidden="true" />
-              </button>
-            )}
-            {horseSelectorOpen && (
-              <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-lg border border-equine-line bg-white py-1 shadow-lg" role="listbox">
-                {visibleHorseOptions.slice(0, 50).map((horse) => (
-                  <button
-                    key={horse.id}
-                    type="button"
-                    className={`flex w-full items-center justify-between px-3 py-2 text-left text-xs transition hover:bg-equine-mist ${
-                      horse.id === horseId ? "bg-blue-50 font-bold text-blue-950" : "text-slate-700"
-                    }`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      setHorseId(horse.id);
-                      setHorseSearch("");
-                      setHorseSelectorOpen(false);
-                    }}
-                    role="option"
-                    aria-selected={horse.id === horseId}
-                  >
-                    <span>
-                      {horse.horse_name}
-                      {horse.box_code ? <span className="ml-1.5 text-[11px] text-slate-500">· Chuồng {horse.box_code}</span> : null}
-                    </span>
-                    {horse.is_training_locked ? (
-                      <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">Đang khóa</span>
-                    ) : (
-                      <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">Sẵn sàng</span>
-                    )}
-                  </button>
-                ))}
-                {visibleHorseOptions.length === 0 && <span className="block px-3 py-2 text-xs text-slate-500">Không tìm thấy ngựa phù hợp.</span>}
-              </div>
-            )}
-          </div>
+        {tab !== "simulation" && tab !== "races" && tab !== "calendar" && <div className="space-y-3 rounded-xl border border-blue-200 bg-gradient-to-r from-equine-mist via-white to-slate-50 p-4 shadow-sm ring-1 ring-blue-100/70">
+          <HorseSearchPicker
+            horses={horses}
+            selectedId={horseId}
+            onSelect={setHorseId}
+            showFilters={true}
+            placeholder="Tìm tên ngựa, chuồng, mã chip..."
+            ariaLabel="Tìm ngựa theo tên, chuồng hoặc mã chip"
+            className="w-full"
+          />
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            {trainableHorses.map((item) => {
-              const active = item.id === horseId;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    setHorseId(item.id);
-                    setHorseSearch("");
-                  }}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
-                    active
-                      ? "border-equine-navy bg-equine-navy text-white shadow-xs"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
-                  }`}
-                >
-                  <span>{item.horse_name}</span>
-                  {item.box_code && (
-                    <span className={`rounded px-1 py-0.2 text-[10px] ${active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"}`}>
-                      {item.box_code}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          {activeHorse && (
+            <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3.5 shadow-xs sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-3.5">
+                <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-equine-mist">
+                  <HorseImage horse={activeHorse} priority />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-equine-blue">Ngựa đang chọn</p>
+                  <h3 className="truncate font-sans text-lg font-bold text-equine-navy">{activeHorse.horse_name}</h3>
+                  <p className="mt-0.5 truncate text-xs text-slate-600">
+                    {activeHorse.box_code
+                      ? `Chuồng ${activeHorse.box_code}${activeHorse.section ? ` · Khu ${activeHorse.section}` : ""}`
+                      : "Chưa xếp chuồng"}
+                    {activeHorse.breed ? ` · ${activeHorse.breed}` : ""}
+                    {activeHorse.microchip_number ? ` · Chip ${activeHorse.microchip_number}` : ""}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                  activeHorse.current_status === "Injured" || activeHorse.current_status === "Quarantine"
+                    ? "border-rose-200 bg-rose-50 text-rose-800"
+                    : activeHorse.current_status === "Monitoring" || activeHorse.current_status === "Under Observation"
+                      ? "border-amber-200 bg-amber-50 text-amber-800"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                }`}>
+                  {statusLabels[activeHorse.current_status] ?? activeHorse.current_status}
+                </span>
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                  activeHorse.readiness_status === "Ready"
+                    ? "border-sky-200 bg-sky-50 text-sky-800"
+                    : activeHorse.readiness_status === "NotReady"
+                      ? "border-amber-200 bg-amber-50 text-amber-800"
+                      : "border-slate-200 bg-slate-100 text-slate-600"
+                }`}>
+                  {trainerHorseReadinessLabel(activeHorse.readiness_status)}
+                </span>
+                {activeHorse.is_training_locked && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-bold text-rose-700">
+                    <AlertTriangle size={12} /> Đang khóa huấn luyện
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           <select id="trainer-horse" className="hidden" value={horseId} onChange={(event) => setHorseId(event.target.value)}>{trainableHorses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}</option>)}</select>
         </div>}
-        {tab === "overview" && <>{error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}<OverviewPanel horses={trainableHorses} overview={overview.filter((o) => trainableHorses.some((h) => h.id === o.horse_id))} selectedHorseId={horseId} metrics={metrics} compare={compare} compareIds={compareIds} setCompareIds={setCompareIds} from={from} setFrom={setFrom} to={to} setTo={setTo} includeSimulated={includeSimulated} setIncludeSimulated={setIncludeSimulated} /></>}
+        {tab === "overview" && <>{error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}<OverviewPanel horses={trainableHorses} overview={overview.filter((o) => trainableHorses.some((h) => h.id === o.horse_id))} selectedHorseId={horseId} onSelectHorse={setHorseId} metrics={metrics} compare={compare} compareIds={compareIds} setCompareIds={setCompareIds} from={from} setFrom={setFrom} to={to} setTo={setTo} includeSimulated={includeSimulated} setIncludeSimulated={setIncludeSimulated} /></>}
         {tab === "analysis" && <>{error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}<TrainingAnalysisPanel horseId={horseId} from={from} to={to} setFrom={setFrom} setTo={setTo} revision={analysisRevision}/></>}
-        {tab === "plans" && <PlansPanel horse={selectedHorse} horses={trainableHorses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} selectedHorseIds={selectedPlanHorseIds} setSelectedHorseIds={setSelectedPlanHorseIds} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} onApplyRegimen={applyStandardRegimenToHorses} onResetCleanData={handleResetAndSeedCleanData} busy={busy} error={error} notice={notice} />}
+        {tab === "plans" && <PlansPanel horse={selectedHorse} horses={trainableHorses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} selectedHorseIds={selectedPlanHorseIds} setSelectedHorseIds={setSelectedPlanHorseIds} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} onApplyRegimen={applyStandardRegimenToHorses} busy={busy} error={error} notice={notice} />}
         {tab === "calendar" && <CalendarPanel selectedHorseId={horseId} onSelectHorse={setHorseId} overview={overview.filter((o) => trainableHorses.some((h) => h.id === o.horse_id))} onTargetsSaved={refresh} horses={trainableHorses} sessions={sessions} careEvents={careEvents} grooms={grooms} from={calendarFrom} to={calendarTo} onWeekChange={(value) => { const start = mondayOfWeek(value); setCalendarFrom(start); setCalendarTo(plusDays(start, 6)); }} scheduleDraft={scheduleDraft} onCreate={createSchedule} onResetCleanData={handleResetAndSeedCleanData} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} error={error} notice={notice} lastCreatedSessionId={lastCreatedSessionId} />}
         {tab === "races" && <RaceEntriesPanel
           selectedHorse={selectedHorse}
@@ -1417,8 +1377,9 @@ function buildPrioritySparkline(item: TrainerHorse, horseInfo: Horse | undefined
   return { values, label };
 }
 
-function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, compareIds, setCompareIds, from, setFrom, to, setTo, includeSimulated, setIncludeSimulated }: {
-  horses: Horse[]; overview: TrainerHorse[]; selectedHorseId: string; metrics: TrainingMetric[]; compare: { horse_id: string; horse_name: string; metrics: TrainingMetric[] }[];
+function OverviewPanel({ horses, overview, selectedHorseId, onSelectHorse, metrics, compare, compareIds, setCompareIds, from, setFrom, to, setTo, includeSimulated, setIncludeSimulated }: {
+  horses: Horse[]; overview: TrainerHorse[]; selectedHorseId: string; onSelectHorse: (id: string) => void;
+  metrics: TrainingMetric[]; compare: { horse_id: string; horse_name: string; metrics: TrainingMetric[] }[];
   compareIds: string[]; setCompareIds: (ids: string[]) => void;
   from: string; setFrom: (value: string) => void; to: string; setTo: (value: string) => void;
   includeSimulated: boolean; setIncludeSimulated: (value: boolean) => void;
@@ -1427,52 +1388,210 @@ function OverviewPanel({ horses, overview, selectedHorseId, metrics, compare, co
   const selected = overview.find((item) => item.horse_id === selectedHorseId);
   const lockedCount = overview.filter((item) => item.is_training_locked).length;
   const alertCount = overview.filter((item) => item.has_injury_alert).length;
+  const withMetricsCount = overview.filter((item) => item.recorded_at).length;
   const visiblePriorityHorses = overview.slice(0, 8);
-  return <div className="space-y-5">
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+  const recentMetrics = useMemo(() => metrics.slice().reverse().slice(0, 8), [metrics]);
+  const latestMetric = recentMetrics[0] ?? null;
+
+  return <div className="space-y-4">
+    {/* Tầng 1: 4 chỉ số tổng quan gọn */}
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatCard icon={Users} label="Ngựa đang hoạt động" value={String(horses.length)} />
       <StatCard icon={AlertTriangle} label="Đang khóa huấn luyện" value={String(lockedCount)} warning={lockedCount > 0} />
-      <StatCard icon={HeartPulse} label="Cảnh báo ở lần đo gần nhất" value={String(alertCount)} warning={alertCount > 0} />
-      <StatCard icon={Activity} label="Có dữ liệu thể lực" value={String(overview.filter((item) => item.recorded_at).length)} />
+      <StatCard icon={HeartPulse} label="Cảnh báo gần nhất" value={String(alertCount)} warning={alertCount > 0} />
+      <StatCard icon={Activity} label="Có dữ liệu thể lực" value={`${withMetricsCount}/${horses.length}`} />
     </div>
-    <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-      <Section title="Ưu tiên theo dõi" help="Ngựa bị khóa hoặc có cảnh báo gần nhất được xếp lên trước." icon={AlertTriangle}>
-        <div className="space-y-2">{visiblePriorityHorses.map((item) => {
-          const horseInfo = horses.find((h) => h.id === item.horse_id);
-          const horseMetrics = item.horse_id === selectedHorseId ? metrics : (compare.find((c) => c.horse_id === item.horse_id)?.metrics ?? []);
-          const sparkline = buildPrioritySparkline(item, horseInfo, horseMetrics);
-          const minSpark = Math.min(...sparkline.values);
-          const maxSpark = Math.max(...sparkline.values, minSpark + 1);
-          const polyPoints = sparkline.values.map((val, idx) => {
-            const x = (idx / 6) * 56 + 2;
-            const y = 18 - ((val - minSpark) / (maxSpark - minSpark)) * 14;
-            return `${x.toFixed(1)},${y.toFixed(1)}`;
-          }).join(" ");
-          return <div key={item.horse_id} className="flex items-center gap-3 rounded-lg border border-equine-line p-3">
-            <HorsePhoto id={item.horse_id} name={item.horse_name} image={item.image_url} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-semibold text-equine-navy">{item.horse_name}</p>
-              <p className="text-xs text-slate-500">{metricDate(item.recorded_at)} · {sparkline.label}</p>
+
+    {/* Tầng 2: 2 cột cân bằng — Danh sách ưu tiên & Lần đo gần nhất của ngựa đang chọn */}
+    <div className="grid gap-4 lg:grid-cols-12">
+      <div className="lg:col-span-5">
+        <Section
+          title="Ưu tiên theo dõi"
+          help="Ngựa bị khóa hoặc có cảnh báo gần nhất được xếp lên trước. Bấm vào ngựa để xem nhanh lần đo bên cạnh."
+          icon={AlertTriangle}
+        >
+          <div className="space-y-2">
+            {visiblePriorityHorses.map((item) => {
+              const horseInfo = horses.find((h) => h.id === item.horse_id);
+              const horseMetrics = item.horse_id === selectedHorseId ? metrics : (compare.find((c) => c.horse_id === item.horse_id)?.metrics ?? []);
+              const sparkline = buildPrioritySparkline(item, horseInfo, horseMetrics);
+              const minSpark = Math.min(...sparkline.values);
+              const maxSpark = Math.max(...sparkline.values, minSpark + 1);
+              const polyPoints = sparkline.values.map((val, idx) => {
+                const x = (idx / 6) * 56 + 2;
+                const y = 18 - ((val - minSpark) / (maxSpark - minSpark)) * 14;
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+              }).join(" ");
+              const isSelected = item.horse_id === selectedHorseId;
+              return (
+                <button
+                  key={item.horse_id}
+                  type="button"
+                  onClick={() => onSelectHorse(item.horse_id)}
+                  className={`flex w-full items-center gap-3 rounded-lg border p-2.5 text-left transition ${
+                    isSelected
+                      ? "border-equine-navy bg-blue-50/50 ring-1 ring-equine-navy/15"
+                      : "border-equine-line bg-white hover:bg-slate-50"
+                  }`}
+                >
+                  <HorsePhoto id={item.horse_id} name={item.horse_name} image={item.image_url} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-equine-navy">{item.horse_name}</p>
+                    <p className="truncate text-xs text-slate-500">{metricDate(item.recorded_at)}</p>
+                  </div>
+                  <svg viewBox="0 0 60 20" className="hidden h-5 w-14 shrink-0 sm:block" role="img" aria-label={`Biểu đồ 7 ngày của ${item.horse_name}: ${sparkline.label}`}>
+                    <title>{sparkline.label}</title>
+                    <polyline fill="none" stroke={item.is_training_locked ? "#be123c" : item.has_injury_alert ? "#b45309" : "#0f766e"} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" points={polyPoints} />
+                  </svg>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    item.is_training_locked
+                      ? "bg-rose-50 text-rose-700"
+                      : item.has_injury_alert
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-emerald-50 text-emerald-700"
+                  }`}>
+                    {item.is_training_locked ? "Đang khóa" : item.has_injury_alert ? "Cảnh báo" : "Ổn định"}
+                  </span>
+                  <span className="w-11 shrink-0 text-right text-xs font-bold text-slate-700">
+                    {item.stamina_score != null ? `${item.stamina_score}/10` : "—"}
+                  </span>
+                </button>
+              );
+            })}
+            {visiblePriorityHorses.length === 0 && (
+              <p className="rounded-lg border border-dashed border-equine-line p-4 text-center text-sm text-slate-500">Không tìm thấy ngựa phù hợp.</p>
+            )}
+          </div>
+        </Section>
+      </div>
+
+      <div className="lg:col-span-7">
+        <Section title={selected ? `Lần đo gần nhất — ${selected.horse_name}` : "Lần đo gần nhất"} icon={Gauge}>
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-lg border border-equine-line bg-slate-50/70 px-3 py-2">
+              <span className="block text-[11px] font-semibold uppercase text-slate-500">Tốc độ TB</span>
+              <strong className="mt-0.5 block text-base font-bold text-equine-navy">
+                {latestMetric?.avg_speed_kmh != null ? `${latestMetric.avg_speed_kmh} km/h` : "—"}
+              </strong>
             </div>
-            <svg viewBox="0 0 60 20" className="hidden h-5 w-16 shrink-0 sm:block" role="img" aria-label={`Biểu đồ 7 ngày của ${item.horse_name}: ${sparkline.label}`}>
-              <polyline fill="none" stroke={item.is_training_locked ? "#be123c" : item.has_injury_alert ? "#b45309" : "#0f766e"} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" points={polyPoints} />
-            </svg>
-            {item.is_training_locked && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">Đang khóa</span>}
-            {!item.is_training_locked && item.has_injury_alert && <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700">Cảnh báo</span>}
-            <span className="text-right text-xs text-slate-600">{item.stamina_score ?? "—"}<small className="block">thể lực</small></span>
-          </div>;
-        })}{visiblePriorityHorses.length === 0 && <p className="rounded-lg border border-dashed border-equine-line p-4 text-center text-sm text-slate-500">Không tìm thấy ngựa phù hợp.</p>}</div>
-      </Section>
-      <Section title="So sánh chỉ số theo thời gian" help="Mỗi ngày là một nhóm cột; màu sắc đại diện cho từng ngựa." icon={Activity}>
-        <div className="grid gap-3 sm:grid-cols-2"><Field label="Từ ngày" name="from" type="date" value={from} onChange={setFrom} /><Field label="Đến ngày" name="to" type="date" value={to} onChange={setTo} /></div>
-        <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={includeSimulated} onChange={(event) => setIncludeSimulated(event.target.checked)} />Gồm dữ liệu mô phỏng</label>
-        <label className="mt-3 block max-w-sm"><span className="field-label">Chỉ số cần theo dõi</span><select className="field-control px-3" value={comparisonMetric} onChange={(event) => setComparisonMetric(event.target.value as ComparisonMetricKey)}>{comparisonMetrics.map((metric) => <option key={metric.key} value={metric.key}>{metric.label} ({metric.unit})</option>)}</select></label>
-        <div className="mt-3 flex max-h-28 flex-wrap gap-2 overflow-y-auto">{horses.map((horse) => <label key={horse.id} className="inline-flex items-center gap-1 rounded-lg border border-equine-line px-2 py-1 text-xs"><input type="checkbox" checked={compareIds.includes(horse.id)} onChange={(event) => setCompareIds(event.target.checked ? [...compareIds, horse.id].slice(0, 8) : compareIds.filter((id) => id !== horse.id))} />{horse.horse_name}</label>)}</div>
-        <ComparisonChart compare={compare} metricKey={comparisonMetric} />
-      </Section>
+            <div className="rounded-lg border border-equine-line bg-slate-50/70 px-3 py-2">
+              <span className="block text-[11px] font-semibold uppercase text-slate-500">Thể lực</span>
+              <strong className="mt-0.5 block text-base font-bold text-emerald-700">
+                {latestMetric?.stamina_score != null ? `${latestMetric.stamina_score}/10` : "—"}
+              </strong>
+            </div>
+            <div className="rounded-lg border border-equine-line bg-slate-50/70 px-3 py-2">
+              <span className="block text-[11px] font-semibold uppercase text-slate-500">Nhịp tim</span>
+              <strong className="mt-0.5 block text-base font-bold text-rose-700">
+                {latestMetric?.max_heart_rate != null ? `${latestMetric.max_heart_rate} bpm` : "—"}
+              </strong>
+            </div>
+            <div className="rounded-lg border border-equine-line bg-slate-50/70 px-3 py-2">
+              <span className="block text-[11px] font-semibold uppercase text-slate-500">Cân nặng</span>
+              <strong className="mt-0.5 block text-base font-bold text-slate-800">
+                {latestMetric?.body_weight_kg != null ? `${latestMetric.body_weight_kg} kg` : "—"}
+              </strong>
+            </div>
+          </div>
+
+          <div className="max-h-72 overflow-auto rounded-lg border border-equine-line">
+            <table className="w-full min-w-[540px] text-left text-xs">
+              <thead className="sticky top-0 bg-slate-50">
+                <tr className="border-b border-equine-line text-[11px] font-bold uppercase text-slate-500">
+                  <th className="px-3 py-2">Thời điểm</th>
+                  <th className="px-2 py-2">Tốc độ TB</th>
+                  <th className="px-2 py-2">Thể lực</th>
+                  <th className="px-2 py-2">Nhịp tim</th>
+                  <th className="px-2 py-2">Cân nặng</th>
+                  <th className="px-3 py-2 text-right">Cảnh báo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-equine-line/70">
+                {recentMetrics.map((point, index) => (
+                  <tr key={point.id ?? `${point.recorded_at}-${index}`} className="hover:bg-slate-50/70">
+                    <td className="px-3 py-2 font-medium text-slate-700">
+                      {metricDate(point.recorded_at)}
+                      {point.is_simulated && <small className="ml-1 font-semibold text-violet-700">· Mô phỏng</small>}
+                    </td>
+                    <td className="px-2 py-2 font-semibold text-equine-navy">{point.avg_speed_kmh ?? "—"} km/h</td>
+                    <td className="px-2 py-2">{point.stamina_score != null ? `${point.stamina_score}/10` : "—"}</td>
+                    <td className="px-2 py-2">{point.max_heart_rate ?? "—"} bpm</td>
+                    <td className="px-2 py-2">{point.body_weight_kg ?? "—"} kg</td>
+                    <td className="px-3 py-2 text-right">
+                      {point.has_injury_alert ? <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700">Cần lưu ý</span> : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {recentMetrics.length === 0 && (
+              <p className="p-4 text-center text-xs text-slate-500">Chưa có chỉ số trong khoảng thời gian này.</p>
+            )}
+          </div>
+        </Section>
+      </div>
     </div>
-    <Section title="Lần đo gần nhất" description={selected?.horse_name ?? "Các ngựa"} icon={Gauge}>
-      <div className="overflow-x-auto"><table className="w-full min-w-[650px] text-left text-sm"><thead><tr className="border-b border-equine-line text-xs uppercase text-slate-500"><th className="py-2">Thời điểm</th><th>Cân nặng</th><th>Nhịp tim tối đa</th><th>Tốc độ TB</th><th>Thể lực</th><th>Cảnh báo</th></tr></thead><tbody>{metrics.slice().reverse().slice(0, 12).map((point, index) => <tr key={point.id ?? `${point.recorded_at}-${index}`} className="border-b border-equine-line/70"><td className="py-2">{metricDate(point.recorded_at)}{point.is_simulated && <small className="ml-1 text-violet-700">· Mô phỏng</small>}</td><td>{point.body_weight_kg ?? "—"} kg</td><td>{point.max_heart_rate ?? "—"} bpm</td><td>{point.avg_speed_kmh ?? "—"} km/h</td><td>{point.stamina_score ?? "—"}</td><td>{point.has_injury_alert ? <span className="text-rose-700">Cần lưu ý</span> : "—"}</td></tr>)}</tbody></table>{metrics.length === 0 && <p className="py-4 text-sm text-slate-500">Chưa có chỉ số trong khoảng thời gian này.</p>}</div>
+
+    {/* Tầng 3: So sánh chỉ số toàn chiều rộng */}
+    <Section title="So sánh chỉ số theo thời gian" help="Mỗi ngày là một nhóm cột; màu sắc đại diện cho từng ngựa." icon={Activity}>
+      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-equine-line bg-slate-50/80 p-3">
+        <div className="w-40"><Field label="Từ ngày" name="from" type="date" value={from} onChange={setFrom} /></div>
+        <div className="w-40"><Field label="Đến ngày" name="to" type="date" value={to} onChange={setTo} /></div>
+        <label className="block min-w-[200px] flex-1 max-w-xs">
+          <span className="field-label">Chỉ số cần theo dõi</span>
+          <select className="field-control px-3" value={comparisonMetric} onChange={(event) => setComparisonMetric(event.target.value as ComparisonMetricKey)}>
+            {comparisonMetrics.map((metric) => <option key={metric.key} value={metric.key}>{metric.label} ({metric.unit})</option>)}
+          </select>
+        </label>
+        <label className="inline-flex h-[42px] cursor-pointer items-center gap-2 rounded-lg border border-equine-line bg-white px-3 text-xs font-semibold text-slate-700">
+          <input type="checkbox" checked={includeSimulated} onChange={(event) => setIncludeSimulated(event.target.checked)} />
+          Gồm dữ liệu mô phỏng
+        </label>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <span className="mr-1 text-xs font-semibold text-slate-600">Ngựa so sánh ({compareIds.length}/8):</span>
+        {horses.map((horse) => {
+          const activeIndex = compareIds.indexOf(horse.id);
+          const isChecked = activeIndex !== -1;
+          const color = isChecked ? chartColors[activeIndex % chartColors.length] : undefined;
+          return (
+            <label
+              key={horse.id}
+              className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                isChecked ? "border-equine-navy bg-blue-50/60 text-equine-navy font-semibold" : "border-equine-line bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="sr-only"
+                checked={isChecked}
+                onChange={(event) => setCompareIds(event.target.checked ? [...compareIds, horse.id].slice(0, 8) : compareIds.filter((id) => id !== horse.id))}
+              />
+              {color ? <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: color }} /> : <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-slate-300" />}
+              <span>{horse.horse_name}</span>
+            </label>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => setCompareIds(horses.slice(0, 8).map((h) => h.id))}
+          className="soft-button !min-h-[26px] px-2 py-0.5 text-[11px]"
+        >
+          Chọn tất cả
+        </button>
+        {selectedHorseId && (
+          <button
+            type="button"
+            onClick={() => setCompareIds([selectedHorseId])}
+            className="soft-button !min-h-[26px] px-2 py-0.5 text-[11px]"
+          >
+            Chỉ ngựa đang chọn
+          </button>
+        )}
+      </div>
+
+      <ComparisonChart compare={compare} metricKey={comparisonMetric} />
     </Section>
   </div>;
 }
@@ -1870,14 +1989,13 @@ export function computeHorseCoverage(
   });
 }
 
-function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, selectedHorseIds, setSelectedHorseIds, onCreate, onUpdate, onDelete, onSchedule, onApplyRegimen, onResetCleanData, busy, error, notice }: {
+function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, selectedHorseIds, setSelectedHorseIds, onCreate, onUpdate, onDelete, onSchedule, onApplyRegimen, busy, error, notice }: {
   horse: Horse | null; horses: Horse[]; plans: TrainingPlan[]; activeOnly: boolean; setActiveOnly: (value: boolean) => void;
   editingPlan: string | null; setEditingPlan: (id: string | null) => void;
   selectedHorseIds: string[]; setSelectedHorseIds: (value: string[] | ((current: string[]) => string[])) => void;
-  onCreate: (event: FormEvent<HTMLFormElement>) => void; onUpdate: (event: FormEvent<HTMLFormElement>, id: string) => void;
+  onCreate: (event: FormEvent<HTMLFormElement>) => Promise<boolean>; onUpdate: (event: FormEvent<HTMLFormElement>, id: string) => void;
   onDelete: (id: string) => void; onSchedule: (plan: TrainingPlan) => void;
   onApplyRegimen: (regimen: StandardRegimen, targetHorseIds: string[], openCalendarAfter?: boolean) => Promise<void>;
-  onResetCleanData: () => Promise<void>;
   busy: boolean;
   error?: string;
   notice?: string;
@@ -1929,6 +2047,18 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
   const selectableHorseId = horse && !horse.is_training_locked ? horse.id : null;
   const createFormRef = useRef<HTMLFormElement>(null);
   const [duplicateWarningPlan, setDuplicateWarningPlan] = useState<TrainingPlan | null>(null);
+  const [overlapWarningPlan, setOverlapWarningPlan] = useState<TrainingPlan | null>(null);
+
+  const suggestedCustomDates = useMemo(() => {
+    const todayStr = today();
+    const activeEnds = allPlans
+      .map((p) => p.end_date)
+      .filter((d): d is string => Boolean(d && d >= todayStr))
+      .sort();
+    const latestEnd = activeEnds.at(-1);
+    const start = latestEnd ? plusDays(latestEnd, 1) : todayStr;
+    return { start, end: plusDays(start, 60) };
+  }, [allPlans]);
 
   useEffect(() => {
     setSelectedHorseIds(selectableHorseId ? [selectableHorseId] : []);
@@ -1937,6 +2067,7 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
     setPlanPage(1);
     setConfirmDelete(null);
     setDuplicateWarningPlan(null);
+    setOverlapWarningPlan(null);
   }, [horse?.id, activeOnly, allPlans]);
   useEffect(() => {
     if (planPage > totalPlanPages) setPlanPage(totalPlanPages);
@@ -1946,6 +2077,14 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
     const form = createFormRef.current;
     if (!form) return;
     const data = new FormData(form);
+    const startDate = String(data.get("start_date") || "");
+    const endDate = String(data.get("end_date") || "");
+    if (startDate && endDate && selectedHorseIds.includes(horse?.id ?? "")) {
+      const overlap = allPlans.find((p) => Boolean(p.start_date && p.end_date && p.start_date <= endDate && p.end_date >= startDate));
+      setOverlapWarningPlan(overlap ?? null);
+    } else {
+      setOverlapWarningPlan(null);
+    }
     const dist = Number(data.get("target_distance_meters")) || null;
     const workload = Number(data.get("target_workload_minutes")) || null;
     const surface = String(data.get("target_track_surface") || "").toLowerCase();
@@ -1969,29 +2108,15 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
       title="Giáo án chuẩn (Cao → Vừa → Thấp)"
       icon={ClipboardList}
       action={
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void onResetCleanData()}
-            className="soft-button border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-100"
-            title="Xóa toàn bộ giáo án & lịch tập cũ bị trùng/lộn xộn và tự động tạo lại bộ chuẩn sạch cho toàn bộ ngựa"
-          >
-            <RefreshCw size={13} /> 🧹 Làm sạch & Tạo lại Giáo án + Lịch chuẩn
-          </button>
-        </div>
-      }
-    >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-equine-line bg-slate-50/80 px-3 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative w-56">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <div className="relative flex-1 min-w-[200px] sm:w-64 sm:flex-none">
             <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={planSearch}
               onChange={(e) => setPlanSearch(e.target.value)}
               placeholder="Tìm giáo án, cự ly, sân..."
-              className="h-8 w-full rounded-lg border border-equine-line bg-white pl-7 pr-7 text-xs text-slate-800 outline-none focus:border-equine-navy"
+              className="h-9 w-full rounded-lg border border-equine-line bg-white pl-8 pr-7 text-xs text-slate-800 outline-none focus:border-equine-navy"
             />
             {planSearch && (
               <button
@@ -2004,14 +2129,14 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
               </button>
             )}
           </div>
-          <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5">
+          <div className="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-slate-50 p-0.5">
             {(["ALL", "CAO", "VỪA", "THẤP"] as const).map((lvl) => (
               <button
                 key={lvl}
                 type="button"
                 onClick={() => setLevelFilter(lvl)}
-                className={`rounded-md px-2.5 py-1 text-[11px] font-bold transition ${
-                  levelFilter === lvl ? "bg-equine-navy text-white" : "text-slate-600 hover:bg-slate-100"
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  levelFilter === lvl ? "bg-equine-navy text-white shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900"
                 }`}
               >
                 {lvl === "ALL" ? "Tất cả" : `Mức ${lvl}`}
@@ -2019,58 +2144,8 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
             ))}
           </div>
         </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-xs font-bold text-equine-navy">
-            Ngựa áp dụng ({selectedHorseIds.length}/{unlockedHorses.length}):
-          </span>
-          {unlockedHorses.map((item) => {
-            const checked = selectedHorseIds.includes(item.id);
-            return (
-              <label
-                key={item.id}
-                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium transition ${
-                  checked
-                    ? "border-blue-600 bg-blue-50 font-semibold text-blue-950 shadow-xs"
-                    : "border-equine-line bg-white text-slate-700 hover:bg-slate-50"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={(e) =>
-                    setSelectedHorseIds((curr) =>
-                      e.target.checked ? [...new Set([...curr, item.id])] : curr.filter((id) => id !== item.id),
-                    )
-                  }
-                />
-                <span>{item.horse_name}</span>
-                {item.box_code && (
-                  <span className="rounded bg-slate-100 px-1 py-0.2 text-[10px] text-slate-500">
-                    {item.box_code}
-                  </span>
-                )}
-              </label>
-            );
-          })}
-          <button
-            type="button"
-            className="soft-button px-2.5 py-1 text-[11px]"
-            onClick={() => setSelectedHorseIds(unlockedHorses.map((h) => h.id))}
-          >
-            Chọn tất cả ({unlockedHorses.length})
-          </button>
-          {horse && !horse.is_training_locked && (
-            <button
-              type="button"
-              className="soft-button px-2.5 py-1 text-[11px]"
-              onClick={() => setSelectedHorseIds([horse.id])}
-            >
-              Chỉ {horse.horse_name}
-            </button>
-          )}
-        </div>
-      </div>
+      }
+    >
 
       {/* Bảng List 9 Giáo án Chuẩn: CAO (3) -> VỪA (3) -> THẤP (3) */}
       <div className="overflow-x-auto rounded-xl border border-equine-line bg-white">
@@ -2164,7 +2239,20 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
         <div className="mb-4 rounded-xl border border-blue-200 bg-slate-50/90 p-3.5">
           {error && <div className="mb-3"><Notice error>{error}</Notice></div>}
           {notice && <div className="mb-3"><Notice>{notice}</Notice></div>}
-          <form ref={createFormRef} onSubmit={onCreate} onChange={handleFormChange} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <form
+            key={`custom-plan-${horse?.id ?? ""}-${suggestedCustomDates.start}`}
+            ref={createFormRef}
+            onSubmit={async (event) => {
+              const ok = await onCreate(event);
+              if (ok) {
+                setShowCustomForm(false);
+                setOverlapWarningPlan(null);
+                setDuplicateWarningPlan(null);
+              }
+            }}
+            onChange={handleFormChange}
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+          >
             <div className="sm:col-span-2 lg:col-span-4">
               {selectedHorseIds.map((id) => <input key={id} type="hidden" name="horse_ids" value={id} />)}
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
@@ -2177,6 +2265,11 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
                   : <span className="text-slate-500">Chưa chọn ngựa</span>}
               </div>
             </div>
+            {overlapWarningPlan && (
+              <div className="sm:col-span-2 lg:col-span-4 rounded-lg border border-rose-300 bg-rose-50 p-2.5 text-xs font-semibold text-rose-900">
+                ⚠️ Khoảng ngày đang chọn bị chồng với giáo án <b>“{overlapWarningPlan.stage_name}”</b> ({overlapWarningPlan.start_date} → {overlapWarningPlan.end_date}). Hãy chọn ngày bắt đầu từ <b>{suggestedCustomDates.start}</b> trở đi để không bị lỗi chồng giai đoạn.
+              </div>
+            )}
             {duplicateWarningPlan && (
               <div className="sm:col-span-2 lg:col-span-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-950">
                 <span>⚠️ Đã có giáo án trùng thông số: <b>{duplicateWarningPlan.stage_name}</b></span>
@@ -2189,8 +2282,8 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
             <SelectField label="Cự ly (m)" name="target_distance_meters" required options={distanceOptions} />
             <Field label="Khối lượng (phút/tuần)" name="target_workload_minutes" type="number" min={1} required max={1440} />
             <SelectField label="Mặt sân" name="target_track_surface" required options={[["", "Chưa chọn"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
-            <Field label="Bắt đầu" name="start_date" type="date" required defaultValue={today()} />
-            <Field label="Kết thúc" name="end_date" type="date" required defaultValue={plusDays(today(), 60)} />
+            <Field label="Bắt đầu" name="start_date" type="date" required defaultValue={suggestedCustomDates.start} />
+            <Field label="Kết thúc" name="end_date" type="date" required defaultValue={suggestedCustomDates.end} />
             <SelectField label="Cường độ" name="target_intensity" required options={[["High", "Cao"], ["Medium", "Vừa"], ["Low", "Thấp"]]} />
             <Field label="Hạn sửa trước (giờ)" name="update_deadline_hours" type="number" min={0} defaultValue={24} />
             <div className="sm:col-span-2 lg:col-span-3">
@@ -2601,7 +2694,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   selectedHorseId: string; onSelectHorse: (id: string) => void; overview: TrainerHorse[]; horses: Horse[]; sessions: TrainingSession[]; careEvents: CareCalendarEvent[]; grooms: Groom[]; from: string; to: string; onWeekChange: (value: string) => void;
   onCreate: (event: FormEvent<HTMLFormElement>) => Promise<TrainingSession | null>;
   onResetCleanData: () => Promise<void>;
-  scheduleDraft: { horseId: string; planId: string; startDate: string | null; regimenKey?: RegimenLevel } | null;
+  scheduleDraft: { horseId: string; planId: string; startDate: string | null; regimenKey?: RegimenLevel; preferRegimenValues?: boolean } | null;
   onTargetsSaved: () => Promise<void>;
   onOpenSimulation: (session: TrainingSession) => void;
   onAssign: (id: string, groomId: number) => void; onStatus: (id: string, status: string) => void;
@@ -2683,10 +2776,6 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
     () => (currentHorseObj ? recommendRegimenForHorse(currentHorseObj, currentOverviewObj) : null),
     [currentHorseObj, currentOverviewObj],
   );
-  const currentRunStructure = useMemo(
-    () => analyzeSessionRunStructure(Number(distanceVal) || 1200, intensityVal),
-    [distanceVal, intensityVal],
-  );
   const [notesVal, setNotesVal] = useState("");
 
   const slotEvaluationsForDate = useMemo(
@@ -2704,19 +2793,25 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
     [slotEvaluationsForDate, selectedSlotId],
   );
 
+  const manualGroomSlotKeyRef = useRef<string>("");
+  const lastAutoGroomSlotKeyRef = useRef<string>("");
+
   // Automatically pick best available Groom for current (scheduleDate, selectedSlotId) whenever slot/date/horse/sessions change
   useEffect(() => {
     if (!currentSlotEval) return;
+    const slotKey = `${createHorse}|${scheduleDate}|${selectedSlotId}`;
+    if (manualGroomSlotKeyRef.current === slotKey) return;
     const currentGroomStat = currentSlotEval.rankedGrooms.find(
       (g) => String(g.groom.user_id) === assignedGroomVal,
     );
-    // If no groom selected, or currently selected groom is busy in this slot, or another groom is clearly freer, auto-select bestGroomId
-    if (!assignedGroomVal || currentGroomStat?.busyReason || currentSlotEval.bestGroomId) {
+    const slotChanged = lastAutoGroomSlotKeyRef.current !== slotKey;
+    if (slotChanged || !assignedGroomVal || Boolean(currentGroomStat?.busyReason)) {
+      lastAutoGroomSlotKeyRef.current = slotKey;
       if (currentSlotEval.bestGroomId && currentSlotEval.bestGroomId !== assignedGroomVal) {
         setAssignedGroomVal(currentSlotEval.bestGroomId);
       }
     }
-  }, [currentSlotEval, assignedGroomVal]);
+  }, [createHorse, scheduleDate, selectedSlotId, currentSlotEval, assignedGroomVal]);
 
   // When scheduleDate changes and current slot is not free for the horse on that date, auto-hop to the least-crowded free slot on that date
   useEffect(() => {
@@ -2808,19 +2903,19 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   }, [scheduleDraft]);
 
   useEffect(() => {
-    if (selectedPlan) {
-      if (selectedPlan.target_track_surface) setSurfaceVal(selectedPlan.target_track_surface);
-      if (selectedPlan.target_distance_meters) setDistanceVal(String(selectedPlan.target_distance_meters));
-      if (selectedPlan.target_intensity) setIntensityVal(selectedPlan.target_intensity);
-      const matched = matchStandardRegimen(selectedPlan);
-      if (matched) {
-        setRegimenPreset(matched.key);
-        setSessionType(matched.session_type);
-      }
-      const runInfo = analyzeSessionRunStructure(selectedPlan.target_distance_meters, selectedPlan.target_intensity);
-      setNotesVal(`[${selectedPlan.stage_name}] ${runInfo.formulaText}`);
+    if (!selectedPlan) return;
+    if (scheduleDraft?.preferRegimenValues && scheduleDraft.planId === selectedPlan.id) return;
+    if (selectedPlan.target_track_surface) setSurfaceVal(selectedPlan.target_track_surface);
+    if (selectedPlan.target_distance_meters) setDistanceVal(String(selectedPlan.target_distance_meters));
+    if (selectedPlan.target_intensity) setIntensityVal(selectedPlan.target_intensity);
+    const matched = matchStandardRegimen(selectedPlan);
+    if (matched) {
+      setRegimenPreset(matched.key);
+      setSessionType(matched.session_type);
     }
-  }, [selectedPlan]);
+    const runInfo = analyzeSessionRunStructure(selectedPlan.target_distance_meters, selectedPlan.target_intensity);
+    setNotesVal(`[${selectedPlan.stage_name}] ${runInfo.formulaText}`);
+  }, [selectedPlan, scheduleDraft?.preferRegimenValues, scheduleDraft?.planId]);
 
   useEffect(() => {
     if (horsePlansLoading) return;
@@ -2907,7 +3002,8 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
     }
   }
 
-  const [searchQuery, setSearchQuery] = useState("");
+  const [intensityFilter, setIntensityFilter] = useState<"ALL" | "High" | "Medium" | "Low">("ALL");
+  const [horseFilterState, setHorseFilterState] = useState<HorseSearchFilterState | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "Scheduled" | "Overdue" | "InProgress" | "Completed" | "Cancelled">("all");
   const [includeCareEvents, setIncludeCareEvents] = useState(true);
   const [showAllSlots, setShowAllSlots] = useState(true);
@@ -2921,13 +3017,35 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   const [highlightedSessionId, setHighlightedSessionId] = useState<string | null>(null);
   const timetableRef = useRef<HTMLDivElement>(null);
 
+  const selectedHorseSummary = useMemo(
+    () => horses.find((h) => h.id === selectedHorseId) ?? null,
+    [horses, selectedHorseId],
+  );
+  const activeCalendarHorse = !showAllHorsesTimetable ? selectedHorseSummary : null;
+  const dropdownMatchedHorseIds = useMemo(() => {
+    if (!horseFilterState) return null;
+    if (horseFilterState.status === "ALL" && horseFilterState.stable === "ALL" && horseFilterState.readiness === "ALL") {
+      return null;
+    }
+    return new Set(
+      filterSearchableHorses(horses, {
+        query: "",
+        status: horseFilterState.status,
+        stable: horseFilterState.stable,
+        readiness: horseFilterState.readiness,
+      }).map((h) => h.id),
+    );
+  }, [horses, horseFilterState]);
+  const unifiedQuery = normalizeHorseSearch((horseFilterState?.query ?? "").trim());
+
   const lastScrolledSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!lastCreatedSessionId) return;
+    lastScrolledSessionRef.current = null;
     setHighlightedSessionId(lastCreatedSessionId);
     setSelectedSessionId(lastCreatedSessionId);
-    setSearchQuery("");
+    setIntensityFilter("ALL");
     setGroomFilterId("");
     setStatusFilter("all");
     setShowAllHorsesTimetable(true);
@@ -2939,8 +3057,8 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
       const cardEl = document.getElementById(`session-card-${lastCreatedSessionId}`);
       if (cardEl) {
         cardEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-        lastScrolledSessionRef.current = lastCreatedSessionId;
-      } else if (attempts < 15) {
+        lastScrolledSessionRef.current = `${lastCreatedSessionId}:settled`;
+      } else if (attempts < 25) {
         attempts += 1;
         scrollTimer = window.setTimeout(tryScrollToCard, 80);
       } else {
@@ -3002,13 +3120,13 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
     return sessions.filter((session) => {
       if (!calendarDays.includes(session.event_date)) return false;
       if (!showAllHorsesTimetable && session.horse_id !== selectedHorseId) return false;
+      if (showAllHorsesTimetable && dropdownMatchedHorseIds && !dropdownMatchedHorseIds.has(session.horse_id)) return false;
       if (groomFilterId && String(session.assigned_groom_id ?? "") !== groomFilterId) return false;
       return true;
     });
-  }, [sessions, calendarDays, showAllHorsesTimetable, selectedHorseId, groomFilterId]);
+  }, [sessions, calendarDays, showAllHorsesTimetable, selectedHorseId, dropdownMatchedHorseIds, groomFilterId]);
 
   const filteredSessions = useMemo(() => {
-    const q = normalizeHorseSearch(searchQuery.trim());
     return weekBaseSessions.filter((session) => {
       const overdue = isSessionOverdue(session);
       if (statusFilter === "Scheduled" && (session.status !== "Scheduled" || overdue)) return false;
@@ -3016,13 +3134,15 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
       if (statusFilter === "InProgress" && session.status !== "InProgress") return false;
       if (statusFilter === "Completed" && session.status !== "Completed") return false;
       if (statusFilter === "Cancelled" && session.status !== "Cancelled") return false;
-      if (q) {
-        const hay = normalizeHorseSearch(`${session.horse_name} ${session.plan_stage_name ?? ""} ${session.groom_name ?? ""} ${session.notes ?? ""} ${session.track_surface ?? ""} ${session.box_code ?? ""}`);
-        if (!hay.includes(q)) return false;
+      if (intensityFilter !== "ALL" && session.plan_target_intensity !== intensityFilter) return false;
+      if (unifiedQuery) {
+        const matchesHorse = horseFilterState?.filteredIds.has(session.horse_id) ?? false;
+        const hay = normalizeHorseSearch(`${session.horse_name} ${session.plan_stage_name ?? ""} ${session.groom_name ?? ""} ${session.notes ?? ""} ${session.track_surface ?? ""} ${surfaceLabel(session.track_surface)} ${session.box_code ?? ""}`);
+        if (!matchesHorse && !hay.includes(unifiedQuery)) return false;
       }
       return true;
     });
-  }, [weekBaseSessions, statusFilter, searchQuery, nowMs]);
+  }, [weekBaseSessions, statusFilter, intensityFilter, unifiedQuery, horseFilterState, nowMs]);
 
   const weeklyOverdueCount = useMemo(() => weekBaseSessions.filter((s) => isSessionOverdue(s)).length, [weekBaseSessions, nowMs]);
   const weeklyPendingCount = useMemo(() => weekBaseSessions.filter((s) => s.status === "Scheduled" && !isSessionOverdue(s)).length, [weekBaseSessions, nowMs]);
@@ -3034,9 +3154,9 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
           calendarDays.includes(c.event_date) &&
           c.status !== "Cancelled" &&
           c.event_type !== "CareTask" &&
-          (showAllHorsesTimetable || c.horse_id === selectedHorseId),
+          (showAllHorsesTimetable ? (!dropdownMatchedHorseIds || dropdownMatchedHorseIds.has(c.horse_id)) : c.horse_id === selectedHorseId),
       ).length,
-    [careEvents, calendarDays, showAllHorsesTimetable, selectedHorseId],
+    [careEvents, calendarDays, showAllHorsesTimetable, selectedHorseId, dropdownMatchedHorseIds],
   );
 
   async function submitReschedule(event: FormEvent<HTMLFormElement>, session: TrainingSession) {
@@ -3172,55 +3292,125 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
     );
   }, [filteredCoverageList]);
 
-  return <div className="trainer-calendar space-y-4">
-    {/* Thanh Công cụ Điều phối gọn trên đầu */}
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 shadow-xs">
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setShowDispatchDrawer((v) => !v)}
-          className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-bold transition ${
-            showDispatchDrawer ? "border-equine-navy bg-equine-navy text-white" : "border-slate-300 bg-slate-50 text-slate-800 hover:bg-slate-100"
-          }`}
-        >
-          <Users size={14} /> {showDispatchDrawer ? "Ẩn Bàn điều phối Chuồng & Groom" : `Bàn điều phối Chuồng & Groom (${uncoveredCount + undertrainedCount} thiếu lịch)`}
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowCreateForm((v) => !v)}
-          className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3.5 text-xs font-bold transition ${
-            showCreateForm ? "bg-slate-800 text-white" : "gold-button"
-          }`}
-        >
-          <Plus size={14} /> {showCreateForm ? "Đóng form đặt lịch" : "+ Đặt lịch tập mới"}
-        </button>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void onResetCleanData()}
-          className="inline-flex h-9 items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-bold text-amber-900 hover:bg-amber-100"
-          title="Xóa giáo án & lịch tập cũ và tự động khởi tạo lại bộ chuẩn sạch cho toàn bộ ngựa"
-        >
-          <RefreshCw size={13} /> Làm sạch & Tạo chuẩn
-        </button>
-      </div>
+  return <div className="trainer-calendar space-y-3">
+    {/* Thanh tìm kiếm & chọn ngựa duy nhất trên đầu */}
+    <div className="space-y-2.5 rounded-xl border border-blue-200 bg-gradient-to-r from-equine-mist via-white to-slate-50 p-3 shadow-sm ring-1 ring-blue-100/70">
+      <HorseSearchPicker
+        horses={horses}
+        selectedId={showAllHorsesTimetable ? "ALL" : selectedHorseId}
+        onSelect={(id) => {
+          if (id === "ALL") {
+            setShowAllHorsesTimetable(true);
+          } else {
+            onSelectHorse(id);
+            setCreateHorse(id);
+            setShowAllHorsesTimetable(false);
+          }
+        }}
+        onFilterChange={setHorseFilterState}
+        showFilters={true}
+        allOptionLabel={`Toàn CLB — Tất cả ngựa (${sessions.filter((s) => calendarDays.includes(s.event_date)).length} ca tuần này)`}
+        allOptionValue="ALL"
+        placeholder="Tìm ngựa, chuồng, bài tập, giáo án, groom..."
+        ariaLabel="Tìm ngựa, chuồng, bài tập hoặc groom"
+        className="w-full"
+      />
+
+      {activeCalendarHorse && (
+        <div className="flex flex-col gap-2.5 rounded-xl border border-slate-200 bg-white p-2.5 shadow-xs sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-equine-mist">
+              <HorseImage horse={activeCalendarHorse} priority />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-equine-blue">Ngựa đang xem lịch</p>
+              <h3 className="truncate font-sans text-base font-bold text-equine-navy">{activeCalendarHorse.horse_name}</h3>
+              <p className="truncate text-xs text-slate-600">
+                {activeCalendarHorse.box_code
+                  ? `Chuồng ${activeCalendarHorse.box_code}${activeCalendarHorse.section ? ` · Khu ${activeCalendarHorse.section}` : ""}`
+                  : "Chưa xếp chuồng"}
+                {activeCalendarHorse.breed ? ` · ${activeCalendarHorse.breed}` : ""}
+                {activeCalendarHorse.microchip_number ? ` · Chip ${activeCalendarHorse.microchip_number}` : ""}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+            <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+              activeCalendarHorse.current_status === "Injured" || activeCalendarHorse.current_status === "Quarantine"
+                ? "border-rose-200 bg-rose-50 text-rose-800"
+                : activeCalendarHorse.current_status === "Monitoring" || activeCalendarHorse.current_status === "Under Observation"
+                  ? "border-amber-200 bg-amber-50 text-amber-800"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-800"
+            }`}>
+              {statusLabels[activeCalendarHorse.current_status] ?? activeCalendarHorse.current_status}
+            </span>
+            <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+              activeCalendarHorse.readiness_status === "Ready"
+                ? "border-sky-200 bg-sky-50 text-sky-800"
+                : activeCalendarHorse.readiness_status === "NotReady"
+                  ? "border-amber-200 bg-amber-50 text-amber-800"
+                  : "border-slate-200 bg-slate-100 text-slate-600"
+            }`}>
+              {trainerHorseReadinessLabel(activeCalendarHorse.readiness_status)}
+            </span>
+            {activeCalendarHorse.is_training_locked && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-xs font-bold text-rose-700">
+                <AlertTriangle size={12} /> Đang khóa huấn luyện
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowAllHorsesTimetable(true)}
+              className="soft-button !min-h-[28px] px-2.5 py-1 text-xs"
+            >
+              Xem toàn CLB
+            </button>
+          </div>
+        </div>
+      )}
     </div>
 
     {!showCreateForm && !moveId && (error || notice || actionError || actionNotice) && (
       <div className="space-y-2">
         {(error || actionError) && <Notice error>{actionError || error}</Notice>}
         {(notice || actionNotice) && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-950">
-            {actionNotice || notice}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-950">
+            <span>{actionNotice || notice}</span>
+            {lastCreatedSessionId && (
+              <button
+                type="button"
+                onClick={() => {
+                  const el = document.getElementById(`session-card-${lastCreatedSessionId}`);
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+                  else timetableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                className="rounded border border-emerald-400 bg-white px-2.5 py-1 text-[11px] font-bold text-emerald-900 hover:bg-emerald-100"
+              >
+                ↓ Xem trên bảng lịch
+              </button>
+            )}
           </div>
         )}
       </div>
     )}
 
     {showDispatchDrawer && (
-      <Section title="Điều phối Độ phủ Chuồng & Tải Groom" icon={Users}>
+      <Section
+        title="Điều phối Độ phủ Chuồng & Tải Groom"
+        icon={Users}
+        action={
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void onResetCleanData()}
+            className="inline-flex h-8 items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 text-xs font-bold text-amber-900 hover:bg-amber-100"
+            title="Xóa giáo án & lịch tập cũ và tự động khởi tạo lại bộ chuẩn sạch cho toàn bộ ngựa"
+          >
+            <RefreshCw size={13} /> Làm sạch & Tạo chuẩn
+          </button>
+        }
+      >
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
           <button type="button" onClick={() => setCoverageFilter(coverageFilter === "uncovered" ? "all" : "uncovered")} className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left transition ${coverageFilter === "uncovered" ? "border-rose-500 bg-rose-100/80" : "border-rose-200 bg-rose-50/60"}`}><span className="text-xs font-bold text-rose-900">Chưa có lịch</span><strong className="text-lg font-extrabold text-rose-900">{uncoveredCount}</strong></button>
           <button type="button" onClick={() => setCoverageFilter(coverageFilter === "undertrained" ? "all" : "undertrained")} className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left transition ${coverageFilter === "undertrained" ? "border-orange-500 bg-orange-100/80" : "border-orange-200 bg-orange-50/60"}`}><span className="text-xs font-bold text-orange-900">Thiếu buổi</span><strong className="text-lg font-extrabold text-orange-900">{undertrainedCount}</strong></button>
@@ -3330,7 +3520,10 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
             label="Groom phụ trách"
             name="assigned_groom_id"
             value={assignedGroomVal}
-            onChange={setAssignedGroomVal}
+            onChange={(val) => {
+              manualGroomSlotKeyRef.current = `${createHorse}|${scheduleDate}|${selectedSlotId}`;
+              setAssignedGroomVal(val);
+            }}
             options={[
               ["", "Chưa phân công"],
               ...(currentSlotEval?.rankedGrooms ?? []).map((item, idx) => [
@@ -3341,67 +3534,132 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
               ] as [string, string]),
             ]}
           />
-          {currentSlotCareConflict && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 sm:col-span-2 lg:col-span-5">
-              <span>⚠️ Trùng lịch y tế/chăm sóc của <b>{currentSlotCareConflict.horse_name}</b> ({careEventTypeLabel(currentSlotCareConflict.event_type, currentSlotCareConflict.title)}). Vui lòng chọn ngày hoặc khung giờ khác.</span>
-            </div>
-          )}
-          {(error || actionError) && !moveId && (
-            <div className="sm:col-span-2 lg:col-span-5">
-              <Notice error>{actionError || error}</Notice>
-            </div>
-          )}
-          {(notice || actionNotice) && !moveId && (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-950 sm:col-span-2 lg:col-span-5">
-              <span>{actionNotice || notice}</span>
-              {lastCreatedSessionId && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const el = document.getElementById(`session-card-${lastCreatedSessionId}`);
-                    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-                    else timetableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
-                  className="rounded border border-emerald-400 bg-white px-2.5 py-1 text-[11px] font-bold text-emerald-900 hover:bg-emerald-100"
-                >
-                  ↓ Xem trên bảng lịch
-                </button>
-              )}
-            </div>
-          )}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-950 sm:col-span-2 lg:col-span-5">
-            <span>
-              ✅ <strong>Thông số ca tập{selectedPlan ? ` (${selectedPlan.stage_name})` : ""}:</strong>{" "}
-              {Number(selectedPlan?.target_distance_meters ?? distanceVal).toLocaleString("vi-VN")}m ·{" "}
-              {surfaceLabel(selectedPlan?.target_track_surface ?? surfaceVal)} · Cường độ{" "}
-              {({ High: "Cao", Medium: "Vừa", Low: "Thấp" } as Record<string, string>)[selectedPlan?.target_intensity ?? intensityVal] ?? (selectedPlan?.target_intensity ?? intensityVal)} ·{" "}
-              {analyzeSessionRunStructure(Number(selectedPlan?.target_distance_meters ?? distanceVal) || 1200, selectedPlan?.target_intensity ?? intensityVal).formulaText}
-            </span>
-            <div className="flex items-center gap-2">
-              <details className="relative">
-                <summary className="cursor-pointer rounded border border-emerald-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-900">⚙️ Tùy chỉnh</summary>
-                <div className="mt-2 grid gap-2.5 rounded-xl border border-equine-line bg-white p-3 shadow-md sm:grid-cols-3">
-                  <Field label="Bắt đầu" name="start_time" type="text" required value={startTimeVal} onChange={setStartTimeVal} maxLength={5} />
-                  <Field label="Kết thúc" name="end_time" type="text" required value={endTimeVal} onChange={setEndTimeVal} maxLength={5} />
-                  <SelectField label="Loại buổi" name="session_type" value={sessionType} onChange={setSessionType} options={[["Training", "Huấn luyện"], ["TrialRun", "Chạy thử"], ["Rest", "Nghỉ"]]} />
-                  <SelectField label="Mặt sân" name="track_surface" required={sessionType !== "Rest"} value={surfaceVal} onChange={setSurfaceVal} options={[["", "Chọn"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
-                  <SelectField label="Cự ly (m)" name="session_distance" required={sessionType !== "Rest"} value={distanceVal} onChange={setDistanceVal} options={distanceOptionsWithCurrent(Number(distanceVal) || selectedPlan?.target_distance_meters)} />
-                  <SelectField label="Cường độ" name="session_intensity" required={sessionType !== "Rest"} value={intensityVal} onChange={setIntensityVal} options={[["", "Chọn"], ["High", "Cao"], ["Medium", "Vừa"], ["Low", "Thấp"]]} />
-                  <label className="sm:col-span-3 block"><span className="field-label">Ghi chú ca tập</span><input type="text" name="notes" value={notesVal} onChange={(e) => setNotesVal(e.target.value)} className="field-control px-2.5 text-xs" /></label>
+          {(() => {
+            const matchesPresetSlot =
+              Boolean(currentSlotEval) &&
+              startTimeVal === currentSlotEval?.slot.start &&
+              endTimeVal === currentSlotEval?.slot.end;
+            const currentSlotBlockReason = currentSlotCareConflict
+              ? `Trùng lịch y tế/chăm sóc của ${currentSlotCareConflict.horse_name} (${careEventTypeLabel(currentSlotCareConflict.event_type, currentSlotCareConflict.title)}). Vui lòng chọn ngày hoặc khung giờ khác.`
+              : matchesPresetSlot && currentSlotEval && !currentSlotEval.isFreeForHorse
+                ? currentSlotEval.isPast
+                  ? "Khung giờ này đã qua. Vui lòng chọn ca sau hoặc ngày khác."
+                  : currentSlotEval.horseTrainingConflict
+                    ? "Ngựa đã có ca tập ở khung giờ này. Vui lòng chọn ca khác."
+                    : null
+                : null;
+            const effectiveDist = Number(distanceVal) || selectedPlan?.target_distance_meters || 1200;
+            const effectiveSurface = surfaceVal || selectedPlan?.target_track_surface || "Dirt";
+            const effectiveIntensity = intensityVal || selectedPlan?.target_intensity || "Medium";
+            return (
+              <>
+                {currentSlotBlockReason && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 sm:col-span-2 lg:col-span-5">
+                    <span>⚠️ {currentSlotBlockReason}</span>
+                  </div>
+                )}
+                {(error || actionError) && !moveId && (
+                  <div className="sm:col-span-2 lg:col-span-5">
+                    <Notice error>{actionError || error}</Notice>
+                  </div>
+                )}
+                {(notice || actionNotice) && !moveId && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-950 sm:col-span-2 lg:col-span-5">
+                    <span>{actionNotice || notice}</span>
+                    {lastCreatedSessionId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const el = document.getElementById(`session-card-${lastCreatedSessionId}`);
+                          if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+                          else timetableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        }}
+                        className="rounded border border-emerald-400 bg-white px-2.5 py-1 text-[11px] font-bold text-emerald-900 hover:bg-emerald-100"
+                      >
+                        ↓ Xem trên bảng lịch
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-950 sm:col-span-2 lg:col-span-5">
+                  <span>
+                    {sessionType === "Rest" ? (
+                      <>
+                        ✅ <strong>Thông số ca tập:</strong> Nghỉ dưỡng sức (không tính cự ly chạy)
+                      </>
+                    ) : (
+                      <>
+                        ✅ <strong>Thông số ca tập{selectedPlan ? ` (${selectedPlan.stage_name})` : ""}:</strong>{" "}
+                        {effectiveDist.toLocaleString("vi-VN")}m ·{" "}
+                        {surfaceLabel(effectiveSurface)} · Cường độ{" "}
+                        {({ High: "Cao", Medium: "Vừa", Low: "Thấp" } as Record<string, string>)[effectiveIntensity] ?? effectiveIntensity} ·{" "}
+                        {analyzeSessionRunStructure(effectiveDist, effectiveIntensity).formulaText}
+                      </>
+                    )}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <details className="relative">
+                      <summary className="cursor-pointer rounded border border-emerald-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-900">⚙️ Tùy chỉnh</summary>
+                      <div className="mt-2 grid gap-2.5 rounded-xl border border-equine-line bg-white p-3 shadow-md sm:grid-cols-3">
+                        <Field label="Bắt đầu" name="start_time" type="text" required value={startTimeVal} onChange={setStartTimeVal} maxLength={5} />
+                        <Field label="Kết thúc" name="end_time" type="text" required value={endTimeVal} onChange={setEndTimeVal} maxLength={5} />
+                        <SelectField label="Loại buổi" name="session_type" value={sessionType} onChange={setSessionType} options={[["Training", "Huấn luyện"], ["TrialRun", "Chạy thử"], ["Rest", "Nghỉ"]]} />
+                        <SelectField label="Mặt sân" name="track_surface" required={sessionType !== "Rest"} value={surfaceVal} onChange={setSurfaceVal} options={[["", "Chọn"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
+                        <SelectField label="Cự ly (m)" name="session_distance" required={sessionType !== "Rest"} value={distanceVal} onChange={setDistanceVal} options={distanceOptionsWithCurrent(Number(distanceVal) || selectedPlan?.target_distance_meters)} />
+                        <SelectField label="Cường độ" name="session_intensity" required={sessionType !== "Rest"} value={intensityVal} onChange={setIntensityVal} options={[["", "Chọn"], ["High", "Cao"], ["Medium", "Vừa"], ["Low", "Thấp"]]} />
+                        <label className="sm:col-span-3 block"><span className="field-label">Ghi chú ca tập</span><input type="text" name="notes" value={notesVal} onChange={(e) => setNotesVal(e.target.value)} className="field-control px-2.5 text-xs" /></label>
+                      </div>
+                    </details>
+                    <button
+                      className="gold-button px-4 py-1.5 text-xs"
+                      disabled={busy || Boolean(currentSlotBlockReason)}
+                      title={currentSlotBlockReason ?? undefined}
+                    >
+                      <CalendarDays size={14} /> Chốt ca tập
+                    </button>
+                  </div>
                 </div>
-              </details>
-              <button className="gold-button px-4 py-1.5 text-xs" disabled={busy}><CalendarDays size={14} /> Chốt ca tập</button>
-            </div>
-          </div>
+              </>
+            );
+          })()}
         </form>
       </Section>
     )}
-    <Section title="Thời khóa biểu tuần (Bộ lọc, Dời lịch, Hoàn thành & Chỉ số)" icon={CalendarDays}>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-equine-line bg-slate-50 p-3">
+    <section className="rounded-xl border border-equine-line bg-white p-3.5 shadow-sm">
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-equine-line pb-2.5">
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-equine-mist text-equine-navy">
+            <CalendarDays size={16} />
+          </span>
+          <h3 className="font-sans text-base font-bold text-equine-navy">Thời khóa biểu tuần</h3>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowDispatchDrawer((v) => !v)}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-bold transition ${
+              showDispatchDrawer ? "border-equine-navy bg-equine-navy text-white" : "border-slate-300 bg-slate-50 text-slate-800 hover:bg-slate-100"
+            }`}
+          >
+            <Users size={13} /> {showDispatchDrawer ? "Ẩn điều phối" : `Bàn điều phối Chuồng & Groom (${uncoveredCount + undertrainedCount} thiếu lịch)`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCreateForm((v) => !v)}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-bold transition ${
+              showCreateForm ? "bg-slate-800 text-white" : "gold-button"
+            }`}
+          >
+            <Plus size={14} /> {showCreateForm ? "Đóng form đặt lịch" : "Đặt lịch tập mới"}
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-equine-line bg-slate-50/80 px-2.5 py-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <select
             aria-label="Chọn tuần"
-            className="field-control w-auto py-1.5 text-sm font-semibold"
+            className="field-control h-8 w-auto py-1 text-xs font-semibold"
             value={weekOptions.some((w) => w.key === from) ? from : weekOptions[0]?.key ?? from}
             onChange={(e) => onWeekChange(e.target.value)}
           >
@@ -3409,72 +3667,42 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
               <option key={w.key} value={w.key}>{w.label}</option>
             ))}
           </select>
-          <button type="button" className="soft-button text-xs" onClick={() => onWeekChange(plusDays(from, -7))}>
-            <ArrowLeft size={14} /> Tuần trước
+          <button type="button" className="soft-button !min-h-[32px] h-8 px-2.5 text-xs" onClick={() => onWeekChange(plusDays(from, -7))}>
+            <ArrowLeft size={13} /> Tuần trước
           </button>
-          <button type="button" className="soft-button text-xs" onClick={() => onWeekChange(today())}>
+          <button type="button" className="soft-button !min-h-[32px] h-8 px-2.5 text-xs" onClick={() => onWeekChange(today())}>
             Tuần hiện tại
           </button>
-          <button type="button" className="soft-button text-xs" onClick={() => onWeekChange(plusDays(from, 7))}>
-            Tuần sau <ArrowRight size={14} />
+          <button type="button" className="soft-button !min-h-[32px] h-8 px-2.5 text-xs" onClick={() => onWeekChange(plusDays(from, 7))}>
+            Tuần sau <ArrowRight size={13} />
           </button>
-          {!showCreateForm && (
-            <button
-              type="button"
-              onClick={() => {
-                setShowCreateForm(true);
-                window.setTimeout(() => {
-                  createFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-                }, 60);
-              }}
-              className="gold-button px-3 py-1.5 text-xs"
-            >
-              <Plus size={13} /> Đặt thêm lịch tập
-            </button>
-          )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-56">
-            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm ngựa, bài tập, groom..."
-              className="h-9 w-full rounded-lg border border-equine-line bg-white pl-8 pr-7 text-xs text-slate-800 outline-none focus:border-equine-navy"
-            />
-            {searchQuery && (
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="inline-flex h-8 items-center rounded-lg border border-slate-300 bg-white p-0.5">
+            {([
+              ["ALL", "Tất cả"],
+              ["High", "CAO"],
+              ["Medium", "VỪA"],
+              ["Low", "THẤP"],
+            ] as const).map(([val, label]) => (
               <button
+                key={val}
                 type="button"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                title="Xóa tìm kiếm"
+                onClick={() => setIntensityFilter(val)}
+                className={`rounded-md px-2 py-1 text-xs font-semibold transition ${
+                  intensityFilter === val ? "bg-equine-navy text-white shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                }`}
               >
-                <X size={13} />
+                {label}
               </button>
-            )}
-          </div>
-          <div className="inline-flex rounded-lg border border-equine-line bg-white p-0.5">
-            <button
-              type="button"
-              onClick={() => setShowAllHorsesTimetable(true)}
-              className={`rounded-md px-2.5 py-1 text-xs font-bold transition ${showAllHorsesTimetable ? "bg-equine-navy text-white" : "text-slate-600 hover:bg-slate-100"}`}
-            >
-              Toàn CLB ({sessions.filter((s) => calendarDays.includes(s.event_date)).length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowAllHorsesTimetable(false)}
-              className={`rounded-md px-2.5 py-1 text-xs font-bold transition ${!showAllHorsesTimetable ? "bg-equine-navy text-white" : "text-slate-600 hover:bg-slate-100"}`}
-            >
-              {currentHorseObj?.horse_name ?? "Ngựa chọn"} ({sessions.filter((s) => s.horse_id === selectedHorseId && calendarDays.includes(s.event_date)).length})
-            </button>
+            ))}
           </div>
           <select
             aria-label="Lọc theo Groom"
             value={groomFilterId}
             onChange={(e) => setGroomFilterId(e.target.value)}
-            className="field-control h-9 w-auto px-2.5 py-1 text-xs font-semibold"
+            className="field-control h-8 w-auto px-2 py-1 text-xs font-semibold"
           >
             <option value="">Tất cả Groom ({grooms.length})</option>
             {groomWorkloads.map((item) => (
@@ -3487,7 +3715,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
             aria-label="Lọc trạng thái lịch tập"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-            className="field-control h-9 w-auto px-2.5 py-1 text-xs font-semibold"
+            className="field-control h-8 w-auto px-2 py-1 text-xs font-semibold"
           >
             <option value="all">Tất cả trạng thái</option>
             <option value="Scheduled">Cần thực hiện (Đã lên lịch)</option>
@@ -3496,21 +3724,21 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
             <option value="Completed">Đã hoàn thành</option>
             <option value="Cancelled">Đã hủy</option>
           </select>
-          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-equine-line bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700">
+          <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-equine-line bg-white px-2.5 text-xs font-semibold text-slate-700">
             <input
               type="checkbox"
               checked={includeCareEvents}
               onChange={(e) => setIncludeCareEvents(e.target.checked)}
               className="rounded border-slate-300"
             />
-            Hiện lịch Y tế
+            Lịch Y tế
           </label>
-          {(searchQuery || groomFilterId || statusFilter !== "all" || !showAllHorsesTimetable) && (
+          {(intensityFilter !== "ALL" || groomFilterId || statusFilter !== "all" || !showAllHorsesTimetable) && (
             <button
               type="button"
-              className="soft-button h-9 px-2.5 text-xs text-rose-700"
+              className="soft-button !min-h-[32px] h-8 px-2.5 text-xs text-rose-700"
               onClick={() => {
-                setSearchQuery("");
+                setIntensityFilter("ALL");
                 setGroomFilterId("");
                 setStatusFilter("all");
                 setShowAllHorsesTimetable(true);
@@ -3522,34 +3750,34 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
         </div>
       </div>
 
-      <div className="mb-3 grid gap-2 sm:grid-cols-4">
+      <div className="mb-2.5 grid gap-2 sm:grid-cols-4">
         <button
           type="button"
           onClick={() => setStatusFilter(statusFilter === "Scheduled" ? "all" : "Scheduled")}
-          className={`rounded-lg border p-2.5 text-left transition ${statusFilter === "Scheduled" ? "ring-2 ring-blue-500 border-blue-400 bg-blue-50" : "border-blue-200 bg-blue-50/60 hover:bg-blue-50"}`}
+          className={`rounded-lg border px-3 py-2 text-left transition ${statusFilter === "Scheduled" ? "ring-2 ring-blue-500 border-blue-400 bg-blue-50" : "border-blue-200 bg-blue-50/60 hover:bg-blue-50"}`}
         >
           <span className="text-[11px] font-bold uppercase text-blue-700">Cần thực hiện trong tuần</span>
-          <strong className="mt-0.5 block text-lg font-black text-blue-950">{weeklyPendingCount} buổi</strong>
+          <strong className="mt-0.5 block text-base font-black text-blue-950">{weeklyPendingCount} buổi</strong>
         </button>
         <button
           type="button"
           onClick={() => setStatusFilter(statusFilter === "Overdue" ? "all" : "Overdue")}
-          className={`rounded-lg border p-2.5 text-left transition ${statusFilter === "Overdue" ? "ring-2 ring-amber-500 border-amber-400 bg-amber-50" : "border-amber-200 bg-amber-50/70 hover:bg-amber-50"}`}
+          className={`rounded-lg border px-3 py-2 text-left transition ${statusFilter === "Overdue" ? "ring-2 ring-amber-500 border-amber-400 bg-amber-50" : "border-amber-200 bg-amber-50/70 hover:bg-amber-50"}`}
         >
           <span className="text-[11px] font-bold uppercase text-amber-800">Quá hạn / Bỏ lỡ</span>
-          <strong className="mt-0.5 block text-lg font-black text-amber-950">{weeklyOverdueCount} buổi</strong>
+          <strong className="mt-0.5 block text-base font-black text-amber-950">{weeklyOverdueCount} buổi</strong>
         </button>
         <button
           type="button"
           onClick={() => setStatusFilter(statusFilter === "Completed" ? "all" : "Completed")}
-          className={`rounded-lg border p-2.5 text-left transition ${statusFilter === "Completed" ? "ring-2 ring-emerald-500 border-emerald-400 bg-emerald-50" : "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50"}`}
+          className={`rounded-lg border px-3 py-2 text-left transition ${statusFilter === "Completed" ? "ring-2 ring-emerald-500 border-emerald-400 bg-emerald-50" : "border-emerald-200 bg-emerald-50/70 hover:bg-emerald-50"}`}
         >
           <span className="text-[11px] font-bold uppercase text-emerald-700">Đã hoàn thành</span>
-          <strong className="mt-0.5 block text-lg font-black text-emerald-950">{weeklyCompletedCount} buổi</strong>
+          <strong className="mt-0.5 block text-base font-black text-emerald-950">{weeklyCompletedCount} buổi</strong>
         </button>
-        <div className="rounded-lg border border-purple-200 bg-purple-50/70 p-2.5">
+        <div className="rounded-lg border border-purple-200 bg-purple-50/70 px-3 py-2">
           <span className="text-[11px] font-bold uppercase text-purple-800">Lịch Y tế / Chăm sóc</span>
-          <strong className="mt-0.5 block text-lg font-black text-purple-950">{weeklyCareCount} ca</strong>
+          <strong className="mt-0.5 block text-base font-black text-purple-950">{weeklyCareCount} ca</strong>
         </div>
       </div>
 
@@ -3583,10 +3811,11 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                   const cellCareEvents = !includeCareEvents ? [] : careEvents.filter((care) => {
                     if (care.event_date !== day || care.status === "Cancelled" || care.event_type === "CareTask") return false;
                     if (!showAllHorsesTimetable && care.horse_id !== selectedHorseId) return false;
-                    if (searchQuery.trim()) {
-                      const q = normalizeHorseSearch(searchQuery.trim());
+                    if (showAllHorsesTimetable && dropdownMatchedHorseIds && !dropdownMatchedHorseIds.has(care.horse_id)) return false;
+                    if (unifiedQuery) {
+                      const matchesHorse = horseFilterState?.filteredIds.has(care.horse_id) ?? false;
                       const hay = normalizeHorseSearch(`${care.horse_name} ${careEventTypeLabel(care.care_type ?? care.event_type, care.title)} ${care.doctor_name ?? ""} ${care.box_code ?? ""}`);
-                      if (!hay.includes(q)) return false;
+                      if (!matchesHorse && !hay.includes(unifiedQuery)) return false;
                     }
                     return getCareEventPrimarySlot(care) === slot.id;
                   });
@@ -3675,7 +3904,19 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                               : "bg-blue-100 text-blue-900";
                             const isNewlyCreated = highlightedSessionId === session.training_schedule_id;
                             return (
-                              <div data-notification-target={session.horse_id} id={`session-card-${session.training_schedule_id}`} key={`${session.training_schedule_id || session.event_id || "session"}-${sessionIdx}`} className={`rounded-lg border p-2 shadow-xs transition hover:shadow-sm ${cardStyle} ${isNewlyCreated ? "ring-4 ring-emerald-500 border-emerald-600 bg-emerald-50 animate-pulse" : ""}`}>
+                              <div
+                                id={`session-card-${session.training_schedule_id}`}
+                                data-notification-target={session.horse_id}
+                                key={`${session.training_schedule_id || session.event_id || "session"}-${sessionIdx}`}
+                                className={`rounded-lg border p-2 shadow-xs transition hover:shadow-sm ${cardStyle} ${
+                                  isNewlyCreated ? "ring-4 ring-emerald-500 border-emerald-600 bg-emerald-50 animate-pulse" : ""
+                                }`}
+                              >
+                                {isNewlyCreated && (
+                                  <div className="mb-1 flex items-center justify-between rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-extrabold text-white">
+                                    <span>✨ Vừa tạo thành công</span>
+                                  </div>
+                                )}
                                 <div className="flex items-start justify-between gap-1">
                                   <button
                                     type="button"
@@ -3870,7 +4111,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
         onToggleMetrics={() => setShowMetricsFor(showMetricsFor === selectedSession.training_schedule_id ? null : selectedSession.training_schedule_id)}
         onTargetsSaved={onTargetsSaved}
       />}
-    </Section>
+    </section>
   </div>;
 }
 
@@ -5077,11 +5318,21 @@ function HorsePhoto({ id, name, image }: { id: string; name: string; image?: str
 }
 
 function Section({ title, description, help, icon: Icon, children, action }: { title: string; description?: string; help?: string; icon: typeof Activity; children: ReactNode; action?: ReactNode }) {
-  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{help && <details className="relative text-slate-500"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100" aria-label={`Giải thích ${title}`} title={`Giải thích ${title}`}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{help}</p></details>}</div>{description && <p className="mt-1 text-sm text-slate-500">{description}</p>}</div></div>{action}</div>{children}</section>;
+  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className={`mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row ${description ? "sm:items-start" : "sm:items-center"} sm:justify-between`}><div className={`flex gap-3 ${description ? "items-start" : "items-center"}`}><span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{help && <details className="relative text-slate-500"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100" aria-label={`Giải thích ${title}`} title={`Giải thích ${title}`}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{help}</p></details>}</div>{description && <p className="mt-1 text-sm text-slate-500">{description}</p>}</div></div>{action}</div>{children}</section>;
 }
 
 function StatCard({ icon: Icon, label, value, warning = false }: { icon: typeof Activity; label: string; value: string; warning?: boolean }) {
-  return <article className={`rounded-lg border p-4 ${warning ? "border-rose-200 bg-rose-50" : "border-equine-line bg-white"}`}><Icon className={warning ? "text-rose-700" : "text-equine-teal"} size={18} /><p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 text-2xl font-semibold text-equine-navy">{value}</p></article>;
+  return (
+    <article className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 shadow-2xs ${warning ? "border-rose-200 bg-rose-50" : "border-equine-line bg-white"}`}>
+      <div className="min-w-0">
+        <p className="truncate text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</p>
+        <p className={`mt-0.5 text-xl font-bold ${warning ? "text-rose-800" : "text-equine-navy"}`}>{value}</p>
+      </div>
+      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${warning ? "bg-rose-100 text-rose-700" : "bg-equine-mist text-equine-teal"}`}>
+        <Icon size={18} />
+      </span>
+    </article>
+  );
 }
 
 function Field({ label, name, type = "text", required = false, defaultValue, value, onChange, maxLength, min, max, step, placeholder, pattern, inputMode, title }: {

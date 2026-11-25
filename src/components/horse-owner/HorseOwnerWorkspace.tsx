@@ -10,8 +10,6 @@ import {
   ArrowLeft,
   ArrowRight,
   CalendarDays,
-  Check,
-  ChevronDown,
   ClipboardList,
   Filter,
   HeartPulse,
@@ -24,13 +22,26 @@ import {
 } from "lucide-react";
 import { HorseImage, Notice, StatusBadge } from "@/components/horses/HorseUI";
 import HorseRegistrationPanel from "@/components/horse-owner/HorseRegistrationPanel";
+import { HorseCardsSkeleton, PanelListSkeleton, WorkspaceSkeleton } from "@/components/shared/LoadingSkeletons";
+import HorseSearchPicker, { type HorseSearchFilterState } from "@/components/shared/HorseSearchPicker";
 import { errorMessage, horseGender } from "@/api/horses/api";
+import {
+  OWNER_TIMETABLE_SLOTS,
+  ownerCareTypeLabel,
+  ownerSlotForTime,
+  ownerTrainingTitle,
+} from "@/lib/owner-schedule";
 import { useLinkedNotificationHorse } from "@/hooks/use-notification-target";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import {
+  getOwnerCalendar,
   getOwnerHorseDashboard,
   getOwnerHorses,
   getOwnershipTransferRequests,
+  peekOwnerCalendar,
+  peekOwnerHorseDashboard,
+  peekOwnerHorses,
+  type OwnerCalendar,
   type OwnerDashboard,
   type OwnerHorse,
   type OwnershipTransferRequest,
@@ -40,43 +51,60 @@ type Tab = "overview" | "health" | "training" | "races" | "finance" | "horse-req
 const workspaceTabIds: readonly Tab[] = ["overview", "health", "training", "races", "finance", "horse-requests"];
 
 export default function HorseOwnerWorkspace() {
-  const [horses, setHorses] = useState<OwnerHorse[]>([]);
-  const [selectedId, setSelectedId] = useState("");
+  const [horses, setHorses] = useState<OwnerHorse[]>(() => peekOwnerHorses()?.items ?? []);
+  const [selectedId, setSelectedId] = useState("ALL");
   useLinkedNotificationHorse(horses, setSelectedId);
+  const [ownerCalendar, setOwnerCalendar] = useState<OwnerCalendar | null>(() => peekOwnerCalendar());
+  const [loadingCalendar, setLoadingCalendar] = useState(() => !peekOwnerCalendar());
   const [dashboard, setDashboard] = useState<OwnerDashboard | null>(null);
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
   const [year, setYear] = useState(new Date().getFullYear());
-  const [loadingHorses, setLoadingHorses] = useState(true);
+  const [loadingHorses, setLoadingHorses] = useState(() => !peekOwnerHorses());
   const [loadingDashboard, setLoadingDashboard] = useState(false);
   const [transferRequests, setTransferRequests] = useState<OwnershipTransferRequest[]>([]);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [horseQuery, setHorseQuery] = useState("");
-  const pickerRef = useRef<HTMLDivElement>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [ownerFilter, setOwnerFilter] = useState<HorseSearchFilterState>({
+    query: "",
+    status: "ALL",
+    stable: "ALL",
+    readiness: "ALL",
+    filteredIds: new Set(),
+    hasActiveFilter: false,
+  });
+  const dashboardRef = useRef<OwnerDashboard | null>(null);
+  dashboardRef.current = dashboard;
 
-  useEffect(() => {
-    if (!pickerOpen) return;
-    searchInputRef.current?.focus();
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!pickerRef.current?.contains(event.target as Node)) setPickerOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPickerOpen(false);
-    };
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [pickerOpen]);
+  const handleOwnerFilterChange = useCallback((next: HorseSearchFilterState) => {
+    setOwnerFilter(next);
+  }, []);
+
+  const isCalendarTab = tab === "training" || tab === "health";
+  const effectiveDashboardHorseId = selectedId !== "ALL"
+    ? selectedId
+    : isCalendarTab
+      ? ""
+      : (horses[0]?.id ?? "");
+
+  const refreshCalendar = useCallback(async (silent = false, force = false) => {
+    if (!silent) {
+      setLoadingCalendar((current) => (ownerCalendar && !force ? current : true));
+    }
+    try {
+      const result = await getOwnerCalendar(force);
+      setOwnerCalendar(result);
+      setUpdatedAt(new Date());
+    } catch (reason) {
+      if (!silent) setError(errorMessage(reason));
+    } finally {
+      setLoadingCalendar(false);
+    }
+  }, [ownerCalendar]);
 
   useEffect(() => {
     let active = true;
     let transferRetryAfter = 0;
-    const refreshHorses = () => {
+    const refreshHorsesAndCalendar = (force = false) => {
       // The request panel loads its own transfers. Avoid a second request here,
       // and give a failing server a minute before retrying on window focus.
       const requestPanelOpen = new URLSearchParams(window.location.search).get("tab") === "horse-requests";
@@ -86,21 +114,29 @@ export default function HorseOwnerWorkspace() {
           .then((items) => { if (active) setTransferRequests(items); })
           .catch(() => {});
       }
-      return getOwnerHorses()
+      void getOwnerCalendar(force)
+        .then((cal) => {
+          if (!active) return;
+          setOwnerCalendar(cal);
+          setUpdatedAt((prev) => prev ?? new Date());
+        })
+        .catch(() => {})
+        .finally(() => { if (active) setLoadingCalendar(false); });
+      return getOwnerHorses(force)
         .then((result) => {
           if (!active) return;
           setHorses(result.items);
-          setSelectedId((current) => result.items.some((horse) => horse.id === current)
+          setSelectedId((current) => current === "ALL" || result.items.some((horse) => horse.id === current)
             ? current
-            : result.items[0]?.id || "");
+            : "ALL");
         })
         .catch((reason) => { if (active) setError(errorMessage(reason)); })
         .finally(() => { if (active) setLoadingHorses(false); });
     };
-    const handleUpdate = () => { void refreshHorses(); };
+    const handleUpdate = () => { void refreshHorsesAndCalendar(true); };
     window.addEventListener("horse-owner-horses-changed", handleUpdate);
     window.addEventListener("focus", handleUpdate);
-    void refreshHorses();
+    void refreshHorsesAndCalendar(false);
     return () => {
       active = false;
       window.removeEventListener("horse-owner-horses-changed", handleUpdate);
@@ -108,14 +144,22 @@ export default function HorseOwnerWorkspace() {
     };
   }, []);
 
-  const refreshDashboard = useCallback(async (silent = false) => {
-    if (!selectedId) return;
+  const refreshDashboard = useCallback(async (silent = false, force = false) => {
+    if (!effectiveDashboardHorseId) return;
+    if (!force) {
+      const cached = peekOwnerHorseDashboard(effectiveDashboardHorseId, year);
+      if (cached) {
+        setDashboard(cached);
+        setLoadingDashboard(false);
+        return;
+      }
+    }
     if (!silent) {
-      setLoadingDashboard((current) => dashboard?.horse.id === selectedId ? current : true);
+      setLoadingDashboard(dashboardRef.current?.horse.id !== effectiveDashboardHorseId || force);
     }
     setError("");
     try {
-      const result = await getOwnerHorseDashboard(selectedId, year);
+      const result = await getOwnerHorseDashboard(effectiveDashboardHorseId, year, force);
       setDashboard(result);
       setUpdatedAt(new Date());
     } catch (reason) {
@@ -123,24 +167,33 @@ export default function HorseOwnerWorkspace() {
     } finally {
       setLoadingDashboard(false);
     }
-  }, [dashboard?.horse.id, selectedId, year]);
+  }, [effectiveDashboardHorseId, year]);
 
   useEffect(() => {
-    void refreshDashboard();
+    void refreshDashboard(false, false);
   }, [refreshDashboard]);
-  useAutoRefresh(() => refreshDashboard(true), { intervalMs: 25_000 });
 
-  const currentHorse = dashboard?.horse.id === selectedId
+  useAutoRefresh(() => Promise.all([refreshCalendar(true, true), refreshDashboard(true, true)]), { intervalMs: 25_000 });
+
+  const currentHorse = dashboard?.horse.id === effectiveDashboardHorseId
     ? dashboard.horse
-    : horses.find((horse) => horse.id === selectedId) ?? null;
-  const filteredHorses = useMemo(() => {
-    const q = horseQuery.trim().toLowerCase();
-    if (!q) return horses;
-    return horses.filter((horse) =>
-      [horse.horse_name, horse.breed, horse.box_code, horse.section, horse.microchip_number, horse.passport_number]
-        .some((field) => field?.toLowerCase().includes(q)),
-    );
-  }, [horses, horseQuery]);
+    : horses.find((horse) => horse.id === effectiveDashboardHorseId) ?? null;
+  const filteredHorses = useMemo(
+    () => (ownerFilter.hasActiveFilter ? horses.filter((horse) => ownerFilter.filteredIds.has(horse.id)) : horses),
+    [horses, ownerFilter.filteredIds, ownerFilter.hasActiveFilter],
+  );
+  const allTrainingSchedules = useMemo(() => {
+    const source = ownerCalendar?.training_schedules ?? [];
+    if (selectedId !== "ALL") return source.filter((item) => item.horse_id === selectedId);
+    if (!ownerFilter.hasActiveFilter) return source;
+    return source.filter((item) => !item.horse_id || ownerFilter.filteredIds.has(item.horse_id));
+  }, [ownerCalendar?.training_schedules, selectedId, ownerFilter.filteredIds, ownerFilter.hasActiveFilter]);
+  const allCareSchedules = useMemo(() => {
+    const source = ownerCalendar?.care_schedules ?? [];
+    if (selectedId !== "ALL") return source.filter((item) => item.horse_id === selectedId);
+    if (!ownerFilter.hasActiveFilter) return source;
+    return source.filter((item) => !item.horse_id || ownerFilter.filteredIds.has(item.horse_id));
+  }, [ownerCalendar?.care_schedules, selectedId, ownerFilter.filteredIds, ownerFilter.hasActiveFilter]);
   const recentMetrics = useMemo(() => dashboard?.training_metrics ?? [], [dashboard]);
   const latestWeight = recentMetrics.find((item) => item.body_weight_kg != null)?.body_weight_kg
     ?? currentHorse?.current_weight_kg
@@ -156,7 +209,6 @@ export default function HorseOwnerWorkspace() {
   return (
     <section className="space-y-5" aria-label="Theo dõi ngựa">
       {error && <Notice error>{error}</Notice>}
-
       {transferRequests.length > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50/80 p-4 text-sm text-amber-950 shadow-sm">
           <div>
@@ -170,7 +222,7 @@ export default function HorseOwnerWorkspace() {
           </button>
         </div>
       )}
-      {loadingHorses ? <Notice>Đang tải ngựa thuộc sở hữu của bạn...</Notice> : horses.length === 0 ? (
+      {loadingHorses ? <HorseCardsSkeleton count={3} label="Đang tải ngựa thuộc sở hữu của bạn..." /> : horses.length === 0 ? (
         <div className="rounded-lg border border-equine-line bg-white p-6 shadow-sm">
           <Notice>Bạn chưa có ngựa được liên kết. Mở mục Yêu cầu hồ sơ để gửi yêu cầu đăng ký mới hoặc liên kết hồ sơ ngựa có sẵn.</Notice>
           <div className="mt-4">
@@ -187,134 +239,131 @@ export default function HorseOwnerWorkspace() {
         />
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {horses.map((horse) => (
-              <button data-notification-target={horse.id} key={horse.id} type="button" onClick={() => { setSelectedId(horse.id); selectTab("overview"); }}
-                aria-pressed={selectedId === horse.id}
-                className={`flex min-w-0 items-center gap-3 rounded-lg border p-3 text-left shadow-sm transition ${selectedId === horse.id ? "border-equine-navy bg-slate-50 ring-1 ring-equine-navy/20" : "border-equine-line bg-white hover:border-equine-teal/50"}`}>
-                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md bg-equine-mist"><HorseImage horse={horse} /></div>
-                <div className="min-w-0 flex-1"><p className="truncate font-semibold text-equine-navy">{horse.horse_name}</p><p className="truncate text-xs text-slate-500">{horse.breed ?? "Chưa cập nhật giống"} · {horse.box_code ?? "Chưa xếp chuồng"}</p></div>
-                <StatusBadge horse={horse} />
-              </button>
-            ))}
-          </div>
-
-          {currentHorse && (
-            <div className="flex flex-col gap-3 rounded-lg border border-equine-line bg-white p-3.5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-              <div className="relative min-w-0 flex-1" ref={pickerRef}>
-                <button
-                  type="button"
-                  onClick={() => setPickerOpen((open) => !open)}
-                  aria-expanded={pickerOpen}
-                  aria-haspopup="listbox"
-                  className="flex w-full max-w-xl items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-2 pr-3 text-left transition hover:border-equine-blue/50 hover:bg-white"
-                >
-                  <div className="h-11 w-11 shrink-0 overflow-hidden rounded-md bg-equine-mist">
-                    <HorseImage horse={currentHorse} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="truncate text-sm font-semibold text-equine-navy">{currentHorse.horse_name}</span>
-                      <StatusBadge horse={currentHorse} />
-                    </div>
-                    <p className="mt-0.5 truncate text-xs text-slate-500">
-                      {currentHorse.breed ?? "Chưa cập nhật giống"} · {currentHorse.box_code ?? "Chưa xếp chuồng"}
-                      {currentHorse.section ? ` · Khu ${currentHorse.section}` : ""}
-                    </p>
-                  </div>
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-600">
-                    {horses.length > 1 ? `Đổi (${horses.length})` : "1 ngựa"}
-                    <ChevronDown size={14} className={`transition-transform ${pickerOpen ? "rotate-180" : ""}`} />
-                  </span>
-                </button>
-
-                {pickerOpen && (
-                  <div className="absolute left-0 top-full z-40 mt-2 w-full max-w-xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
-                    <div className="border-b border-slate-100 p-2.5">
-                      <div className="relative flex items-center">
-                        <Search size={15} className="pointer-events-none absolute left-3 text-slate-400" />
-                        <input
-                          ref={searchInputRef}
-                          type="text"
-                          value={horseQuery}
-                          onChange={(event) => setHorseQuery(event.target.value)}
-                          placeholder="Tìm ngựa theo tên, giống, mã chuồng..."
-                          aria-label="Tìm kiếm ngựa của bạn"
-                          className="field-control !min-h-[36px] w-full pl-9 pr-8 text-xs"
-                        />
-                        {horseQuery && (
-                          <button
-                            type="button"
-                            onClick={() => { setHorseQuery(""); searchInputRef.current?.focus(); }}
-                            aria-label="Xóa từ khóa tìm kiếm"
-                            className="absolute right-2 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                          >
-                            <X size={13} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div role="listbox" aria-label="Danh sách ngựa của bạn" className="max-h-72 divide-y divide-slate-100 overflow-y-auto">
-                      {filteredHorses.length === 0 ? (
-                        <p className="p-4 text-center text-xs text-slate-500">
-                          Không tìm thấy ngựa phù hợp với “{horseQuery}”.
-                        </p>
-                      ) : (
-                        filteredHorses.map((horse) => {
-                          const isSelected = horse.id === selectedId;
-                          return (
-                            <button
-                              key={horse.id}
-                              type="button"
-                              role="option"
-                              aria-selected={isSelected}
-                              onClick={() => {
-                                setSelectedId(horse.id);
-                                setPickerOpen(false);
-                                setHorseQuery("");
-                              }}
-                              className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition ${
-                                isSelected ? "bg-blue-50/70" : "hover:bg-slate-50"
-                              }`}
-                            >
-                              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-equine-mist">
-                                <HorseImage horse={horse} />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-semibold text-equine-navy">{horse.horse_name}</p>
-                                <p className="truncate text-xs text-slate-500">
-                                  {horse.breed ?? "Chưa cập nhật giống"} · {horse.box_code ?? "Chưa xếp chuồng"}
-                                </p>
-                              </div>
-                              <StatusBadge horse={horse} />
-                              {isSelected && <Check size={15} className="shrink-0 text-equine-blue" />}
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                )}
+          <div className="space-y-4 rounded-xl border border-equine-line bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="min-w-0 flex-1">
+                <HorseSearchPicker
+                  horses={horses}
+                  selectedId={isCalendarTab ? selectedId : effectiveDashboardHorseId}
+                  onSelect={setSelectedId}
+                  showFilters={true}
+                  allOptionLabel={isCalendarTab ? `Tất cả ngựa của tôi (${horses.length})` : undefined}
+                  allOptionValue="ALL"
+                  placeholder="Tìm ngựa theo tên, giống, mã chuồng, chip..."
+                  ariaLabel="Tìm kiếm ngựa của bạn"
+                  onFilterChange={handleOwnerFilterChange}
+                />
               </div>
 
-              <div className="flex flex-wrap items-center gap-2.5 lg:justify-end">
+              <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                 <span className="text-xs text-slate-400">
-                  {updatedAt ? `Cập nhật ${formatDateTime(updatedAt.toISOString())}` : "Tự cập nhật mỗi 30 giây"}
+                  {updatedAt ? `Cập nhật ${formatDateTime(updatedAt.toISOString())}` : "Tự cập nhật mỗi 25 giây"}
                 </span>
-                <Link href={Routes.horse(currentHorse.id)} className="soft-button !min-h-[34px] !px-3 !text-xs">
-                  Mở hồ sơ lý lịch
-                </Link>
-                <button type="button" className="soft-button !min-h-[34px] !px-3 !text-xs" disabled={!selectedId || loadingDashboard} onClick={() => void refreshDashboard()} aria-label="Làm mới thông tin">
-                  <RefreshCw size={14} className={loadingDashboard ? "animate-spin" : ""} /> Làm mới
+                {currentHorse && (
+                  <Link href={Routes.horse(currentHorse.id)} className="soft-button !min-h-[36px] !px-3 !text-xs">
+                    Mở hồ sơ lý lịch
+                  </Link>
+                )}
+                <button
+                  type="button"
+                  className="soft-button !min-h-[36px] !px-3 !text-xs"
+                  disabled={loadingDashboard || loadingCalendar}
+                  onClick={() => {
+                    void refreshCalendar(false, true);
+                    void refreshDashboard(false, true);
+                  }}
+                  aria-label="Làm mới thông tin"
+                >
+                  <RefreshCw size={14} className={loadingDashboard || loadingCalendar ? "animate-spin" : ""} /> Làm mới
                 </button>
               </div>
             </div>
-          )}
 
-          {loadingDashboard && !dashboard ? <Notice>Đang tải dữ liệu của {currentHorse?.horse_name}...</Notice> : dashboard?.horse.id === selectedId ? (
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+              {isCalendarTab && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedId("ALL")}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    selectedId === "ALL"
+                      ? "border-equine-navy bg-equine-navy text-white shadow-sm"
+                      : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white"
+                  }`}
+                >
+                  Tất cả ngựa của tôi ({horses.length})
+                </button>
+              )}
+
+              {filteredHorses.length === 0 ? (
+                <span className="text-xs text-slate-500">Không tìm thấy ngựa phù hợp với bộ lọc hiện tại.</span>
+              ) : (
+                filteredHorses.map((horse) => {
+                  const active = (isCalendarTab ? selectedId : effectiveDashboardHorseId) === horse.id;
+                  return (
+                    <button
+                      key={horse.id}
+                      type="button"
+                      onClick={() => setSelectedId(horse.id)}
+                      className={`inline-flex items-center gap-2 rounded-full border py-1 pl-1.5 pr-3 text-xs font-medium transition ${
+                        active
+                          ? "border-equine-blue bg-blue-50 text-equine-navy font-semibold shadow-xs ring-1 ring-equine-blue/25"
+                          : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="h-5 w-5 shrink-0 overflow-hidden rounded-full bg-equine-mist">
+                        <HorseImage horse={horse} />
+                      </span>
+                      <span>{horse.horse_name}</span>
+                      {horse.box_code && <span className="text-[11px] opacity-70">· {horse.box_code}</span>}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {isCalendarTab && selectedId === "ALL" ? (
+            <div className="space-y-4">
+              <Panel title={tab === "training" ? "Lịch tập luyện & Lịch y tế theo tuần (Tất cả ngựa)" : "Lịch y tế & chăm sóc định kỳ (Tất cả ngựa)"} icon={tab === "training" ? CalendarDays : Stethoscope}>
+                {loadingCalendar && !ownerCalendar ? (
+                  <PanelListSkeleton rows={4} label="Đang tải lịch tập & lịch y tế..." />
+                ) : (
+                  <OwnerScheduleCalendar
+                    key="ALL"
+                    trainingSchedules={allTrainingSchedules}
+                    careSchedules={allCareSchedules}
+                    defaultShowTraining={tab === "training"}
+                    defaultShowCare={true}
+                    showHorseName={true}
+                    onSelectHorse={(id) => setSelectedId(id)}
+                  />
+                )}
+              </Panel>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-4 py-3 text-xs text-slate-600">
+                Đang hiển thị lịch tổng hợp của tất cả {horses.length} ngựa thuộc sở hữu của bạn. Chọn một ngựa cụ thể ở thanh phía trên để xem thêm chỉ số khám, video tập luyện và nhận xét của huấn luyện viên.
+              </div>
+            </div>
+          ) : loadingDashboard && dashboard?.horse.id !== effectiveDashboardHorseId ? (
+            isCalendarTab && ownerCalendar ? (
+              <div className="space-y-5">
+                <Panel title={tab === "training" ? "Lịch tập luyện & Lịch y tế theo tuần" : "Lịch y tế & chăm sóc định kỳ"} icon={tab === "training" ? CalendarDays : Stethoscope}>
+                  <OwnerScheduleCalendar
+                    key={effectiveDashboardHorseId}
+                    trainingSchedules={allTrainingSchedules}
+                    careSchedules={allCareSchedules}
+                    defaultShowTraining={tab === "training"}
+                    defaultShowCare={true}
+                  />
+                </Panel>
+                <PanelListSkeleton rows={3} label={`Đang tải dữ liệu chi tiết của ${currentHorse?.horse_name ?? "ngựa"}...`} />
+              </div>
+            ) : (
+              <WorkspaceSkeleton label={`Đang tải dữ liệu của ${currentHorse?.horse_name ?? "ngựa"}...`} />
+            )
+          ) : dashboard?.horse.id === effectiveDashboardHorseId ? (
             <div className="space-y-5">
-              {tab === "health" && <HealthPanel dashboard={dashboard} latestWeight={latestWeight} />}
-              {tab === "training" && <TrainingPanel dashboard={dashboard} />}
+              {tab === "health" && <HealthPanel dashboard={dashboard} latestWeight={latestWeight} calendarCare={ownerCalendar ? allCareSchedules : undefined} calendarTraining={ownerCalendar ? allTrainingSchedules : undefined} />}
+              {tab === "training" && <TrainingPanel dashboard={dashboard} calendarCare={ownerCalendar ? allCareSchedules : undefined} calendarTraining={ownerCalendar ? allTrainingSchedules : undefined} />}
               {tab === "races" && <RacePanel dashboard={dashboard} />}
               {tab === "finance" && <FinancePanel dashboard={dashboard} year={year} onYearChange={setYear} />}
             </div>
@@ -467,7 +516,17 @@ function OwnerHorsesOverview({
   );
 }
 
-function HealthPanel({ dashboard, latestWeight }: { dashboard: OwnerDashboard; latestWeight: number | null }) {
+function HealthPanel({
+  dashboard,
+  latestWeight,
+  calendarCare,
+  calendarTraining,
+}: {
+  dashboard: OwnerDashboard;
+  latestWeight: number | null;
+  calendarCare?: OwnerDashboard["care_schedules"];
+  calendarTraining?: OwnerDashboard["training_schedules"];
+}) {
   const horse = dashboard.horse;
   return (
     <div className="space-y-5">
@@ -479,8 +538,9 @@ function HealthPanel({ dashboard, latestWeight }: { dashboard: OwnerDashboard; l
       </div>
       <Panel title="Lịch y tế & chăm sóc định kỳ" icon={Stethoscope}>
         <OwnerScheduleCalendar
-          trainingSchedules={dashboard.training_schedules}
-          careSchedules={dashboard.care_schedules ?? []}
+          key={dashboard.horse.id}
+          trainingSchedules={calendarTraining ?? dashboard.training_schedules}
+          careSchedules={calendarCare ?? dashboard.care_schedules ?? []}
           defaultShowTraining={false}
           defaultShowCare={true}
         />
@@ -501,13 +561,22 @@ function HealthPanel({ dashboard, latestWeight }: { dashboard: OwnerDashboard; l
   );
 }
 
-function TrainingPanel({ dashboard }: { dashboard: OwnerDashboard }) {
+function TrainingPanel({
+  dashboard,
+  calendarCare,
+  calendarTraining,
+}: {
+  dashboard: OwnerDashboard;
+  calendarCare?: OwnerDashboard["care_schedules"];
+  calendarTraining?: OwnerDashboard["training_schedules"];
+}) {
   return (
     <div className="space-y-5">
       <Panel title="Lịch tập luyện & Lịch y tế theo tuần" icon={CalendarDays}>
         <OwnerScheduleCalendar
-          trainingSchedules={dashboard.training_schedules}
-          careSchedules={dashboard.care_schedules ?? []}
+          key={dashboard.horse.id}
+          trainingSchedules={calendarTraining ?? dashboard.training_schedules}
+          careSchedules={calendarCare ?? dashboard.care_schedules ?? []}
           defaultShowTraining={true}
           defaultShowCare={true}
         />
@@ -520,22 +589,6 @@ function TrainingPanel({ dashboard }: { dashboard: OwnerDashboard }) {
       </Panel>
     </div>
   );
-}
-
-const TIMETABLE_SLOTS = [
-  { id: 1, label: "Ca 1", timeRange: "06:00 – 09:00" },
-  { id: 2, label: "Ca 2", timeRange: "09:00 – 12:00" },
-  { id: 3, label: "Ca 3", timeRange: "14:00 – 16:30" },
-  { id: 4, label: "Ca 4", timeRange: "16:30 – 19:00" },
-] as const;
-
-function slotForTime(startTime: string | null | undefined): number {
-  if (!startTime) return 1;
-  const hour = Number(startTime.slice(0, 2));
-  if (Number.isNaN(hour) || hour < 9) return 1;
-  if (hour < 13) return 2;
-  if (hour < 16) return 3;
-  return 4;
 }
 
 function mondayOfWeek(dateIso: string) {
@@ -561,39 +614,56 @@ function OwnerScheduleCalendar({
   careSchedules,
   defaultShowTraining,
   defaultShowCare,
+  showHorseName = false,
+  onSelectHorse,
 }: {
   trainingSchedules: OwnerDashboard["training_schedules"];
   careSchedules: NonNullable<OwnerDashboard["care_schedules"]>;
   defaultShowTraining: boolean;
   defaultShowCare: boolean;
+  showHorseName?: boolean;
+  onSelectHorse?: (horseId: string) => void;
 }) {
   const todayStr = localTodayIso();
   const [weekStart, setWeekStart] = useState(() => mondayOfWeek(todayStr));
   const [showTraining, setShowTraining] = useState(defaultShowTraining);
   const [showCare, setShowCare] = useState(defaultShowCare);
 
+  const activeCareSchedules = useMemo(
+    () => careSchedules.filter((item) => item.status !== "Cancelled"),
+    [careSchedules],
+  );
+
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const daySet = useMemo(() => new Set(days), [days]);
 
   const weekTrainingCount = useMemo(
-    () => trainingSchedules.filter((item) => daySet.has(item.event_date)).length,
+    () => trainingSchedules.filter((item) => item.status !== "Cancelled" && daySet.has(item.event_date)).length,
     [trainingSchedules, daySet],
   );
   const weekCareCount = useMemo(
-    () => careSchedules.filter((item) => daySet.has(item.event_date)).length,
-    [careSchedules, daySet],
+    () => activeCareSchedules.filter((item) => daySet.has(item.event_date)).length,
+    [activeCareSchedules, daySet],
   );
+
+  const nearestCareDate = useMemo(() => {
+    const dates = activeCareSchedules.map((i) => i.event_date).filter(Boolean);
+    if (dates.length === 0) return null;
+    const upcoming = dates.filter((d) => d >= todayStr).sort();
+    if (upcoming.length > 0) return upcoming[0];
+    return [...dates].sort().at(-1) ?? null;
+  }, [activeCareSchedules, todayStr]);
 
   const nearestEventDate = useMemo(() => {
     const allDates = [
-      ...(showTraining ? trainingSchedules.map((i) => i.event_date) : []),
-      ...(showCare ? careSchedules.map((i) => i.event_date) : []),
+      ...(showTraining ? trainingSchedules.filter((i) => i.status !== "Cancelled").map((i) => i.event_date) : []),
+      ...(showCare ? activeCareSchedules.map((i) => i.event_date) : []),
     ].filter(Boolean);
     if (allDates.length === 0) return null;
     const upcoming = allDates.filter((d) => d >= todayStr).sort();
     if (upcoming.length > 0) return upcoming[0];
     return [...allDates].sort().at(-1) ?? null;
-  }, [trainingSchedules, careSchedules, showTraining, showCare, todayStr]);
+  }, [trainingSchedules, activeCareSchedules, showTraining, showCare, todayStr]);
 
   const weekRangeLabel = `${days[0].slice(8, 10)}/${days[0].slice(5, 7)} – ${days[6].slice(8, 10)}/${days[6].slice(5, 7)}/${days[6].slice(0, 4)}`;
 
@@ -640,6 +710,19 @@ function OwnerScheduleCalendar({
         </div>
       )}
 
+      {showCare && weekCareCount === 0 && weekTrainingCount > 0 && nearestCareDate && !daySet.has(nearestCareDate) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-purple-200 bg-purple-50/70 px-3.5 py-2 text-xs text-purple-950">
+          <span>Tuần này chưa có lịch y tế. Ngựa có {activeCareSchedules.length} lịch y tế ở tuần khác (gần nhất: {formatDate(nearestCareDate)}).</span>
+          <button
+            type="button"
+            className="font-semibold text-purple-800 hover:underline"
+            onClick={() => setWeekStart(mondayOfWeek(nearestCareDate))}
+          >
+            Xem tuần có lịch y tế
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-lg border border-slate-300">
         <table className="w-full min-w-[920px] border-collapse text-left text-xs">
           <thead>
@@ -672,7 +755,7 @@ function OwnerScheduleCalendar({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-300">
-            {TIMETABLE_SLOTS.map((slot) => (
+            {OWNER_TIMETABLE_SLOTS.map((slot) => (
               <tr key={slot.id} className="transition-colors hover:bg-slate-50/50">
                 <td className="border-r border-slate-300 bg-slate-100/80 p-2.5 text-center align-middle text-slate-900">
                   <span className="block text-sm font-semibold">{slot.label}</span>
@@ -680,10 +763,10 @@ function OwnerScheduleCalendar({
                 </td>
                 {days.map((day) => {
                   const cellTraining = showTraining
-                    ? trainingSchedules.filter((item) => item.event_date === day && slotForTime(item.start_time) === slot.id)
+                    ? trainingSchedules.filter((item) => item.event_date === day && ownerSlotForTime(item.start_time) === slot.id)
                     : [];
                   const cellCare = showCare
-                    ? careSchedules.filter((item) => item.event_date === day && slotForTime(item.start_time) === slot.id)
+                    ? activeCareSchedules.filter((item) => item.event_date === day && ownerSlotForTime(item.start_time) === slot.id)
                     : [];
                   return (
                     <td
@@ -699,7 +782,7 @@ function OwnerScheduleCalendar({
                             const isOverdue = care.status === "Scheduled" && care.event_date < todayStr;
                             return (
                               <div
-                                key={`care-${care.id}`}
+                                key={`care-${care.id}-${care.horse_id ?? "single"}`}
                                 className={`rounded-md border p-2 text-[11px] ${
                                   isOverdue
                                     ? "border-rose-300 bg-rose-50/90 text-rose-950"
@@ -708,9 +791,25 @@ function OwnerScheduleCalendar({
                                       : "border-purple-300 bg-purple-50/90 text-purple-950"
                                 }`}
                               >
+                                {showHorseName && care.horse_name && (
+                                  <div className="mb-1 flex items-center justify-between gap-1 border-b border-current/10 pb-1">
+                                    {onSelectHorse && care.horse_id ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => onSelectHorse(care.horse_id!)}
+                                        className="truncate text-left text-[11px] font-bold hover:underline"
+                                      >
+                                        🐎 {care.horse_name}
+                                      </button>
+                                    ) : (
+                                      <span className="truncate text-[11px] font-bold">🐎 {care.horse_name}</span>
+                                    )}
+                                    {care.box_code && <span className="shrink-0 text-[10px] opacity-75">{care.box_code}</span>}
+                                  </div>
+                                )}
                                 <div className="flex items-start justify-between gap-1">
                                   <strong className="font-semibold leading-snug">
-                                    🩺 {careTypeLabel(care.care_type, care.title)}
+                                    🩺 {ownerCareTypeLabel(care.care_type, care.title)}
                                   </strong>
                                   <span
                                     className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold ${
@@ -724,12 +823,16 @@ function OwnerScheduleCalendar({
                                     {isOverdue ? "Quá hạn" : isCompleted ? "Đã khám" : "Lịch Y tế"}
                                   </span>
                                 </div>
-                                {care.start_time && (
+                                {care.start_time ? (
                                   <p className="mt-1 text-[10px] opacity-80">
                                     {formatTime(care.start_time)}{care.end_time ? ` – ${formatTime(care.end_time)}` : ""}
                                   </p>
+                                ) : care.is_periodic_due ? (
+                                  <p className="mt-1 text-[10px] opacity-80">Chưa đặt giờ · Đến hạn</p>
+                                ) : null}
+                                {care.doctor_name && (
+                                  <p className="mt-0.5 truncate text-[10px] opacity-80">BS. {formatDoctorDisplayName(care.doctor_name)}</p>
                                 )}
-                                {care.doctor_name && <p className="mt-0.5 truncate text-[10px] opacity-80">BS. {care.doctor_name}</p>}
                               </div>
                             );
                           })}
@@ -737,6 +840,7 @@ function OwnerScheduleCalendar({
                           {cellTraining.map((item) => {
                             const isCompleted = item.status === "Completed";
                             const isCancelled = item.status === "Cancelled";
+                            const isInProgress = item.status === "InProgress";
                             const isMissed = item.status === "Missed" || item.status === "Blocked";
                             return (
                               <div
@@ -746,14 +850,32 @@ function OwnerScheduleCalendar({
                                     ? "border-slate-200 bg-slate-100 text-slate-500 line-through"
                                     : isCompleted
                                       ? "border-emerald-300 bg-emerald-50/85 text-emerald-950"
-                                      : isMissed
-                                        ? "border-amber-300 bg-amber-50/90 text-amber-950"
-                                        : "border-blue-200 bg-blue-50/85 text-blue-950"
+                                      : isInProgress
+                                        ? "border-sky-400 bg-sky-50 text-sky-950"
+                                        : isMissed
+                                          ? "border-amber-300 bg-amber-50/90 text-amber-950"
+                                          : "border-blue-200 bg-blue-50/85 text-blue-950"
                                 }`}
                               >
+                                {showHorseName && item.horse_name && (
+                                  <div className="mb-1 flex items-center justify-between gap-1 border-b border-current/10 pb-1">
+                                    {onSelectHorse && item.horse_id ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => onSelectHorse(item.horse_id!)}
+                                        className="truncate text-left text-[11px] font-bold hover:underline"
+                                      >
+                                        🐎 {item.horse_name}
+                                      </button>
+                                    ) : (
+                                      <span className="truncate text-[11px] font-bold">🐎 {item.horse_name}</span>
+                                    )}
+                                    {item.box_code && <span className="shrink-0 text-[10px] opacity-75">{item.box_code}</span>}
+                                  </div>
+                                )}
                                 <div className="flex items-start justify-between gap-1">
                                   <strong className="font-semibold leading-snug">
-                                    {item.title ?? sessionLabel(item.session_type)}
+                                    {ownerTrainingTitle(item.title, item.session_type, item.event_type)}
                                   </strong>
                                   <span className="shrink-0 rounded bg-white/80 px-1.5 py-0.5 text-[9px] font-semibold">
                                     {scheduleStatus(item.status)}
@@ -765,6 +887,12 @@ function OwnerScheduleCalendar({
                                 </p>
                                 {item.assigned_groom_name && (
                                   <p className="mt-0.5 truncate text-[10px] opacity-80">Groom: {item.assigned_groom_name}</p>
+                                )}
+                                {(item.stage_name || item.target_distance_meters) && (
+                                  <p className="mt-0.5 truncate text-[10px] opacity-75">
+                                    {item.stage_name ?? "Kế hoạch"}
+                                    {item.target_distance_meters ? ` (${item.target_distance_meters.toLocaleString("vi-VN")}m)` : ""}
+                                  </p>
                                 )}
                               </div>
                             );
@@ -1083,18 +1211,6 @@ function localTodayIso() {
 
 function healthLabel(value: string) {
   return ({ Healthy: "Khỏe mạnh", Injured: "Chấn thương", Quarantine: "Cách ly", Monitoring: "Đang theo dõi", "Under Observation": "Cần theo dõi", Sick: "Đang bệnh" } as Record<string, string>)[value] ?? value;
-}
-
-function careTypeLabel(careType: string | null | undefined, title: string | null | undefined) {
-  const map: Record<string, string> = {
-    Deworming: "Tẩy giun định kỳ",
-    Vaccination: "Tiêm phòng vắc-xin",
-    HoofCare: "Chăm sóc móng",
-    DentalCheck: "Khám răng",
-    GeneralCheckup: "Khám sức khỏe định kỳ",
-    Physiotherapy: "Vật lý trị liệu",
-  };
-  return (careType && map[careType]) || title || careType || "Chăm sóc y tế";
 }
 
 function lockLevelLabel(value: string | null | undefined) {

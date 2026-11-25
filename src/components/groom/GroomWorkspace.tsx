@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { Activity, AlertTriangle, CalendarDays, Check, ClipboardCheck, Package, Plus, RefreshCw, Utensils } from "lucide-react";
 import { Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
+import { WorkspaceSkeleton } from "@/components/shared/LoadingSkeletons";
 import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
 import { useDashboardTab } from "@/shared/hooks/use-dashboard-tab";
 import {
@@ -45,6 +46,7 @@ export default function GroomWorkspace() {
   const [inventory, setInventory] = useState<GroomInventoryItem[]>([]);
   const [incidents, setIncidents] = useState<GroomIncident[]>([]);
   const [supplyRequests, setSupplyRequests] = useState<GroomSupplyRequest[]>([]);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -73,6 +75,8 @@ export default function GroomWorkspace() {
       setSupplyRequests(requestPage.data);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Không thể tải lịch chăm sóc.");
+    } finally {
+      setLoading(false);
     }
   }, [date]);
 
@@ -198,6 +202,7 @@ export default function GroomWorkspace() {
     </div>
     {error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}
 
+    {loading && !calendar && horses.length === 0 ? <WorkspaceSkeleton label="Đang tải lịch chăm sóc…" /> : <>
 <div className="workspace-stats"><div><span>Ngựa được giao</span><strong>{horses.length}</strong></div><div><span>Việc chăm sóc</span><strong>{careTasks.length}</strong></div><div><span>Buổi tập hỗ trợ</span><strong>{trainingEvents.length}</strong></div><div><span>Sự cố đang xử lý</span><strong>{activeIncidentCount}</strong></div></div>
     <section hidden={tab !== "horses"} id="groom-horses" className="scroll-mt-24 rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5">
       <h3 className="mb-3 font-sans text-lg font-semibold text-equine-navy">Chuồng phụ trách</h3>
@@ -299,5 +304,6 @@ export default function GroomWorkspace() {
         <p className="mt-2 text-[11px] text-slate-400">{formatDisplayDate(item.created_at, true)}</p>
       </article>)}{!incidents.length && <p className="text-sm text-slate-500">Chưa có sự cố được báo cáo hoặc giao cho bạn.</p>}</div>
     </section>
+    </>}
   </section>;
 }

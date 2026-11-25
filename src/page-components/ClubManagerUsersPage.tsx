@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import HorseShell, { useHorseUser } from "@/components/horses/HorseShell";
 import { Modal, Notice } from "@/components/horses/HorseUI";
+import { PanelListSkeleton } from "@/components/shared/LoadingSkeletons";
 import { ApiRequestError } from "@/api/client";
 import {
   clubManagerError,
@@ -489,7 +490,7 @@ function AccountManagement() {
 
           {/* User Cards List */}
           {loading ? (
-            <Notice>Đang tải danh sách tài khoản...</Notice>
+            <PanelListSkeleton rows={4} label="Đang tải danh sách tài khoản..." />
           ) : filteredUsers.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center text-slate-500">
               <UserRound className="mx-auto h-10 w-10 text-slate-400 stroke-1" />

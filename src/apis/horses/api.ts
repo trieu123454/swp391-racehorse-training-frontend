@@ -2,14 +2,18 @@ import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, authenticatedRequest, au
 
 const HORSE_CACHE_TTL_MS = 45_000;
 const horseListCache = new Map<string, { data: HorsePage; expiresAt: number }>();
+const horseListInFlight = new Map<string, Promise<HorsePage>>();
 const horseDetailCache = new Map<string, { data: Horse; expiresAt: number }>();
 const horseStablesCache = new Map<string, { data: Stable[]; expiresAt: number }>();
+let horseStablesInFlight: Promise<Stable[]> | null = null;
 const horseImageUrlCache = new Map<string, { url?: string; expiresAt: number }>();
 
 export function invalidateHorseCaches() {
   horseListCache.clear();
+  horseListInFlight.clear();
   horseDetailCache.clear();
   horseStablesCache.clear();
+  horseStablesInFlight = null;
 }
 
 if (typeof window !== "undefined") {
@@ -115,7 +119,7 @@ export async function horseRequest<T>(path: string, options: RequestInit = {}): 
   return authenticatedRequest<T>(`/api/horses${path}`, options);
 }
 
-export async function listHorses(params: {
+export type HorseListParams = {
   search?: string;
   breed?: string;
   currentStatus?: string;
@@ -123,27 +127,58 @@ export async function listHorses(params: {
   isTrainingLocked?: boolean;
   page?: number;
   size?: number;
-} = {}) {
+};
+
+function buildHorseListKey(params: HorseListParams = {}) {
   const query = new URLSearchParams({ page: String(params.page ?? 1), size: String(params.size ?? 100) });
   if (params.search) query.set("search", params.search);
   if (params.breed) query.set("breed", params.breed);
   if (params.currentStatus) query.set("currentStatus", params.currentStatus);
   if (params.stableBoxId) query.set("stableBoxId", params.stableBoxId);
   if (params.isTrainingLocked !== undefined) query.set("isTrainingLocked", String(params.isTrainingLocked));
-  const key = query.toString();
+  return query.toString();
+}
+
+export async function listHorses(params: HorseListParams = {}) {
+  const key = buildHorseListKey(params);
   const cached = horseListCache.get(key);
   const now = Date.now();
   if (cached && now < cached.expiresAt) {
     return cached.data;
   }
-  const res = await horseRequest<HorsePage>(`?${key}`);
-  horseListCache.set(key, { data: res, expiresAt: now + HORSE_CACHE_TTL_MS });
-  res.items?.forEach((item) => {
-    if (item.image_signed_url) {
-      horseImageUrlCache.set(item.id, { url: item.image_signed_url, expiresAt: now + 240_000 });
-    }
-  });
-  return res;
+  const existing = horseListInFlight.get(key);
+  if (existing) {
+    return existing;
+  }
+  const pending = horseRequest<HorsePage>(`?${key}`)
+    .then((res) => {
+      const doneAt = Date.now();
+      horseListCache.set(key, { data: res, expiresAt: doneAt + HORSE_CACHE_TTL_MS });
+      res.items?.forEach((item) => {
+        if (item.image_signed_url) {
+          horseImageUrlCache.set(item.id, { url: item.image_signed_url, expiresAt: doneAt + 240_000 });
+        }
+      });
+      return res;
+    })
+    .finally(() => {
+      horseListInFlight.delete(key);
+    });
+  horseListInFlight.set(key, pending);
+  return pending;
+}
+
+export function peekCachedHorseList(params: HorseListParams = {}): HorsePage | null {
+  const cached = horseListCache.get(buildHorseListKey(params));
+  if (!cached || Date.now() >= cached.expiresAt) return null;
+  return cached.data;
+}
+
+export function prefetchHorsesOverview(isOwner: boolean) {
+  void listHorses({ page: 1, size: 9 }).catch(() => {});
+  if (!isOwner) {
+    void getHorseStables().catch(() => {});
+  }
 }
 
 export function peekCachedHorse(id: string): Horse | null {
@@ -251,9 +286,18 @@ export async function getHorseStables() {
   if (cached && now < cached.expiresAt) {
     return cached.data;
   }
-  const res = await horseRequest<Stable[]>("/options/stables");
-  horseStablesCache.set("all", { data: res, expiresAt: now + HORSE_CACHE_TTL_MS });
-  return res;
+  if (horseStablesInFlight) {
+    return horseStablesInFlight;
+  }
+  horseStablesInFlight = horseRequest<Stable[]>("/options/stables")
+    .then((res) => {
+      horseStablesCache.set("all", { data: res, expiresAt: Date.now() + HORSE_CACHE_TTL_MS });
+      return res;
+    })
+    .finally(() => {
+      horseStablesInFlight = null;
+    });
+  return horseStablesInFlight;
 }
 
 export function getHorseOwners(query: string, page = 0, signal?: AbortSignal) {

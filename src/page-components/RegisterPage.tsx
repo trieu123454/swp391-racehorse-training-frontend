@@ -3,7 +3,6 @@
 import { Routes } from "@/routes/Routes";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -24,7 +23,6 @@ import { saveSession } from "@/lib/session";
 import type { AuthResponse } from "@/lib/types";
 
 export default function RegisterPage() {
-  const router = useRouter();
   const [form, setForm] = useState({
     fullName: "",
     email: "",
@@ -42,13 +40,13 @@ export default function RegisterPage() {
   const googleSuccess = useCallback(
     (auth: AuthResponse) => {
       saveSession(auth);
-      router.replace(
+      window.location.replace(
         auth.user.mustChangePassword
           ? Routes.changePassword
           : routeForRole(auth.user.roleName),
       );
     },
-    [router],
+    [],
   );
   const showError = useCallback((value: string) => setError(value), []);
 

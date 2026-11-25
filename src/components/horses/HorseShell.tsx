@@ -12,7 +12,9 @@ import NotificationBell from "@/components/shared/NotificationBell";
 import EquineSidebar from "./EquineSidebar";
 import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, NOTIFICATION_COUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT, hasValidAccessToken, logout, validateSession } from "@/api/client";
 import { getPendingHorseRegistrationCount } from "@/api/club-manager/api";
-import { clearSession, getLogoutRefreshToken, getUser } from "@/lib/session";
+import { invalidateHorseCaches, prefetchHorsesOverview } from "@/api/horses/api";
+import { AppShellSkeleton } from "@/components/shared/LoadingSkeletons";
+import { clearSession, getAccessToken, getLogoutRefreshToken, getUser } from "@/lib/session";
 import { roleLabels, routeForRole } from "@/lib/roles";
 import type { AuthUser } from "@/lib/types";
 import { workspaceNavigation } from "@/lib/workspace-navigation";
@@ -71,6 +73,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
     const handleExpiredSession = () => {
+      invalidateHorseCaches();
       setUser(null);
       router.replace(Routes.login);
     };
@@ -127,7 +130,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
   }, []);
   const loadHeaderCounts = useCallback(async () => {
-    if (user?.roleName === "CLUB_MANAGER") {
+    if (user?.roleName === "CLUB_MANAGER" && getAccessToken()) {
       try {
         const pending = await getPendingHorseRegistrationCount();
         setPendingHorseRequestCount(pending.count);
@@ -236,10 +239,19 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     return () => { window.removeEventListener("workspace-tab-change", legacy); window.removeEventListener("popstate", legacy); };
   }, [user, pathname, router]);
 
+  useEffect(() => {
+    if (!user?.id || pathname === Routes.horses) return;
+    const timer = window.setTimeout(() => {
+      prefetchHorsesOverview(user.roleName === "HORSE_OWNER");
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [user?.id, user?.roleName, pathname]);
+
   function signOut() {
     if (signingOut) return;
     setSigningOut(true);
     const token = getLogoutRefreshToken();
+    invalidateHorseCaches();
     setUser(null);
     clearSession();
     router.replace(Routes.login);
@@ -247,19 +259,16 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   }
 
   if (!user) {
-    return (
-      <main className="horse-access" aria-busy={!error}>
-        {error ? (
-          <>
-            <Notice error>{error}</Notice>
-            <button className="navy-button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button>
-            <Link href={Routes.dashboard}>Về bảng điều khiển</Link>
-          </>
-        ) : checkedCache ? (
-          <p role="status">Đang xác thực quyền truy cập…</p>
-        ) : null}
-      </main>
-    );
+    if (error) {
+      return (
+        <main className="horse-access" aria-busy={false}>
+          <Notice error>{error}</Notice>
+          <button className="navy-button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button>
+          <Link href={Routes.dashboard}>Về bảng điều khiển</Link>
+        </main>
+      );
+    }
+    return checkedCache ? <AppShellSkeleton /> : <main className="horse-access" aria-busy="true" />;
   }
 
   const dashboardRoute = routeForRole(user.roleName);
@@ -270,7 +279,6 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     : pathname?.startsWith(Routes.horses)
       ? "Hồ sơ ngựa"
       : "Quản lý tài khoản";
-
 
   return <UserContext.Provider value={user}><WorkspaceToastContext.Provider value={showToast}><div className="horse-app" data-role={user.roleName}>
     <a className="skip-link" href="#workspace-content">Đến nội dung chính</a>

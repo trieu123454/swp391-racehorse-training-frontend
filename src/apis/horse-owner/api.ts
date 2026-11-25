@@ -1,5 +1,36 @@
-import { authenticatedRequest, authenticatedUploadWithProgress } from "@/api/client";
+import {
+  APP_MUTATION_COMPLETED_EVENT,
+  SESSION_EXPIRED_EVENT,
+  authenticatedRequest,
+  authenticatedUploadWithProgress,
+} from "@/api/client";
 import type { Horse } from "@/api/horses/api";
+
+const OWNER_CACHE_TTL_MS = 30_000;
+let ownerHorsesCache: { data: { items: OwnerHorse[]; total: number }; expiresAt: number } | null = null;
+let ownerHorsesInFlight: Promise<{ items: OwnerHorse[]; total: number }> | null = null;
+let ownerCalendarCache: { data: OwnerCalendar; expiresAt: number } | null = null;
+let ownerCalendarInFlight: Promise<OwnerCalendar> | null = null;
+const ownerDashboardCache = new Map<string, { data: OwnerDashboard; expiresAt: number }>();
+const ownerDashboardInFlight = new Map<string, Promise<OwnerDashboard>>();
+
+export function invalidateOwnerCaches() {
+  ownerHorsesCache = null;
+  ownerHorsesInFlight = null;
+  ownerCalendarCache = null;
+  ownerCalendarInFlight = null;
+  ownerDashboardCache.clear();
+  ownerDashboardInFlight.clear();
+}
+
+if (typeof window !== "undefined") {
+  if (APP_MUTATION_COMPLETED_EVENT) {
+    window.addEventListener(APP_MUTATION_COMPLETED_EVENT, invalidateOwnerCaches);
+  }
+  if (SESSION_EXPIRED_EVENT) {
+    window.addEventListener(SESSION_EXPIRED_EVENT, invalidateOwnerCaches);
+  }
+}
 
 export type OwnerHorse = Horse & {
   current_weight_kg: number | null;
@@ -50,6 +81,11 @@ export type OwnerCareSchedule = {
   status: string | null;
   title: string | null;
   doctor_name: string | null;
+  is_periodic_due?: boolean;
+  horse_id?: string | null;
+  horse_name?: string | null;
+  box_code?: string | null;
+  section?: string | null;
 };
 
 export type OwnerTrainingSchedule = {
@@ -65,6 +101,17 @@ export type OwnerTrainingSchedule = {
   track_surface: string | null;
   stage_name: string | null;
   assigned_groom_name: string | null;
+  target_distance_meters?: number | null;
+  target_intensity?: string | null;
+  horse_id?: string | null;
+  horse_name?: string | null;
+  box_code?: string | null;
+  section?: string | null;
+};
+
+export type OwnerCalendar = {
+  training_schedules: OwnerTrainingSchedule[];
+  care_schedules: OwnerCareSchedule[];
 };
 
 export type OwnerTrainingVideo = {
@@ -209,8 +256,58 @@ export type OwnershipTransferRequest = {
   created_at: string;
 };
 
-export async function getOwnerHorses() {
-  return authenticatedRequest<{ items: OwnerHorse[]; total: number }>("/api/horse-owner/horses");
+export function peekOwnerHorses() {
+  if (ownerHorsesCache && Date.now() < ownerHorsesCache.expiresAt) return ownerHorsesCache.data;
+  return null;
+}
+
+export async function getOwnerHorses(force = false) {
+  const now = Date.now();
+  if (!force && ownerHorsesCache && now < ownerHorsesCache.expiresAt) {
+    return ownerHorsesCache.data;
+  }
+  if (!force && ownerHorsesInFlight) {
+    return ownerHorsesInFlight;
+  }
+  const pending = authenticatedRequest<{ items: OwnerHorse[]; total: number }>("/api/horse-owner/horses")
+    .then((res) => {
+      ownerHorsesCache = { data: res, expiresAt: Date.now() + OWNER_CACHE_TTL_MS };
+      return res;
+    })
+    .finally(() => {
+      ownerHorsesInFlight = null;
+    });
+  ownerHorsesInFlight = pending;
+  return pending;
+}
+
+export function peekOwnerCalendar() {
+  if (ownerCalendarCache && Date.now() < ownerCalendarCache.expiresAt) return ownerCalendarCache.data;
+  return null;
+}
+
+export async function getOwnerCalendar(force = false) {
+  const now = Date.now();
+  if (!force && ownerCalendarCache && now < ownerCalendarCache.expiresAt) {
+    return ownerCalendarCache.data;
+  }
+  if (!force && ownerCalendarInFlight) {
+    return ownerCalendarInFlight;
+  }
+  const pending = authenticatedRequest<OwnerCalendar>("/api/horse-owner/calendar")
+    .then((res) => {
+      const normalized: OwnerCalendar = {
+        training_schedules: Array.isArray(res?.training_schedules) ? res.training_schedules : [],
+        care_schedules: Array.isArray(res?.care_schedules) ? res.care_schedules : [],
+      };
+      ownerCalendarCache = { data: normalized, expiresAt: Date.now() + OWNER_CACHE_TTL_MS };
+      return normalized;
+    })
+    .finally(() => {
+      ownerCalendarInFlight = null;
+    });
+  ownerCalendarInFlight = pending;
+  return pending;
 }
 
 async function requestOwnerList<T>(path: string): Promise<T[]> {
@@ -293,9 +390,34 @@ export function respondToOwnershipTransfer(id: string, action: "CONSENT" | "DECL
   });
 }
 
-export async function getOwnerHorseDashboard(horseId: string, year: number) {
+export function peekOwnerHorseDashboard(horseId: string, year: number) {
+  const cached = ownerDashboardCache.get(`${horseId}|${year}`);
+  if (cached && Date.now() < cached.expiresAt) return cached.data;
+  return null;
+}
+
+export async function getOwnerHorseDashboard(horseId: string, year: number, force = false) {
+  const key = `${horseId}|${year}`;
+  const now = Date.now();
+  const cached = ownerDashboardCache.get(key);
+  if (!force && cached && now < cached.expiresAt) {
+    return cached.data;
+  }
+  const existing = !force ? ownerDashboardInFlight.get(key) : undefined;
+  if (existing) {
+    return existing;
+  }
   const query = new URLSearchParams({ year: String(year) });
-  return authenticatedRequest<OwnerDashboard>(
+  const pending = authenticatedRequest<OwnerDashboard>(
     `/api/horse-owner/horses/${encodeURIComponent(horseId)}/dashboard?${query.toString()}`,
-  );
+  )
+    .then((res) => {
+      ownerDashboardCache.set(key, { data: res, expiresAt: Date.now() + OWNER_CACHE_TTL_MS });
+      return res;
+    })
+    .finally(() => {
+      ownerDashboardInFlight.delete(key);
+    });
+  ownerDashboardInFlight.set(key, pending);
+  return pending;
 }
