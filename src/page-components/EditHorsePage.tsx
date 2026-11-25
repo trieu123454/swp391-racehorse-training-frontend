@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { ImagePlus, Save, Upload, X } from "lucide-react";
 import { useHorseUser } from "@/components/horses/HorseShell";
 import { Notice } from "@/components/horses/HorseUI";
+import { FormSkeleton } from "@/components/shared/LoadingSkeletons";
 import { errorMessage, getHorse, getHorseStables, peekCachedHorse, peekCachedStables, saveHorse, uploadHorseImage, type Horse, type Stable } from "@/api/horses/api";
 
 function formFromHorse(currentHorse: Horse, nextStables: Stable[]) {
@@ -87,13 +88,7 @@ export default function EditHorsePage() {
   }
 
   if (!horse && !error) {
-    return (
-      <main className="min-h-screen bg-slate-50 p-6">
-        <div className="mx-auto max-w-[800px] rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-          <Notice>Đang tải hồ sơ ngựa...</Notice>
-        </div>
-      </main>
-    );
+    return <FormSkeleton />;
   }
 
   if (!horse) {

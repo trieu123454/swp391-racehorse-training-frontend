@@ -59,3 +59,44 @@ for (const method of ["getHorseRegistrationRequests", "getOwnershipTransferReque
     }
   });
 }
+
+test("getOwnerCalendar deduplicates in-flight calls and supports cache invalidation", async () => {
+  let calls = 0;
+  let resolveCalendar;
+  const source = fs.readFileSync(path.join(__dirname, "../src/apis/horse-owner/api.ts"), "utf8");
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  const mod = { exports: {} };
+  new Function("require", "module", "exports", compiled)(
+    () => ({
+      APP_MUTATION_COMPLETED_EVENT: "app:mutation",
+      SESSION_EXPIRED_EVENT: "app:expired",
+      authenticatedRequest: async () => {
+        calls += 1;
+        return new Promise((resolve) => {
+          resolveCalendar = resolve;
+        });
+      },
+      authenticatedUploadWithProgress: async () => ({}),
+    }),
+    mod,
+    mod.exports,
+  );
+
+  const p1 = mod.exports.getOwnerCalendar();
+  const p2 = mod.exports.getOwnerCalendar();
+  assert.equal(calls, 1);
+
+  resolveCalendar({
+    training_schedules: [{ id: "t1", horse_name: "Desert Mirage" }],
+    care_schedules: [{ id: "c1", horse_name: "Quarter Horse" }],
+  });
+  const [c1, c2] = await Promise.all([p1, p2]);
+  assert.equal(c1.training_schedules.length, 1);
+  assert.equal(c2.care_schedules.length, 1);
+  assert.equal(mod.exports.peekOwnerCalendar()?.training_schedules.length, 1);
+
+  mod.exports.invalidateOwnerCaches();
+  assert.equal(mod.exports.peekOwnerCalendar(), null);
+});

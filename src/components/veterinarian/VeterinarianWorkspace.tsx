@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { HorseImage, Modal, Notice } from "@/components/horses/HorseUI";
+import { PanelListSkeleton, WorkspaceSkeleton } from "@/components/shared/LoadingSkeletons";
+import HorseSearchPicker from "@/components/shared/HorseSearchPicker";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import ExamHorsePicker from "./ExamHorsePicker";
 import ExamHistoryViews from "./ExamHistoryViews";
@@ -99,7 +101,6 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
   const [overview, setOverview] = useState<HealthOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
   const [autoOpenExam, setAutoOpenExam] = useState(false);
@@ -147,13 +148,6 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
     selectLinkedHorse(); window.addEventListener("workspace-tab-change", selectLinkedHorse);
     return () => window.removeEventListener("workspace-tab-change", selectLinkedHorse);
   }, [horses]);
-  const visibleHorses = horses.filter((item) => {
-    const query = search.trim().toLocaleLowerCase("vi");
-    return item.horse_name.toLocaleLowerCase("vi").includes(query)
-      || item.id.toLocaleLowerCase("vi").includes(query)
-      || item.stable_box?.box_code.toLocaleLowerCase("vi").includes(query);
-  });
-
   function changed(message: string) {
     showToast(message);
   }
@@ -164,12 +158,18 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
     <section className="dashboard-workspace mx-auto w-full" aria-label="Không gian bác sĩ thú y">
       {error && <div className="mt-5"><Notice error>{error}</Notice></div>}
 
-      {isSingleHorseTab && tab !== "exams" && <div className="relative mt-4 w-full max-w-2xl">
-        <label className="flex items-center gap-2 rounded-xl border border-equine-line bg-white px-3 py-2.5 shadow-sm"><Search size={16} className="shrink-0 text-slate-500" /><span className="sr-only">Tìm ngựa theo tên hoặc mã số</span><input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full border-0 bg-transparent text-sm outline-none" placeholder="Tìm theo tên hoặc mã số ngựa..." /></label>
-        {search.trim() && <div className="absolute left-0 right-0 top-full z-20 mt-2 max-h-[65vh] space-y-2 overflow-y-auto rounded-xl border border-equine-line bg-white p-2 shadow-lg">
-          {loading && !overview ? <Notice>Đang tìm ngựa...</Notice> : visibleHorses.length === 0 ? <Notice>Không tìm thấy ngựa phù hợp.</Notice> : visibleHorses.map((item) => <HorseChoice key={item.id} horse={item} selected={item.id === selectedId} onClick={() => { setSelectedId(item.id); setSearch(""); }} />)}
-        </div>}
-      </div>}
+      {isSingleHorseTab && tab !== "exams" && (
+        <HorseSearchPicker
+          horses={horses}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          loading={loading && !overview}
+          showFilters={true}
+          placeholder="Tìm theo tên, chuồng, mã chip hoặc mã số ngựa..."
+          ariaLabel="Tìm ngựa theo tên, chuồng hoặc mã số"
+          className="mt-4 max-w-4xl"
+        />
+      )}
 
       {tab === "stables" ? (
         <StableWorkspace
@@ -219,19 +219,12 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
               {tab === "injuries" && <InjuriesPanel horse={horse} onChanged={changed} />}
             </div>
           </>}
+          {!horse && loading && !["stables", "incidents", "notifications"].includes(tab) && <WorkspaceSkeleton label="Đang tải hồ sơ sức khỏe..." />}
           {!horse && !loading && !["incidents", "notifications"].includes(tab) && <div className="rounded-lg border border-equine-line bg-white p-6 shadow-sm"><Notice>Chưa có ngựa đang hoạt động để quản lý sức khỏe.</Notice></div>}
       </div>
       )}
     </section>
   );
-}
-
-function HorseChoice({ horse, selected, onClick }: { horse: VetHorse; selected: boolean; onClick: () => void }) {
-  const statusClass = horse.current_status === "Injured" || horse.current_status === "Quarantine" ? "border-rose-200 bg-rose-50" : horse.current_status === "Monitoring" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50";
-  return <button type="button" onClick={onClick} aria-pressed={selected} className={`w-full rounded-lg border p-3 text-left transition ${selected ? "border-equine-navy bg-slate-50 shadow-sm ring-1 ring-equine-navy/20" : "border-equine-line hover:bg-slate-50"}`}>
-    <div className="flex items-center gap-3"><div className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-equine-mist"><HorseImage horse={horse as unknown as Horse} /></div><div className="min-w-0 flex-1"><p className="truncate font-semibold text-equine-navy">{horse.horse_name}</p><p className="truncate text-xs text-slate-500">{horse.stable_box ? `${horse.stable_box.box_code} · Khu ${horse.stable_box.section}` : "Chưa xếp chuồng"}</p></div><span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${statusClass}`}>{statusLabels[horse.current_status] ?? horse.current_status}</span></div>
-    {horse.is_training_locked && <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-rose-700"><LockKeyhole size={12} /> Đang khóa huấn luyện</p>}
-  </button>;
 }
 
 function HorseSummary({ horse }: { horse: VetHorse }) {
@@ -726,7 +719,7 @@ function ExamsPanel({
     {diagnosesError && <div className="mb-3"><Notice error>Không tải được lịch sử chẩn đoán: {diagnosesError}</Notice></div>}
     {standaloneDiagnoses.length > 0 && <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50/50 p-3"><h4 className="font-semibold text-equine-navy">Chẩn đoán trong lịch sử ngựa chưa gắn với lần khám</h4><div className="mt-2 space-y-2">{standaloneDiagnoses.map((record) => <article key={record.id} className="rounded-lg border border-amber-100 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="whitespace-pre-wrap text-sm font-semibold text-slate-900">{record.diagnosis}</p><span className="text-xs text-slate-500">{displayDate(record.created_at)}</span></div>{record.treatment_plan && <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{record.treatment_plan}</p>}</article>)}</div></section>}
     {injuryHistoryError && <Notice error>{injuryHistoryError}</Notice>}
-    {loading && response.data.length === 0 ? <Notice>Đang tải lịch sử khám...</Notice> : !error && <ExamHistoryViews key={horse.id} injuries={examInjuries} onOpenInjuries={onOpenInjuries} exams={response.data} diagnosesByExam={diagnosesByExam} onOpen={(id) => void openExam(id)} />}
+    {loading && response.data.length === 0 ? <PanelListSkeleton rows={3} label="Đang tải lịch sử khám..." /> : !error && <ExamHistoryViews key={horse.id} injuries={examInjuries} onOpenInjuries={onOpenInjuries} exams={response.data} diagnosesByExam={diagnosesByExam} onOpen={(id) => void openExam(id)} />}
     {response.data.length < response.total && <button type="button" className="soft-button mt-3 h-10 px-4" disabled={loading} onClick={() => void load(page + 1, true)}>Tải thêm hồ sơ</button>}
   </SectionCard>;
 }
@@ -822,7 +815,7 @@ function MedicalPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (messa
     <SectionCard title="Chẩn đoán & phác đồ" description="Gắn chẩn đoán với lần khám của cùng ngựa; đơn thuốc được kê từ hồ sơ chẩn đoán." icon={FileHeart} action={<button type="button" className="gold-button h-10 px-3" onClick={() => setCreating((value) => !value)}>+ Chẩn đoán</button>}>
       <ErrorLine>{error}</ErrorLine>{medicalNotice && <div className="mb-3"><Notice>{medicalNotice}</Notice></div>}
       {creating && <form onSubmit={createRecord} className="mb-4 space-y-3 rounded-xl border border-equine-line bg-slate-50 p-4"><h4 className="font-semibold text-equine-navy">Tạo chẩn đoán</h4><label className="block"><span className="field-label">Lần khám liên quan</span><select name="health_exam_id" defaultValue={exams[0]?.id ?? ""} className="field-control px-3"><option value="">Chỉ lưu trong lịch sử chẩn đoán</option>{exams.map((exam) => <option key={exam.id} value={exam.id}>{displayDate(exam.exam_date)} · {exam.temperature_c ?? "—"} °C</option>)}</select></label>{exams.length > 0 && <p className="text-xs text-slate-500">Chọn lần khám để chẩn đoán xuất hiện trong tab Khám bệnh của ngựa.</p>}<TextAreaField label="Chẩn đoán" name="diagnosis" required /><TextAreaField label="Phác đồ điều trị" name="treatment_plan" rows={3} /><div className="flex gap-2"><button className="gold-button" disabled={busy}>Lưu chẩn đoán</button><button type="button" className="soft-button h-11 px-4" onClick={() => setCreating(false)}>Hủy</button></div></form>}
-      {loading ? <Notice>Đang tải hồ sơ điều trị...</Notice> : error.includes("Chẩn đoán:") ? null : records.length === 0 ? <Empty>Chưa có chẩn đoán cho ngựa này.</Empty> : <div className="space-y-2">{records.map((record) => {
+      {loading ? <PanelListSkeleton rows={3} label="Đang tải hồ sơ điều trị..." /> : error.includes("Chẩn đoán:") ? null : records.length === 0 ? <Empty>Chưa có chẩn đoán cho ngựa này.</Empty> : <div className="space-y-2">{records.map((record) => {
         const detail = details[record.id];
         return <article key={record.id} className="rounded-xl border border-equine-line p-3">
           <div className="flex flex-wrap items-start justify-between gap-2"><button type="button" className="min-w-0 flex-1 text-left" onClick={() => void toggleRecord(record)}><p className="font-semibold text-equine-navy">{record.diagnosis}</p><p className="mt-1 text-xs text-slate-500">{displayDate(record.created_at)}{record.health_exam_id ? " · Có lần khám liên quan" : ""}</p></button><div className="flex gap-2"><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => { setEditingRecord(editingRecord === record.id ? "" : record.id); setOpenRecord(record.id); void loadRecordDetail(record.id); }}>Sửa</button><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => { setPrescribingRecord(prescribingRecord === record.id ? "" : record.id); setOpenRecord(record.id); void loadRecordDetail(record.id); }}>Kê thuốc</button></div></div>
@@ -884,7 +877,7 @@ function DietPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message:
     <ErrorLine>{error}</ErrorLine>
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={includeHistory} onChange={(event) => setIncludeHistory(event.target.checked)} /> Hiện cả lịch sử</label>{!includeHistory && <label className="block"><span className="field-label">Đang hiệu lực vào ngày</span><input type="date" value={activeOn} onChange={(event) => setActiveOn(event.target.value)} className="field-control px-3" /></label>}</div>
     {(creating || editing) && <form key={editing?.id ?? "new-diet"} onSubmit={(event) => void save(event, editing ?? undefined)} className="mb-4 grid gap-3 rounded-xl border border-equine-line bg-slate-50 p-4 sm:grid-cols-2"><h4 className="font-semibold text-equine-navy sm:col-span-2">{editing ? "Chỉnh sửa khẩu phần" : "Thêm khẩu phần"}</h4><Field label="Loại thức ăn" name="feed_type" required maxLength={100} defaultValue={editing?.feed_type} /><Field label="Khối lượng (kg)" name="quantity_kg" type="number" required min={0.01} step="0.01" defaultValue={editing?.quantity_kg} /><Field label="Tần suất cho ăn" name="feeding_frequency" maxLength={50} defaultValue={editing?.feeding_frequency} /><Field label="Ngày bắt đầu hiệu lực" name="effective_date" type="date" required defaultValue={editing?.effective_date ?? today()} /><Field label="Ngày kết thúc" name="end_date" type="date" defaultValue={editing?.end_date} /><TextAreaField label="Hướng dẫn đặc biệt" name="special_instructions" defaultValue={editing?.special_instructions} rows={2} /><div className="flex gap-2 sm:col-span-2"><button className="gold-button h-10" disabled={busy}>{editing ? "Lưu thay đổi" : "Tạo khẩu phần"}</button><button type="button" className="soft-button h-10 px-3" onClick={() => { setCreating(false); setEditing(null); }}>Hủy</button></div></form>}
-    {loading ? <Notice>Đang tải khẩu phần...</Notice> : error ? null : records.length === 0 ? <Empty>Không có khẩu phần trong khoảng thời gian này.</Empty> : <div className="space-y-2">{records.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-xl border border-equine-line p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-equine-navy">{item.feed_type} · {item.quantity_kg} kg</p><p className="mt-1 text-sm text-slate-600">{item.feeding_frequency || "Chưa ghi tần suất"} · {item.effective_date ?? "—"} → {item.end_date ?? "Đang áp dụng"}</p>{item.special_instructions && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{item.special_instructions}</p>}</div><div className="flex gap-2"><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => { setEditing(item); setCreating(false); }}>Sửa</button>{!item.end_date && <button type="button" className="soft-button h-9 border-amber-200 bg-amber-50 px-3 text-xs text-amber-900" disabled={busy} onClick={() => void endToday(item)}>Kết thúc hôm nay</button>}</div></article>)}</div>}
+    {loading ? <PanelListSkeleton rows={3} label="Đang tải khẩu phần..." /> : error ? null : records.length === 0 ? <Empty>Không có khẩu phần trong khoảng thời gian này.</Empty> : <div className="space-y-2">{records.map((item) => <article key={item.id} className="flex flex-col gap-3 rounded-xl border border-equine-line p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-equine-navy">{item.feed_type} · {item.quantity_kg} kg</p><p className="mt-1 text-sm text-slate-600">{item.feeding_frequency || "Chưa ghi tần suất"} · {item.effective_date ?? "—"} → {item.end_date ?? "Đang áp dụng"}</p>{item.special_instructions && <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{item.special_instructions}</p>}</div><div className="flex gap-2"><button type="button" className="soft-button h-9 px-3 text-xs" onClick={() => { setEditing(item); setCreating(false); }}>Sửa</button>{!item.end_date && <button type="button" className="soft-button h-9 border-amber-200 bg-amber-50 px-3 text-xs text-amber-900" disabled={busy} onClick={() => void endToday(item)}>Kết thúc hôm nay</button>}</div></article>)}</div>}
   </SectionCard>;
 }
 
@@ -1497,7 +1490,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
         </table>
       </div>
     </>}
-    {loading && <Notice>Đang tải ca chấn thương...</Notice>}
+    {loading && <PanelListSkeleton rows={3} label="Đang tải ca chấn thương..." />}
 
     {dialogMode === "update" && <dialog ref={updateDialogRef} aria-modal="true" aria-labelledby="injury-dialog-title" className="overflow-y-auto rounded-xl border border-slate-200 bg-white text-slate-900 shadow-2xl" style={{ position: "fixed", inset: 0, margin: "auto", padding: 0, width: "calc(100vw - 2rem)", maxWidth: "42rem", maxHeight: "calc(100dvh - 2rem)" }} onCancel={(event) => { event.preventDefault(); setDialogMode(null); }} onMouseDown={(event) => {
       if (event.target !== event.currentTarget) return;
@@ -1567,7 +1560,7 @@ function StableIncidentsPanel({ onOpenHorse }: { onOpenHorse: (id: string) => vo
 
   return <SectionCard title="Báo cáo sự cố từ Groom" description="Tiếp nhận sự cố khẩn cấp hoặc xử lý báo cáo được Club Manager giao." icon={AlertTriangle} action={<select aria-label="Lọc sự cố" value={status} onChange={(event) => setStatus(event.target.value)} className="field-control h-10 px-3"><option value="Open">Đang xử lý</option><option value="Pending">Chưa phân công</option><option value="InProgress">Đang thực hiện</option><option value="AwaitingClosure">Chờ đóng</option><option value="Resolved">Đã đóng</option><option value="All">Tất cả</option></select>}>
     <ErrorLine>{error}</ErrorLine>{notice && <Notice>{notice}</Notice>}
-    {loading ? <Notice>Đang tải báo cáo sự cố...</Notice> : error ? null : incidents.length === 0 ? <Empty>Không có báo cáo ở trạng thái này.</Empty> : <div className="grid gap-3 lg:grid-cols-2">{incidents.map((incident) => <article data-notification-target={incident.id} key={incident.id} className={`rounded-xl border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/40" : "border-equine-line bg-white"}`}>
+    {loading ? <PanelListSkeleton rows={3} label="Đang tải báo cáo sự cố..." /> : error ? null : incidents.length === 0 ? <Empty>Không có báo cáo ở trạng thái này.</Empty> : <div className="grid gap-3 lg:grid-cols-2">{incidents.map((incident) => <article data-notification-target={incident.id} key={incident.id} className={`rounded-xl border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/40" : "border-equine-line bg-white"}`}>
       <div className="flex flex-wrap items-start justify-between gap-2"><div><h4 className="font-semibold text-equine-navy">{incident.horse_name}</h4><p className="mt-1 text-xs text-slate-500">{incident.box_code ? `Khu ${incident.section} · Chuồng ${incident.box_code} · ` : ""}{incident.groom_name ?? "Groom"} · {formatDisplayDate(incident.created_at, true)}</p></div><div className="flex gap-2"><span className="rounded-full bg-white px-2 py-1 text-xs font-semibold">{incident.status}</span>{incident.is_emergency && <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-bold text-rose-800">KHẨN CẤP</span>}</div></div>
       <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{incident.issue_description}</p>
       <IncidentPhoto incidentId={incident.id} imageUrl={incident.image_url} />
@@ -2882,8 +2875,8 @@ function CarePanel({
           </div>
 
       {loading ? (
-        <div className="p-8 text-center text-sm text-slate-600 font-medium">
-          <Notice>Đang tải lịch trong tuần...</Notice>
+        <div className="p-4">
+          <PanelListSkeleton rows={4} label="Đang tải lịch trong tuần..." />
         </div>
       ) : (
         <div className="overflow-x-auto">

@@ -32,6 +32,7 @@ import { HorseImage, Modal, Notice } from "@/components/horses/HorseUI";
 import IncidentPhoto from "@/components/groom/IncidentPhoto";
 import InventoryManagerPanel from "@/components/club-manager/InventoryManagerPanel";
 import { CompactId } from "@/components/shared/CompactId";
+import { PanelListSkeleton, WorkspaceSkeleton } from "@/components/shared/LoadingSkeletons";
 import { roleLabels } from "@/lib/roles";
 import { authenticatedRequest, ApiRequestError } from "@/api/client";
 import { getHorseStables, horseGender, listHorses, type Horse, type Stable } from "@/api/horses/api";
@@ -223,6 +224,7 @@ export default function ClubManagerWorkspace() {
   const [officialRaces, setOfficialRaces] = useState<OfficialRace[]>([]);
   const [competitionReport, setCompetitionReport] = useState<CompetitionReport | null>(null);
   const [loadErrors, setLoadErrors] = useState<LoadErrors>(EMPTY_ERRORS);
+  const [initialOverviewLoading, setInitialOverviewLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -277,6 +279,7 @@ export default function ClubManagerWorkspace() {
       }
     });
     setLoadErrors((current) => ({ ...current, [tab]: tabErrors }));
+    if (tab === "overview") setInitialOverviewLoading(false);
   }, [tab, date, incidentFilter, requestStatusFilter]);
 
   useEffect(() => { void load(); }, [load]);
@@ -444,7 +447,9 @@ export default function ClubManagerWorkspace() {
     <div role="tabpanel" id={`manager-panel-${tab}`} className="space-y-5">
       {loadErrors[tab].map((item) => <Notice key={`${item.section}-${item.message}`} error>{item.section}: {item.message}</Notice>)}
 
-      {tab === "overview" && <>
+      {tab === "overview" && (initialOverviewLoading && !report && !loadErrors.overview.length ? (
+        <WorkspaceSkeleton label="Đang tải báo cáo vận hành…" />
+      ) : <>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric icon={Activity} label="Buổi tập trong ngày" value={String(report?.scheduled_training_sessions ?? 0)} />
           <Metric icon={ClipboardList} label="Việc Groom hoàn thành" value={`${report?.groom_tasks.completed ?? 0}/${report?.groom_tasks.total ?? 0}`} />
@@ -468,7 +473,7 @@ export default function ClubManagerWorkspace() {
             </div>
           </Panel>
         </div>
-      </>}
+      </>)}
 
       {tab === "care" && <Panel title="Giao việc chăm sóc" icon={ClipboardList}>
         {horses.length === 0 || grooms.length === 0 ? <Notice error>Cần có hồ sơ ngựa và Groom đang hoạt động trước khi giao việc.</Notice> : <form onSubmit={assignTask} className="grid gap-3 sm:grid-cols-2">
@@ -990,20 +995,25 @@ function LinkHorsePicker({
 
       {selectedHorse && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-950">
-          <div>
-            <strong>Đã chọn: {selectedHorse.horse_name}</strong>
-            <span className="ml-1.5 text-emerald-800">
-              {selectedHorse.breed ? `· ${selectedHorse.breed}` : ""}
-              {selectedHorse.microchip_number ? ` · Chip ${selectedHorse.microchip_number}` : ""}
-              {selectedHorse.passport_number ? ` · HC ${selectedHorse.passport_number}` : ""}
-              {selectedHorse.owner_name ? ` · Chủ hiện tại: ${selectedHorse.owner_name}` : " · Chưa có chủ"}
-            </span>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="h-9 w-9 shrink-0 overflow-hidden rounded-md bg-equine-mist">
+              <HorseImage horse={selectedHorse} />
+            </div>
+            <div className="min-w-0">
+              <strong>Đã chọn: {selectedHorse.horse_name}</strong>
+              <span className="ml-1.5 text-emerald-800">
+                {selectedHorse.breed ? `· ${selectedHorse.breed}` : ""}
+                {selectedHorse.microchip_number ? ` · Chip ${selectedHorse.microchip_number}` : ""}
+                {selectedHorse.passport_number ? ` · HC ${selectedHorse.passport_number}` : ""}
+                {selectedHorse.owner_name ? ` · Chủ hiện tại: ${selectedHorse.owner_name}` : " · Chưa có chủ"}
+              </span>
+            </div>
           </div>
           <button type="button" className="font-semibold text-emerald-900 underline" onClick={() => choose(null)}>Đổi ngựa</button>
         </div>
       )}
 
-      <div className="max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100" role="listbox" aria-label="Danh sách ngựa tìm được">
+      <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100" role="listbox" aria-label="Danh sách ngựa tìm được">
         {loading && <p className="px-3 py-2.5 text-xs text-slate-500">Đang tìm hồ sơ ngựa…</p>}
         {!loading && results.length === 0 && (
           <p className="px-3 py-2.5 text-xs text-slate-500">Không tìm thấy hồ sơ ngựa khớp từ khóa.</p>
@@ -1021,21 +1031,27 @@ function LinkHorsePicker({
               aria-selected={selected}
               disabled={sameOwner}
               onClick={() => choose(horse)}
-              className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition ${
+              className={`flex w-full items-center justify-between gap-2.5 px-3 py-2 text-left text-xs transition ${
                 sameOwner ? "bg-slate-50 opacity-60 cursor-not-allowed" : selected ? "bg-teal-50" : "hover:bg-slate-50"
               }`}
             >
-              <div className="min-w-0">
-                <p className="font-semibold text-slate-900 truncate">
-                  {horse.horse_name}
-                  {horse.breed ? ` · ${horse.breed}` : ""}
-                  {horse.birth_year ? ` (${horse.birth_year})` : ""}
-                </p>
-                <p className="text-[11px] text-slate-500 truncate">
-                  {horse.microchip_number ? `Chip: ${horse.microchip_number} · ` : ""}
-                  {horse.passport_number ? `HC: ${horse.passport_number} · ` : ""}
-                  {horse.owner_name ? `Chủ: ${horse.owner_name}` : "Chưa có chủ"}
-                </p>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <div className="h-11 w-11 shrink-0 overflow-hidden rounded-md bg-equine-mist">
+                  <HorseImage horse={horse} />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-900 truncate">
+                    {horse.horse_name}
+                    {horse.breed ? ` · ${horse.breed}` : ""}
+                    {horse.birth_year ? ` (${horse.birth_year})` : ""}
+                  </p>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    {horse.box_code ? `${horse.box_code} · ` : ""}
+                    {horse.microchip_number ? `Chip: ${horse.microchip_number} · ` : ""}
+                    {horse.passport_number ? `HC: ${horse.passport_number} · ` : ""}
+                    {horse.owner_name ? `Chủ: ${horse.owner_name}` : "Chưa có chủ"}
+                  </p>
+                </div>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
                 {(chipMatch || passMatch) && (
@@ -2060,7 +2076,7 @@ function ManagerRacesPanel({
 
             {rosterError && <Notice error>{rosterError}</Notice>}
             {rosterLoading ? (
-              <p className="text-sm text-slate-500">Đang tải danh sách ngựa tham dự…</p>
+              <PanelListSkeleton rows={3} label="Đang tải danh sách ngựa tham dự…" />
             ) : !rosterEntries.length ? (
               <p className="text-sm text-slate-500">Chưa có ngựa nào được đăng ký vào giải này.</p>
             ) : (

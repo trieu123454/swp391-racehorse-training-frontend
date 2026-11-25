@@ -6,6 +6,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } f
 import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
 import { AlertTriangle, ArrowDownToLine, ArrowUpFromLine, ClipboardList, Eye, History, Package, Pencil, Plus, RefreshCw, Search, type LucideIcon } from "lucide-react";
 import { CompactId } from "@/components/shared/CompactId";
+import { WorkspaceSkeleton } from "@/components/shared/LoadingSkeletons";
 import {
   adjustInventory,
   createInventoryItem,
@@ -197,7 +198,7 @@ export default function InventoryManagerPanel() {
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-end gap-3"><button type="button" className="soft-button h-10 px-3 text-sm" disabled={busy} onClick={() => void load()}><RefreshCw size={15} /> Làm mới</button></div>
     {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
-    {loading && <p role="status" className="rounded-md border border-equine-line bg-white p-3 text-sm text-slate-600">Đang tải dữ liệu kho…</p>}
+    {loading && !hasLoaded && <WorkspaceSkeleton label="Đang tải dữ liệu kho…" />}
     {invalidUnits.length > 0 && <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{invalidUnits.length} vật tư có đơn vị tính là số. Hãy kiểm tra và sửa đơn vị trong danh mục.</p>}
     {notice && <p role="status" className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
     {hasLoaded && <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">{stats.map(([label, value, Icon, color]) => <article key={label} className="flex min-h-[76px] items-center gap-3 rounded-lg border border-equine-line bg-white px-3.5 py-3 shadow-sm"><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-md bg-slate-50 ${color}`}><Icon size={17} /></span><div className="min-w-0"><p className="text-xs font-medium leading-4 text-slate-500">{label}</p><p className="mt-0.5 text-xl font-semibold leading-6 text-equine-navy">{value}</p></div></article>)}</div>}

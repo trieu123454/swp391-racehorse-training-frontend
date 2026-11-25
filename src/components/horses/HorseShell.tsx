@@ -12,6 +12,8 @@ import NotificationBell from "@/components/shared/NotificationBell";
 import EquineSidebar from "./EquineSidebar";
 import { APP_MUTATION_COMPLETED_EVENT, ApiRequestError, NOTIFICATION_COUNT_CHANGED_EVENT, SESSION_EXPIRED_EVENT, hasValidAccessToken, logout, validateSession } from "@/api/client";
 import { getPendingHorseRegistrationCount } from "@/api/club-manager/api";
+import { invalidateHorseCaches, prefetchHorsesOverview } from "@/api/horses/api";
+import { AppShellSkeleton } from "@/components/shared/LoadingSkeletons";
 import { clearSession, getAccessToken, getLogoutRefreshToken, getUser } from "@/lib/session";
 import { roleLabels, routeForRole } from "@/lib/roles";
 import type { AuthUser } from "@/lib/types";
@@ -71,6 +73,7 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   useEffect(() => setOpen(false), [pathname]);
   useEffect(() => {
     const handleExpiredSession = () => {
+      invalidateHorseCaches();
       setUser(null);
       router.replace(Routes.login);
     };
@@ -236,10 +239,19 @@ export default function HorseShell({ children }: { children: ReactNode }) {
     return () => { window.removeEventListener("workspace-tab-change", legacy); window.removeEventListener("popstate", legacy); };
   }, [user, pathname, router]);
 
+  useEffect(() => {
+    if (!user?.id || pathname === Routes.horses) return;
+    const timer = window.setTimeout(() => {
+      prefetchHorsesOverview(user.roleName === "HORSE_OWNER");
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [user?.id, user?.roleName, pathname]);
+
   function signOut() {
     if (signingOut) return;
     setSigningOut(true);
     const token = getLogoutRefreshToken();
+    invalidateHorseCaches();
     setUser(null);
     clearSession();
     router.replace(Routes.login);
@@ -247,19 +259,16 @@ export default function HorseShell({ children }: { children: ReactNode }) {
   }
 
   if (!user) {
-    return (
-      <main className="horse-access" aria-busy={!error}>
-        {error ? (
-          <>
-            <Notice error>{error}</Notice>
-            <button className="navy-button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button>
-            <Link href={Routes.dashboard}>Về bảng điều khiển</Link>
-          </>
-        ) : checkedCache ? (
-          <p role="status">Đang xác thực quyền truy cập…</p>
-        ) : null}
-      </main>
-    );
+    if (error) {
+      return (
+        <main className="horse-access" aria-busy={false}>
+          <Notice error>{error}</Notice>
+          <button className="navy-button" onClick={() => setAttempt(value => value + 1)}>Thử lại</button>
+          <Link href={Routes.dashboard}>Về bảng điều khiển</Link>
+        </main>
+      );
+    }
+    return checkedCache ? <AppShellSkeleton /> : <main className="horse-access" aria-busy="true" />;
   }
 
   const dashboardRoute = routeForRole(user.roleName);

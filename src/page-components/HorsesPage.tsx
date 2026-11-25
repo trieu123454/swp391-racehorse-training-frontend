@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useHorseUser } from "@/components/horses/HorseShell";
 import { HorseImage, Modal, Notice, StatusBadge } from "@/components/horses/HorseUI";
+import { HorseCardsSkeleton } from "@/components/shared/LoadingSkeletons";
 import {
   deleteHorse as deleteHorseApi,
   errorMessage,
@@ -21,6 +22,8 @@ import {
   getHorseDeletionWarnings,
   horseGender,
   listHorses,
+  peekCachedHorseList,
+  peekCachedStables,
   type Horse,
   type Stable,
 } from "@/api/horses/api";
@@ -110,11 +113,21 @@ export default function HorsesPage() {
   const [stableFilter, setStableFilter] = useState("ALL");
   const [pageNumber, setPageNumber] = useState(1);
   const cacheKey = `${user.id}|${pageNumber}|${search}|${isOwner ? "OWNER" : stableFilter}|${statusFilter}`;
-  const cachedPage = readCachedHorses(cacheKey);
+  const listParams = {
+    page: pageNumber,
+    size: PAGE_SIZE,
+    search: search || undefined,
+    stableBoxId: isOwner || stableFilter === "ALL" ? undefined : stableFilter,
+    currentStatus: statusFilter === "ALL" ? undefined : statusFilter,
+  };
+  const cachedPage = readCachedHorses(cacheKey) ?? (() => {
+    const prefetched = peekCachedHorseList(listParams);
+    return prefetched ? { items: prefetched.items, total: prefetched.total } : undefined;
+  })();
   const [total, setTotal] = useState(cachedPage?.total ?? 0);
   const [reloadKey, setReloadKey] = useState(0);
   const [horses, setHorses] = useState<Horse[]>(cachedPage?.items ?? []);
-  const [stableOptions, setStableOptions] = useState<Stable[]>(() => readCachedStables() ?? []);
+  const [stableOptions, setStableOptions] = useState<Stable[]>(() => readCachedStables() ?? peekCachedStables() ?? []);
   const [loading, setLoading] = useState(!cachedPage);
   const [error, setError] = useState("");
   const [deleteHorse, setDeleteHorse] = useState<Horse | null>(null);
@@ -164,19 +177,33 @@ export default function HorsesPage() {
   }, [cacheKey, isOwner, pageNumber, search, stableFilter, statusFilter]);
 
   useEffect(() => {
-    const cached = readCachedHorses(cacheKey);
+    const prefetched = peekCachedHorseList({
+      page: pageNumber,
+      size: PAGE_SIZE,
+      search: search || undefined,
+      stableBoxId: isOwner || stableFilter === "ALL" ? undefined : stableFilter,
+      currentStatus: statusFilter === "ALL" ? undefined : statusFilter,
+    });
+    const cached = readCachedHorses(cacheKey) ?? (prefetched ? { items: prefetched.items, total: prefetched.total } : undefined);
     if (cached) {
+      writeCachedHorses(cacheKey, cached);
       setHorses(cached.items);
       setTotal(cached.total);
       setLoading(false);
     }
     void fetchHorses(Boolean(cached));
-  }, [cacheKey, fetchHorses, reloadKey]);
+  }, [cacheKey, fetchHorses, isOwner, pageNumber, reloadKey, search, stableFilter, statusFilter]);
 
   useAutoRefresh(() => fetchHorses(true), { intervalMs: 25_000 });
 
   useEffect(() => {
-    if (isOwner || readCachedStables()) return;
+    if (isOwner) return;
+    const cached = readCachedStables() ?? peekCachedStables();
+    if (cached) {
+      writeCachedStables(cached);
+      setStableOptions(cached);
+      return;
+    }
     let active = true;
     getHorseStables().then((stables) => {
       writeCachedStables(stables);
@@ -306,7 +333,7 @@ export default function HorsesPage() {
           </div>
 
           {loading ? (
-            <Notice>Đang tải danh sách hồ sơ ngựa…</Notice>
+            <HorseCardsSkeleton count={6} />
           ) : error ? (
             <Notice error>{error}</Notice>
           ) : horses.length === 0 ? (

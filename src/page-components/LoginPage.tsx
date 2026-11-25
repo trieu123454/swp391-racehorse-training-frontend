@@ -3,7 +3,6 @@
 import { Routes } from "@/routes/Routes";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
@@ -50,7 +49,6 @@ function loginErrorMessage(error: unknown) {
 }
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -67,13 +65,13 @@ export default function LoginPage() {
   const completeLogin = useCallback(
     (auth: AuthResponse) => {
       saveSession(auth, remember);
-      router.replace(
+      window.location.replace(
         auth.user.mustChangePassword
           ? Routes.changePassword
           : routeForRole(auth.user.roleName),
       );
     },
-    [router, remember],
+    [remember],
   );
   const showGoogleError = useCallback((message: string) => setError(message), []);
 
