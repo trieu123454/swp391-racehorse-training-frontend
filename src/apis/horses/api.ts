@@ -7,6 +7,7 @@ const horseDetailCache = new Map<string, { data: Horse; expiresAt: number }>();
 const horseStablesCache = new Map<string, { data: Stable[]; expiresAt: number }>();
 let horseStablesInFlight: Promise<Stable[]> | null = null;
 const horseImageUrlCache = new Map<string, { url?: string; expiresAt: number }>();
+const WORKSPACE_SYNC_CHANNEL = "racehorse:workspace-sync";
 
 export function invalidateHorseCaches() {
   horseListCache.clear();
@@ -14,6 +15,55 @@ export function invalidateHorseCaches() {
   horseDetailCache.clear();
   horseStablesCache.clear();
   horseStablesInFlight = null;
+}
+
+export function broadcastWorkspaceSync(kind: "horse-health" | "schedule", horseId?: string) {
+  invalidateHorseCaches();
+  if (typeof window === "undefined") return;
+  const payload = { kind, horseId, ts: Date.now() };
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      const ch = new BroadcastChannel(WORKSPACE_SYNC_CHANNEL);
+      ch.postMessage(payload);
+      ch.close();
+    }
+  } catch {
+    // Ignore BroadcastChannel errors
+  }
+  try {
+    window.localStorage.setItem(WORKSPACE_SYNC_CHANNEL, JSON.stringify(payload));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+export function subscribeWorkspaceSync(handler: (detail: { kind: string; horseId?: string }) => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  let channel: BroadcastChannel | null = null;
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      channel = new BroadcastChannel(WORKSPACE_SYNC_CHANNEL);
+      channel.onmessage = (event) => {
+        if (event.data && typeof event.data.kind === "string") handler(event.data);
+      };
+    }
+  } catch {
+    // Ignore BroadcastChannel errors
+  }
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== WORKSPACE_SYNC_CHANNEL || !event.newValue) return;
+    try {
+      const parsed = JSON.parse(event.newValue) as { kind?: unknown; horseId?: string };
+      if (typeof parsed?.kind === "string") handler({ kind: parsed.kind, horseId: parsed.horseId });
+    } catch {
+      // Ignore malformed storage payload
+    }
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    try { channel?.close(); } catch {}
+    window.removeEventListener("storage", onStorage);
+  };
 }
 
 if (typeof window !== "undefined") {
@@ -66,6 +116,8 @@ export type Horse = {
   current_status: HorseStatus | string;
   readiness_status?: "Ready" | "NotReady" | "Unknown";
   is_training_locked: boolean;
+  lock_level?: string | null;
+  lock_reason?: string | null;
   created_at: string;
   deleted_at?: string | null;
 };
@@ -139,14 +191,14 @@ function buildHorseListKey(params: HorseListParams = {}) {
   return query.toString();
 }
 
-export async function listHorses(params: HorseListParams = {}) {
+export async function listHorses(params: HorseListParams = {}, options?: { force?: boolean }) {
   const key = buildHorseListKey(params);
   const cached = horseListCache.get(key);
   const now = Date.now();
-  if (cached && now < cached.expiresAt) {
+  if (!options?.force && cached && now < cached.expiresAt) {
     return cached.data;
   }
-  const existing = horseListInFlight.get(key);
+  const existing = !options?.force ? horseListInFlight.get(key) : undefined;
   if (existing) {
     return existing;
   }

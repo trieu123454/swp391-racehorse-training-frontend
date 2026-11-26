@@ -65,9 +65,9 @@ export const workspaceNavigation: Record<RoleName, readonly { id: string; label:
     { id: "incidents", label: "Sự cố" }
   ],
   GROOM: [
-    { id: "overview", label: "Việc hôm nay" }, { id: "horses", label: "Ngựa phụ trách" },
-    { id: "diet", label: "Khẩu phần" }, { id: "inventory", label: "Vật tư" },
-    { id: "incidents", label: "Sự cố" },
+    { id: "overview", label: "Việc hôm nay" }, { id: "calendar", label: "Lịch làm việc" },
+    { id: "horses", label: "Ngựa phụ trách" }, { id: "diet", label: "Khẩu phần" },
+    { id: "inventory", label: "Vật tư" }, { id: "incidents", label: "Sự cố" },
   ],
   HORSE_OWNER: [
     { id: "overview", label: "Tổng quan" }, { id: "health", label: "Sức khỏe" },

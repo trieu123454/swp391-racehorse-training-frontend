@@ -54,6 +54,11 @@ export default function NotificationBell({ user }: { user: AuthUser }) {
       const result = { ...results[0], data: [...new Map(results.flatMap((result) => result.data).map((item) => [item.id, item])).values()] };
       if (version !== revision.current.value) return;
       const next = { unread: result.unread_count, latest: latest.data[0]?.id ?? null };
+      if (previous.current && next.latest && next.latest !== previous.current.latest) {
+        window.dispatchEvent(new CustomEvent("racehorse:notification-arrived", {
+          detail: { notification: latest.data[0] ?? null },
+        }));
+      }
       if (previous.current && next.latest !== previous.current.latest && next.unread > 0 && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         bell.current?.animate([{ transform: "rotate(0)" }, { transform: "rotate(-12deg)" }, { transform: "rotate(12deg)" }, { transform: "rotate(-8deg)" }, { transform: "rotate(0)" }], { duration: 480 });
       }

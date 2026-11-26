@@ -1,4 +1,5 @@
 import { ApiRequestError, authenticatedRequest } from "@/api/client";
+import { broadcastWorkspaceSync } from "@/apis/horses/api";
 
 export type ApiPage<T> = {
   data: T[];
@@ -328,7 +329,8 @@ export const veterinarianApi = {
     return call<ApiPage<InjuryMarker>>(`/api/horses/${horse}/injury-markers?latest_only=${latest}&page=1&limit=100`);
   },
   createInjury(horse: string, input: Record<string, unknown>) {
-    return call<InjuryMarker>(`/api/horses/${horse}/injury-markers`, "POST", input);
+    return call<InjuryMarker>(`/api/horses/${horse}/injury-markers`, "POST", input)
+      .then((res) => { broadcastWorkspaceSync("horse-health", horse); return res; });
   },
   updateHealthStatus(horse: string, current_status: string, readiness_status: string, note?: string) {
     return call<{
@@ -338,13 +340,16 @@ export const veterinarianApi = {
       is_training_locked: boolean;
       upcoming_sessions: { training_schedule_id: string; event_date: string; start_time?: string; session_type: string }[];
       stable_relocation?: { from_box_code?: string; to_box_code?: string; box_type: string; message: string } | null;
-    }>(`/api/horses/${horse}/health-status`, "PATCH", { current_status, readiness_status, note });
+    }>(`/api/horses/${horse}/health-status`, "PATCH", { current_status, readiness_status, note })
+      .then((res) => { broadcastWorkspaceSync("horse-health", horse); return res; });
   },
   lockTraining(horse: string, input: { lock_level: string; lock_reason: string }) {
-    return call<{ id: string; is_training_locked: boolean; was_locked: boolean; upcoming_sessions: unknown[] }>(`/api/horses/${horse}/training-lock`, "PUT", input);
+    return call<{ id: string; is_training_locked: boolean; was_locked: boolean; upcoming_sessions: unknown[] }>(`/api/horses/${horse}/training-lock`, "PUT", input)
+      .then((res) => { broadcastWorkspaceSync("horse-health", horse); return res; });
   },
   unlockTraining(horse: string, reason: string) {
-    return call<{ id: string; is_training_locked: boolean; suggest_status_update: boolean }>(`/api/horses/${horse}/training-unlock`, "POST", { reason });
+    return call<{ id: string; is_training_locked: boolean; suggest_status_update: boolean }>(`/api/horses/${horse}/training-unlock`, "POST", { reason })
+      .then((res) => { broadcastWorkspaceSync("horse-health", horse); return res; });
   },
   schedules(horse?: string) {
     const query = queryString({ horse_id: horse, page: 1, limit: 100 });

@@ -21,6 +21,11 @@ export type GroomCalendarEvent =
       end_time: string | null;
       status: string;
       session_type: string;
+      track_surface?: string | null;
+      plan_stage_name?: string | null;
+      box_code?: string | null;
+      is_training_locked?: boolean;
+      lock_reason?: string | null;
       sensor_running?: boolean;
       horse: GroomCalendarHorse;
       note: string | null;
@@ -28,12 +33,17 @@ export type GroomCalendarEvent =
   | {
       type: "care_task";
       task_id: string;
+      event_date?: string;
+      start_time?: string | null;
+      end_time?: string | null;
+      box_code?: string | null;
       horse: GroomCalendarHorse;
       task_type: string;
       status: string;
     };
 
 export type GroomCalendar = { date: string; events: GroomCalendarEvent[] };
+export type GroomWeekCalendar = { from: string; to: string; events: GroomCalendarEvent[] };
 
 export type GroomDietRecord = {
   id: string; horse_id: string; diet_type: "STANDARD" | "TREATMENT"; feed_type: string; quantity_kg: number;
@@ -64,6 +74,12 @@ export function getMyGroomHorses() {
 
 export function getGroomCalendar(date: string) {
   return authenticatedRequest<GroomCalendar>(`/api/groom/calendar?date=${encodeURIComponent(date)}`);
+}
+
+export function getGroomCalendarRange(from: string, to: string) {
+  return authenticatedRequest<GroomWeekCalendar>(
+    `/api/groom/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+  );
 }
 
 export function getGroomDietRecords(horseId: string, activeOn: string) {

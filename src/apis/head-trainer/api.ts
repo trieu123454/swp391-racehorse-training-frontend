@@ -50,6 +50,9 @@ export type TrainingSession = {
   image_url?: string | null;
   box_code?: string | null;
   section?: string | null;
+  is_training_locked?: boolean;
+  lock_level?: string | null;
+  lock_reason?: string | null;
   trainer_review?: string | null;
   training_plan_id?: string | null;
   plan_stage_name?: string | null;
