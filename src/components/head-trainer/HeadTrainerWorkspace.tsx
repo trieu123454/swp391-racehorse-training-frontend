@@ -1310,7 +1310,7 @@ export default function HeadTrainerWorkspace() {
           }}
           busy={busy}
         />}
-        {tab === "simulation" && <SimulationPanel sessions={sessions} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} error={error} notice={notice} />}
+        {tab === "simulation" && <SimulationPanel sessions={sessions} grooms={grooms} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} error={error} notice={notice} />}
       </>}
     </div>
   </section>;
@@ -1894,9 +1894,11 @@ export function getCareEventPrimarySlot(care: CareCalendarEvent): number {
   return 6;
 }
 
-export function computeGroomWorkloads(grooms: Groom[], sessions: TrainingSession[], calendarDays: string[]): GroomWorkloadStat[] {
+export function computeGroomWorkloads(grooms: Groom[], sessions: TrainingSession[], calendarDays: string[], excludeSessionId?: string): GroomWorkloadStat[] {
   const todayStr = today();
-  const activeSessions = sessions.filter((s) => s.status !== "Cancelled" && calendarDays.includes(s.event_date));
+  const activeSessions = sessions.filter(
+    (s) => s.status !== "Cancelled" && calendarDays.includes(s.event_date) && s.training_schedule_id !== excludeSessionId,
+  );
   const counts = grooms.map((groom) => {
     const groomSessions = activeSessions.filter((s) => s.assigned_groom_id === groom.user_id);
     const todayCount = groomSessions.filter((s) => s.event_date === todayStr).length;
@@ -2516,6 +2518,7 @@ function evaluateSlotForDateAndHorse(
   sessions: TrainingSession[],
   careEvents: CareCalendarEvent[],
   groomWorkloads: GroomWorkloadStat[],
+  excludeSessionId?: string,
 ): EvaluatedSlot {
   const todayStr = today();
   const now = new Date();
@@ -2523,9 +2526,11 @@ function evaluateSlotForDateAndHorse(
   const slotStartMins = timeToMinutes(slot.start) ?? 0;
   const isPast = date < todayStr || (date === todayStr && slotStartMins <= nowMinutes);
 
-  const activeDaySessions = sessions.filter((s) => s.status !== "Cancelled" && s.event_date === date);
+  const activeDaySessions = sessions.filter(
+    (s) => s.status !== "Cancelled" && s.event_date === date && s.training_schedule_id !== excludeSessionId,
+  );
   const horseTrainingConflict = activeDaySessions.find(
-    (s) => s.horse_id === horseId && getTrainingSlot(s) === slot.id,
+    (s) => s.horse_id === horseId && s.session_type !== "Rest" && getTrainingSlot(s) === slot.id,
   ) ?? null;
 
   const horseCareConflict = careEvents.find((c) => {
@@ -2597,6 +2602,109 @@ function evaluateSlotForDateAndHorse(
   };
 }
 
+function strictMinutes(timeStr?: string | null): number | null {
+  if (!timeStr) return null;
+  const match = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(timeStr.trim());
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return h * 60 + m;
+}
+
+function computeScheduleBlockReason(params: {
+  horseId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  sessionType: string;
+  groomId: string;
+  planStartDate?: string | null;
+  planEndDate?: string | null;
+  weekSessions: TrainingSession[];
+  weekCareEvents: CareCalendarEvent[];
+  excludeSessionId?: string;
+  weekLoading: boolean;
+}): string | null {
+  const {
+    horseId,
+    date,
+    startTime,
+    endTime,
+    sessionType,
+    groomId,
+    planStartDate,
+    planEndDate,
+    weekSessions,
+    weekCareEvents,
+    excludeSessionId,
+    weekLoading,
+  } = params;
+  if (weekLoading || !horseId) return null;
+  if (!date) return "Vui lòng chọn ngày tập.";
+  const sMins = strictMinutes(startTime);
+  const eMins = strictMinutes(endTime);
+  if (sMins == null || eMins == null) return "Giờ bắt đầu và kết thúc phải đúng định dạng HH:MM.";
+  if (eMins <= sMins) return "Giờ kết thúc phải sau giờ bắt đầu.";
+  const todayStr = today();
+  const now = new Date();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  if (date < todayStr || (date === todayStr && sMins <= nowMins)) {
+    return "Khung giờ này đã qua. Vui lòng chọn ca sau hoặc ngày khác.";
+  }
+  if (sessionType !== "Rest" && ((planStartDate && date < planStartDate) || (planEndDate && date > planEndDate))) {
+    const rangeLabel = `${planStartDate ? formatDisplayDate(planStartDate) : "..."} – ${planEndDate ? formatDisplayDate(planEndDate) : "..."}`;
+    return `Ngày tập nằm ngoài thời gian hiệu lực của giáo án (${rangeLabel}).`;
+  }
+  const activeDaySessions = weekSessions.filter(
+    (s) => s.status !== "Cancelled" && s.event_date === date && s.training_schedule_id !== excludeSessionId,
+  );
+  const overlapsWindow = (st?: string | null, en?: string | null, allDayFallback = false) => {
+    const cStart = timeToMinutes(st);
+    const cEnd = timeToMinutes(en);
+    if (cStart == null || cEnd == null) return allDayFallback;
+    return cStart < eMins && cEnd > sMins;
+  };
+  if (sessionType !== "Rest") {
+    const horseConflict = activeDaySessions.find(
+      (s) => s.horse_id === horseId && s.session_type !== "Rest" && overlapsWindow(s.start_time, s.end_time, true),
+    );
+    if (horseConflict) return "Ngựa đã có ca tập ở khung giờ này. Vui lòng chọn ca khác.";
+  }
+  const careConflict = weekCareEvents.find((c) => {
+    if (c.status === "Cancelled" || c.status === "Completed" || c.event_date !== date || c.horse_id !== horseId) {
+      return false;
+    }
+    if (!c.start_time || !c.end_time) return c.event_type !== "CareTask";
+    return overlapsWindow(c.start_time, c.end_time, false);
+  });
+  if (careConflict) {
+    return `Trùng lịch y tế/chăm sóc của ${careConflict.horse_name || "ngựa"} (${careEventTypeLabel(careConflict.care_type ?? careConflict.event_type, careConflict.title)}). Vui lòng chọn ngày hoặc khung giờ khác.`;
+  }
+  if (groomId) {
+    const gid = Number(groomId);
+    const busySession = activeDaySessions.find(
+      (s) => s.assigned_groom_id === gid && overlapsWindow(s.start_time, s.end_time, true),
+    );
+    if (busySession) {
+      return `Groom đang chọn bận ca này (đang tập ${busySession.horse_name || "ngựa khác"}). Vui lòng chọn Groom khác hoặc Chưa phân công.`;
+    }
+    const busyCare = weekCareEvents.find(
+      (c) =>
+        c.status !== "Cancelled" &&
+        c.status !== "Completed" &&
+        c.event_date === date &&
+        c.groom_id === gid &&
+        Boolean(c.start_time && c.end_time) &&
+        overlapsWindow(c.start_time, c.end_time, false),
+    );
+    if (busyCare) {
+      return `Groom đang chọn bận chăm sóc (${busyCare.horse_name || "ngựa khác"}). Vui lòng chọn Groom khác hoặc Chưa phân công.`;
+    }
+  }
+  return null;
+}
+
 function findBestDateSlotAndGroom(
   horseId: string,
   minDate: string,
@@ -2605,6 +2713,7 @@ function findBestDateSlotAndGroom(
   careEvents: CareCalendarEvent[],
   groomWorkloads: GroomWorkloadStat[],
   preferredWeeklyCap = 3,
+  excludeSessionId?: string,
 ): { date: string; slot: (typeof TRAINING_TIMETABLE_SLOTS)[number]; groomId: string } {
   const todayStr = today();
   const startDay = minDate >= todayStr ? minDate : todayStr;
@@ -2617,7 +2726,7 @@ function findBestDateSlotAndGroom(
   if (candidateDates.length === 0) candidateDates.push(startDay);
 
   const horseActiveSessions = sessions.filter(
-    (s) => s.status !== "Cancelled" && s.session_type !== "Rest" && s.horse_id === horseId,
+    (s) => s.status !== "Cancelled" && s.session_type !== "Rest" && s.horse_id === horseId && s.training_schedule_id !== excludeSessionId,
   );
   const horseTrainingDates = new Set(horseActiveSessions.map((s) => s.event_date));
   const sessionsPerWeekMap = new Map<string, number>();
@@ -2642,15 +2751,15 @@ function findBestDateSlotAndGroom(
     const hasAdjacentDaySession =
       horseTrainingDates.has(plusDays(d, -1)) || horseTrainingDates.has(plusDays(d, 1));
     const totalClubSessionsOnDay = sessions.filter(
-      (s) => s.status !== "Cancelled" && s.event_date === d,
+      (s) => s.status !== "Cancelled" && s.event_date === d && s.training_schedule_id !== excludeSessionId,
     ).length;
 
     for (const slot of TRAINING_TIMETABLE_SLOTS) {
-      const ev = evaluateSlotForDateAndHorse(horseId, d, slot, sessions, careEvents, groomWorkloads);
+      const ev = evaluateSlotForDateAndHorse(horseId, d, slot, sessions, careEvents, groomWorkloads, excludeSessionId);
       if (!ev.isFreeForHorse) continue;
 
       const totalClubSessionsInSlot = sessions.filter(
-        (s) => s.status !== "Cancelled" && s.event_date === d && getTrainingSlot(s) === slot.id,
+        (s) => s.status !== "Cancelled" && s.event_date === d && getTrainingSlot(s) === slot.id && s.training_schedule_id !== excludeSessionId,
       ).length;
 
       // Score lower is better:
@@ -2686,7 +2795,7 @@ function findBestDateSlotAndGroom(
   }
 
   const def = suggestedTrainingSlot(startDay);
-  const ev = evaluateSlotForDateAndHorse(horseId, def.date, def.slot, sessions, careEvents, groomWorkloads);
+  const ev = evaluateSlotForDateAndHorse(horseId, def.date, def.slot, sessions, careEvents, groomWorkloads, excludeSessionId);
   return { date: def.date, slot: def.slot, groomId: ev.bestGroomId };
 }
 
@@ -2729,29 +2838,35 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   const createFormRef = useRef<HTMLFormElement>(null);
 
   const calendarDays = useMemo(() => Array.from({ length: 7 }, (_, index) => plusDays(from, index)), [from]);
+  const [extraWeeks, setExtraWeeks] = useState<Record<string, { sessions: TrainingSession[]; careEvents: CareCalendarEvent[] }>>({});
+  const [loadingWeekKeys, setLoadingWeekKeys] = useState<string[]>([]);
+  const fetchingWeeksRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    setExtraWeeks({});
+  }, [from, sessions, careEvents]);
+
+  const weekDataForDate = useCallback(
+    (dateStr: string) => {
+      const wk = dateStr ? mondayOfWeek(dateStr) : from;
+      if (wk === from) {
+        return { weekDays: calendarDays, weekSessions: sessions, weekCareEvents: careEvents, loading: false };
+      }
+      const cached = extraWeeks[wk];
+      const weekDays = Array.from({ length: 7 }, (_, i) => plusDays(wk, i));
+      return {
+        weekDays,
+        weekSessions: cached?.sessions ?? [],
+        weekCareEvents: cached?.careEvents ?? [],
+        loading: !cached && loadingWeekKeys.includes(wk),
+      };
+    },
+    [from, calendarDays, sessions, careEvents, extraWeeks, loadingWeekKeys],
+  );
+
   const groomWorkloads = useMemo(() => computeGroomWorkloads(grooms, sessions, calendarDays), [grooms, sessions, calendarDays]);
   const horseCoverageList = useMemo(() => computeHorseCoverage(horses, overview, sessions, calendarDays), [horses, overview, sessions, calendarDays]);
-
-  const currentSlotCareConflict = useMemo(() => {
-    if (!createHorse || !scheduleDate) return null;
-    const sStart = timeToMinutes(startTimeVal);
-    const sEnd = timeToMinutes(endTimeVal);
-    return careEvents.find((c) => {
-      if (c.status === "Cancelled" || c.status === "Completed") return false;
-      if (c.event_date !== scheduleDate) return false;
-      const matchesHorse = c.horse_id === createHorse;
-      const matchesGroom = Boolean(assignedGroomVal && c.groom_id != null && String(c.groom_id) === assignedGroomVal);
-      if (!matchesHorse && !matchesGroom) return false;
-      if (!c.start_time || !c.end_time) {
-        if (c.event_type === "CareTask") return false;
-        return matchesHorse;
-      }
-      const cStart = timeToMinutes(c.start_time);
-      const cEnd = timeToMinutes(c.end_time);
-      if (cStart == null || cEnd == null || sStart == null || sEnd == null) return false;
-      return cStart < sEnd && cEnd > sStart;
-    }) ?? null;
-  }, [careEvents, createHorse, scheduleDate, startTimeVal, endTimeVal, assignedGroomVal]);
+  const nowMinuteKey = Math.floor(nowMs / 60000);
 
   const uncoveredCount = horseCoverageList.filter((h) => h.coverageStatus === "uncovered").length;
   const undertrainedCount = horseCoverageList.filter((h) => h.coverageStatus === "undertrained").length;
@@ -2778,12 +2893,27 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   );
   const [notesVal, setNotesVal] = useState("");
 
+  const createWeekData = useMemo(() => weekDataForDate(scheduleDate), [weekDataForDate, scheduleDate]);
+  const createGroomWorkloads = useMemo(
+    () => computeGroomWorkloads(grooms, createWeekData.weekSessions, createWeekData.weekDays),
+    [grooms, createWeekData],
+  );
+
   const slotEvaluationsForDate = useMemo(
     () =>
       TRAINING_TIMETABLE_SLOTS.map((slot) =>
-        evaluateSlotForDateAndHorse(createHorse, scheduleDate, slot, sessions, careEvents, groomWorkloads),
+        evaluateSlotForDateAndHorse(
+          createHorse,
+          scheduleDate,
+          slot,
+          createWeekData.weekSessions,
+          createWeekData.weekCareEvents,
+          createGroomWorkloads,
+        ),
       ),
-    [createHorse, scheduleDate, sessions, careEvents, groomWorkloads],
+    // nowMinuteKey refreshes "(✗ Đã qua giờ)" automatically as minutes pass
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [createHorse, scheduleDate, createWeekData, createGroomWorkloads, nowMinuteKey],
   );
 
   const currentSlotEval = useMemo(
@@ -2798,7 +2928,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
 
   // Automatically pick best available Groom for current (scheduleDate, selectedSlotId) whenever slot/date/horse/sessions change
   useEffect(() => {
-    if (!currentSlotEval) return;
+    if (!currentSlotEval || createWeekData.loading) return;
     const slotKey = `${createHorse}|${scheduleDate}|${selectedSlotId}`;
     if (manualGroomSlotKeyRef.current === slotKey) return;
     const currentGroomStat = currentSlotEval.rankedGrooms.find(
@@ -2807,25 +2937,27 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
     const slotChanged = lastAutoGroomSlotKeyRef.current !== slotKey;
     if (slotChanged || !assignedGroomVal || Boolean(currentGroomStat?.busyReason)) {
       lastAutoGroomSlotKeyRef.current = slotKey;
-      if (currentSlotEval.bestGroomId && currentSlotEval.bestGroomId !== assignedGroomVal) {
+      if (currentSlotEval.hasFreeGroom && currentSlotEval.bestGroomId && currentSlotEval.bestGroomId !== assignedGroomVal) {
         setAssignedGroomVal(currentSlotEval.bestGroomId);
+      } else if (currentGroomStat?.busyReason && !currentSlotEval.hasFreeGroom) {
+        setAssignedGroomVal("");
       }
     }
-  }, [createHorse, scheduleDate, selectedSlotId, currentSlotEval, assignedGroomVal]);
+  }, [createHorse, scheduleDate, selectedSlotId, currentSlotEval, assignedGroomVal, createWeekData.loading]);
 
   // When scheduleDate changes and current slot is not free for the horse on that date, auto-hop to the least-crowded free slot on that date
   useEffect(() => {
-    if (!createHorse || slotEvaluationsForDate.length === 0) return;
+    if (!createHorse || slotEvaluationsForDate.length === 0 || createWeekData.loading) return;
     const currentEv = slotEvaluationsForDate.find((ev) => String(ev.slot.id) === selectedSlotId);
-    if (currentEv && currentEv.isFreeForHorse && (currentEv.hasFreeGroom || groomWorkloads.length === 0)) {
+    if (currentEv && currentEv.isFreeForHorse && (currentEv.hasFreeGroom || createGroomWorkloads.length === 0)) {
       return;
     }
     const freeSlots = slotEvaluationsForDate
       .filter((ev) => ev.isFreeForHorse)
       .sort((a, b) => {
         if (a.hasFreeGroom !== b.hasFreeGroom) return a.hasFreeGroom ? -1 : 1;
-        const aClubLoad = sessions.filter((s) => s.status !== "Cancelled" && s.event_date === scheduleDate && getTrainingSlot(s) === a.slot.id).length;
-        const bClubLoad = sessions.filter((s) => s.status !== "Cancelled" && s.event_date === scheduleDate && getTrainingSlot(s) === b.slot.id).length;
+        const aClubLoad = createWeekData.weekSessions.filter((s) => s.status !== "Cancelled" && s.event_date === scheduleDate && getTrainingSlot(s) === a.slot.id).length;
+        const bClubLoad = createWeekData.weekSessions.filter((s) => s.status !== "Cancelled" && s.event_date === scheduleDate && getTrainingSlot(s) === b.slot.id).length;
         return aClubLoad - bClubLoad || a.slot.id - b.slot.id;
       });
     const bestSlotOnDay = freeSlots[0];
@@ -2833,9 +2965,9 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
       setSelectedSlotId(String(bestSlotOnDay.slot.id));
       setStartTimeVal(bestSlotOnDay.slot.start);
       setEndTimeVal(bestSlotOnDay.slot.end);
-      if (bestSlotOnDay.bestGroomId) setAssignedGroomVal(bestSlotOnDay.bestGroomId);
+      setAssignedGroomVal(bestSlotOnDay.hasFreeGroom ? bestSlotOnDay.bestGroomId : "");
     }
-  }, [createHorse, scheduleDate, slotEvaluationsForDate, selectedSlotId, groomWorkloads.length, sessions]);
+  }, [createHorse, scheduleDate, slotEvaluationsForDate, selectedSlotId, createGroomWorkloads.length, createWeekData]);
 
   useEffect(() => {
     const preferredHorseId = selectedHorseId && horses.some((horse) => horse.id === selectedHorseId)
@@ -3010,6 +3142,11 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   const [showDispatchDrawer, setShowDispatchDrawer] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(() => Boolean(scheduleDraft));
   const [moveId, setMoveId] = useState<string>("");
+  const [moveDate, setMoveDate] = useState<string>(() => today());
+  const [moveSlotId, setMoveSlotId] = useState<string>("1");
+  const [moveGroomId, setMoveGroomId] = useState<string>("");
+  const moveManualGroomKeyRef = useRef<string>("");
+  const moveLastAutoGroomKeyRef = useRef<string>("");
   const [completeId, setCompleteId] = useState<string>("");
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -3159,22 +3296,199 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
     [careEvents, calendarDays, showAllHorsesTimetable, selectedHorseId, dropdownMatchedHorseIds],
   );
 
+  const createWeekKey = showCreateForm && scheduleDate ? mondayOfWeek(scheduleDate) : null;
+  const moveWeekKey = moveId && moveDate ? mondayOfWeek(moveDate) : null;
+  useEffect(() => {
+    let active = true;
+    const keys = [createWeekKey, moveWeekKey].filter(
+      (k): k is string => Boolean(k && k !== from && !extraWeeks[k] && !fetchingWeeksRef.current.has(k)),
+    );
+    for (const wk of new Set(keys)) {
+      fetchingWeeksRef.current.add(wk);
+      setLoadingWeekKeys((curr) => (curr.includes(wk) ? curr : [...curr, wk]));
+      headTrainerApi
+        .calendar(wk, plusDays(wk, 6))
+        .then((res) => {
+          if (!active) return;
+          setExtraWeeks((curr) => ({
+            ...curr,
+            [wk]: {
+              sessions: Array.isArray(res.data) ? res.data : [],
+              careEvents: Array.isArray(res.care_events) ? res.care_events : [],
+            },
+          }));
+        })
+        .catch(() => {
+          // Keep current state if week lookup fails
+        })
+        .finally(() => {
+          fetchingWeeksRef.current.delete(wk);
+          if (active) setLoadingWeekKeys((curr) => curr.filter((x) => x !== wk));
+        });
+    }
+    return () => { active = false; };
+  }, [createWeekKey, moveWeekKey, from, extraWeeks]);
+
+  const movingSession = useMemo(
+    () => (moveId ? sessions.find((s) => s.training_schedule_id === moveId) ?? null : null),
+    [sessions, moveId],
+  );
+  const moveWeekData = useMemo(() => weekDataForDate(moveDate), [weekDataForDate, moveDate]);
+  const moveGroomWorkloads = useMemo(
+    () => computeGroomWorkloads(grooms, moveWeekData.weekSessions, moveWeekData.weekDays, movingSession?.training_schedule_id),
+    [grooms, moveWeekData, movingSession?.training_schedule_id],
+  );
+  const moveSlotEvaluations = useMemo(
+    () =>
+      movingSession
+        ? TRAINING_TIMETABLE_SLOTS.map((slot) =>
+            evaluateSlotForDateAndHorse(
+              movingSession.horse_id,
+              moveDate,
+              slot,
+              moveWeekData.weekSessions,
+              moveWeekData.weekCareEvents,
+              moveGroomWorkloads,
+              movingSession.training_schedule_id,
+            ),
+          )
+        : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [movingSession, moveDate, moveWeekData, moveGroomWorkloads, nowMinuteKey],
+  );
+  const moveCurrentSlotEval = useMemo(
+    () => moveSlotEvaluations.find((ev) => String(ev.slot.id) === moveSlotId) ?? moveSlotEvaluations[0],
+    [moveSlotEvaluations, moveSlotId],
+  );
+
+  function openReschedule(session: TrainingSession) {
+    if (moveId === session.training_schedule_id) {
+      setMoveId("");
+      setActionError("");
+      return;
+    }
+    setCompleteId("");
+    setActionError("");
+    const origSlot = TRAINING_TIMETABLE_SLOTS.find((s) => s.id === getTrainingSlot(session)) ?? TRAINING_TIMETABLE_SLOTS[0];
+    const minDate = session.session_type !== "Rest" && session.plan_start_date && session.plan_start_date > today()
+      ? session.plan_start_date
+      : today();
+    const maxDate = session.session_type !== "Rest" ? session.plan_end_date ?? null : null;
+    const origWeek = weekDataForDate(session.event_date);
+    const origWorkloads = computeGroomWorkloads(grooms, origWeek.weekSessions, origWeek.weekDays, session.training_schedule_id);
+    const origEval = evaluateSlotForDateAndHorse(
+      session.horse_id,
+      session.event_date,
+      origSlot,
+      origWeek.weekSessions,
+      origWeek.weekCareEvents,
+      origWorkloads,
+      session.training_schedule_id,
+    );
+    const outOfPlanBounds = session.event_date < minDate || Boolean(maxDate && session.event_date > maxDate);
+    let nextDate = session.event_date;
+    let nextSlotId = String(origSlot.id);
+    let targetEval: EvaluatedSlot | undefined = origEval;
+    if (origEval.isPast || outOfPlanBounds) {
+      const best = findBestDateSlotAndGroom(
+        session.horse_id,
+        minDate,
+        maxDate,
+        sessions,
+        careEvents,
+        groomWorkloads,
+        3,
+        session.training_schedule_id,
+      );
+      nextDate = best.date;
+      nextSlotId = String(best.slot.id);
+      const bestWeek = weekDataForDate(nextDate);
+      const bestWorkloads = computeGroomWorkloads(grooms, bestWeek.weekSessions, bestWeek.weekDays, session.training_schedule_id);
+      targetEval = evaluateSlotForDateAndHorse(
+        session.horse_id,
+        nextDate,
+        best.slot,
+        bestWeek.weekSessions,
+        bestWeek.weekCareEvents,
+        bestWorkloads,
+        session.training_schedule_id,
+      );
+    }
+    const existingGroomStr = session.assigned_groom_id ? String(session.assigned_groom_id) : "";
+    const existingGroomFree = existingGroomStr
+      ? targetEval?.rankedGrooms.some((g) => String(g.groom.user_id) === existingGroomStr && !g.busyReason)
+      : false;
+    const nextGroomId = existingGroomFree
+      ? existingGroomStr
+      : targetEval?.hasFreeGroom
+        ? targetEval.bestGroomId
+        : "";
+    moveManualGroomKeyRef.current = "";
+    moveLastAutoGroomKeyRef.current = `${session.training_schedule_id}|${nextDate}|${nextSlotId}`;
+    setMoveDate(nextDate);
+    setMoveSlotId(nextSlotId);
+    setMoveGroomId(nextGroomId);
+    setMoveId(session.training_schedule_id);
+  }
+
+  useEffect(() => {
+    if (!movingSession || moveSlotEvaluations.length === 0 || moveWeekData.loading) return;
+    const currentEv = moveSlotEvaluations.find((ev) => String(ev.slot.id) === moveSlotId);
+    if (currentEv && currentEv.isFreeForHorse && (currentEv.hasFreeGroom || moveGroomWorkloads.length === 0)) {
+      return;
+    }
+    const freeSlots = moveSlotEvaluations
+      .filter((ev) => ev.isFreeForHorse)
+      .sort((a, b) => {
+        if (a.hasFreeGroom !== b.hasFreeGroom) return a.hasFreeGroom ? -1 : 1;
+        const aClubLoad = moveWeekData.weekSessions.filter(
+          (s) => s.status !== "Cancelled" && s.event_date === moveDate && getTrainingSlot(s) === a.slot.id && s.training_schedule_id !== movingSession.training_schedule_id,
+        ).length;
+        const bClubLoad = moveWeekData.weekSessions.filter(
+          (s) => s.status !== "Cancelled" && s.event_date === moveDate && getTrainingSlot(s) === b.slot.id && s.training_schedule_id !== movingSession.training_schedule_id,
+        ).length;
+        return aClubLoad - bClubLoad || a.slot.id - b.slot.id;
+      });
+    const bestSlotOnDay = freeSlots[0];
+    if (bestSlotOnDay && String(bestSlotOnDay.slot.id) !== moveSlotId) {
+      setMoveSlotId(String(bestSlotOnDay.slot.id));
+    }
+  }, [movingSession, moveDate, moveSlotEvaluations, moveSlotId, moveGroomWorkloads.length, moveWeekData]);
+
+  useEffect(() => {
+    if (!movingSession || !moveCurrentSlotEval || moveWeekData.loading) return;
+    const slotKey = `${movingSession.training_schedule_id}|${moveDate}|${moveSlotId}`;
+    if (moveManualGroomKeyRef.current === slotKey) return;
+    const currentStat = moveCurrentSlotEval.rankedGrooms.find((g) => String(g.groom.user_id) === moveGroomId);
+    const slotChanged = moveLastAutoGroomKeyRef.current !== slotKey;
+    if (slotChanged || (moveGroomId && Boolean(currentStat?.busyReason))) {
+      moveLastAutoGroomKeyRef.current = slotKey;
+      const origGroomStr = movingSession.assigned_groom_id ? String(movingSession.assigned_groom_id) : "";
+      const origFree = origGroomStr
+        ? moveCurrentSlotEval.rankedGrooms.some((g) => String(g.groom.user_id) === origGroomStr && !g.busyReason)
+        : false;
+      const nextGroom = origFree
+        ? origGroomStr
+        : moveCurrentSlotEval.hasFreeGroom
+          ? moveCurrentSlotEval.bestGroomId
+          : "";
+      if (nextGroom !== moveGroomId) setMoveGroomId(nextGroom);
+    }
+  }, [movingSession, moveDate, moveSlotId, moveCurrentSlotEval, moveGroomId, moveWeekData.loading]);
+
   async function submitReschedule(event: FormEvent<HTMLFormElement>, session: TrainingSession) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const nextDate = String(data.get("event_date") || session.event_date).trim();
-    const slotRange = String(data.get("slot_time_range") || "07:00|08:30");
-    const [rawStart, rawEnd] = slotRange.split("|");
-    const nextStart = (rawStart || "07:00").trim().replace("h", ":");
-    const nextEnd = (rawEnd || "08:30").trim().replace("h", ":");
-    const groomRaw = String(data.get("assigned_groom_id") ?? "").trim();
-    const nextGroomId = groomRaw ? Number(groomRaw) : (session.assigned_groom_id ?? null);
+    const slot = TRAINING_TIMETABLE_SLOTS.find((s) => String(s.id) === moveSlotId) ?? TRAINING_TIMETABLE_SLOTS[0];
+    const nextDate = moveDate || session.event_date;
+    const nextStart = slot.start;
+    const nextEnd = slot.end;
+    const nextGroomId = moveGroomId ? Number(moveGroomId) : null;
     const payload: Record<string, unknown> = {
       event_date: nextDate,
       start_time: nextStart,
       end_time: nextEnd,
+      assigned_groom_id: nextGroomId,
     };
-    if (groomRaw) payload.assigned_groom_id = Number(groomRaw);
 
     setActionBusy(true);
     setActionError("");
@@ -3191,7 +3505,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
           planIdToUse = ensuredPlan.id;
         }
         await headTrainerApi.updateSchedule(session.training_schedule_id, { status: "Cancelled" });
-        const baseCreatePayload = {
+        await headTrainerApi.createSchedule(session.horse_id, {
           training_plan_id: planIdToUse,
           session_type: session.session_type,
           track_surface: session.track_surface || "Dirt",
@@ -3201,19 +3515,8 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
           notes: session.notes ?? null,
           target_distance_meters: session.plan_target_distance_meters ?? 1200,
           target_intensity: session.plan_target_intensity ?? "Medium",
-        };
-        try {
-          await headTrainerApi.createSchedule(session.horse_id, {
-            ...baseCreatePayload,
-            assigned_groom_id: nextGroomId,
-          });
-        } catch {
-          // Thử lại không gắn Groom bị trùng ca để không chặn dời lịch của ngựa
-          await headTrainerApi.createSchedule(session.horse_id, {
-            ...baseCreatePayload,
-            assigned_groom_id: null,
-          });
-        }
+          assigned_groom_id: nextGroomId,
+        });
       }
       setMoveId("");
       setHighlightedSessionId(session.training_schedule_id);
@@ -3535,24 +3838,29 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
             ]}
           />
           {(() => {
-            const matchesPresetSlot =
-              Boolean(currentSlotEval) &&
-              startTimeVal === currentSlotEval?.slot.start &&
-              endTimeVal === currentSlotEval?.slot.end;
-            const currentSlotBlockReason = currentSlotCareConflict
-              ? `Trùng lịch y tế/chăm sóc của ${currentSlotCareConflict.horse_name} (${careEventTypeLabel(currentSlotCareConflict.event_type, currentSlotCareConflict.title)}). Vui lòng chọn ngày hoặc khung giờ khác.`
-              : matchesPresetSlot && currentSlotEval && !currentSlotEval.isFreeForHorse
-                ? currentSlotEval.isPast
-                  ? "Khung giờ này đã qua. Vui lòng chọn ca sau hoặc ngày khác."
-                  : currentSlotEval.horseTrainingConflict
-                    ? "Ngựa đã có ca tập ở khung giờ này. Vui lòng chọn ca khác."
-                    : null
-                : null;
+            const currentSlotBlockReason = computeScheduleBlockReason({
+              horseId: createHorse,
+              date: scheduleDate,
+              startTime: startTimeVal,
+              endTime: endTimeVal,
+              sessionType,
+              groomId: assignedGroomVal,
+              planStartDate: selectedPlan?.start_date,
+              planEndDate: selectedPlan?.end_date,
+              weekSessions: createWeekData.weekSessions,
+              weekCareEvents: createWeekData.weekCareEvents,
+              weekLoading: createWeekData.loading,
+            });
             const effectiveDist = Number(distanceVal) || selectedPlan?.target_distance_meters || 1200;
             const effectiveSurface = surfaceVal || selectedPlan?.target_track_surface || "Dirt";
             const effectiveIntensity = intensityVal || selectedPlan?.target_intensity || "Medium";
             return (
               <>
+                {createWeekData.loading && (
+                  <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-900 sm:col-span-2 lg:col-span-5">
+                    Đang kiểm tra lịch trống tuần đã chọn...
+                  </div>
+                )}
                 {currentSlotBlockReason && (
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 sm:col-span-2 lg:col-span-5">
                     <span>⚠️ {currentSlotBlockReason}</span>
@@ -3612,7 +3920,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                     </details>
                     <button
                       className="gold-button px-4 py-1.5 text-xs"
-                      disabled={busy || Boolean(currentSlotBlockReason)}
+                      disabled={busy || createWeekData.loading || Boolean(currentSlotBlockReason)}
                       title={currentSlotBlockReason ?? undefined}
                     >
                       <CalendarDays size={14} /> Chốt ca tập
@@ -3781,6 +4089,8 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
         </div>
       </div>
 
+      {error && <div className="mb-2.5"><Notice error>{error}</Notice></div>}
+
       <div ref={timetableRef} className="overflow-x-auto rounded-lg border border-slate-300">
         <table className="w-full min-w-[1080px] border-collapse text-left text-xs">
           <thead>
@@ -3877,7 +4187,10 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                             const win = sessionWindow(session);
                             const insideTimeWindow = Boolean(win && nowMs >= win.start && nowMs < win.end);
                             const afterTimeWindow = Boolean(win && nowMs >= win.end);
-                            const canStartSim = Boolean(session.assigned_groom_id) && session.status === "Scheduled" && session.session_type !== "Rest" && insideTimeWindow;
+                            const hasActiveGroom = Boolean(
+                              session.assigned_groom_id && (grooms.length === 0 || grooms.some((g) => g.user_id === session.assigned_groom_id)),
+                            );
+                            const canStartSim = hasActiveGroom && session.status === "Scheduled" && session.session_type !== "Rest" && insideTimeWindow;
                             const canComplete = afterTimeWindow && (session.status === "InProgress" || (session.status === "Scheduled" && session.session_type === "Rest"));
                             const canReschedule = ["Scheduled", "Blocked", "Missed"].includes(session.status);
                             const isOpen = ["Scheduled", "Blocked", "InProgress", "Missed"].includes(session.status);
@@ -3944,6 +4257,8 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                                   <p className="mt-1 rounded bg-slate-100/90 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
                                     {!session.assigned_groom_id
                                       ? "⚠️ Cần giao Groom trước khi chạy mô phỏng"
+                                      : !hasActiveGroom
+                                      ? `⚠️ Groom "${session.groom_name ?? "đang gắn"}" chưa kích hoạt hoặc không còn khả dụng — bấm Dời lịch để đổi Groom`
                                       : afterTimeWindow
                                       ? "⏰ Đã qua giờ tập — bấm Dời lịch để chạy mô phỏng"
                                       : `⏳ Mở mô phỏng lúc ${session.start_time?.slice(0, 5) ?? "đến giờ"}`}
@@ -4000,10 +4315,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                                     <button
                                       type="button"
                                       className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-100"
-                                      onClick={() => {
-                                        setCompleteId("");
-                                        setMoveId(moveId === session.training_schedule_id ? "" : session.training_schedule_id);
-                                      }}
+                                      onClick={() => openReschedule(session)}
                                     >
                                       Dời lịch
                                     </button>
@@ -4032,58 +4344,114 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                                   )}
                                 </div>
 
-                                {moveId === session.training_schedule_id && (
-                                  <form
-                                    onSubmit={(e) => void submitReschedule(e, session)}
-                                    className="mt-2 space-y-1.5 rounded border border-equine-line bg-white p-2"
-                                  >
-                                    <p className="text-[10px] font-bold uppercase text-equine-navy">Dời lịch & đổi ca / Groom</p>
-                                    {actionError && (
-                                      <p className="rounded bg-rose-50 p-1.5 text-[10px] font-semibold text-rose-700 border border-rose-200">
-                                        {actionError}
-                                      </p>
-                                    )}
-                                    <input
-                                      aria-label="Ngày mới"
-                                      name="event_date"
-                                      type="date"
-                                      required
-                                      min={today()}
-                                      defaultValue={session.event_date < today() ? today() : session.event_date}
-                                      className="field-control py-1 text-xs"
-                                    />
-                                    <select
-                                      aria-label="Ca tập mới"
-                                      name="slot_time_range"
-                                      defaultValue={(() => {
-                                        const curSlot = TRAINING_TIMETABLE_SLOTS.find((s) => s.id === getTrainingSlot(session)) ?? TRAINING_TIMETABLE_SLOTS[0];
-                                        return `${curSlot.start}|${curSlot.end}`;
-                                      })()}
-                                      className="field-control py-1 text-xs"
+                                {moveId === session.training_schedule_id && (() => {
+                                  const selectedSlot = TRAINING_TIMETABLE_SLOTS.find((s) => String(s.id) === moveSlotId) ?? TRAINING_TIMETABLE_SLOTS[0];
+                                  const origSlotId = getTrainingSlot(session);
+                                  const minMoveDate = session.session_type !== "Rest" && session.plan_start_date && session.plan_start_date > today()
+                                    ? session.plan_start_date
+                                    : today();
+                                  const maxMoveDate = session.session_type !== "Rest" ? session.plan_end_date ?? undefined : undefined;
+                                  const moveBlockReason = computeScheduleBlockReason({
+                                    horseId: session.horse_id,
+                                    date: moveDate,
+                                    startTime: selectedSlot.start,
+                                    endTime: selectedSlot.end,
+                                    sessionType: session.session_type,
+                                    groomId: moveGroomId,
+                                    planStartDate: session.session_type !== "Rest" ? session.plan_start_date : null,
+                                    planEndDate: session.session_type !== "Rest" ? session.plan_end_date : null,
+                                    weekSessions: moveWeekData.weekSessions,
+                                    weekCareEvents: moveWeekData.weekCareEvents,
+                                    excludeSessionId: session.training_schedule_id,
+                                    weekLoading: moveWeekData.loading,
+                                  });
+                                  const noFreeGroomHint = !moveWeekData.loading && !moveBlockReason && moveGroomWorkloads.length > 0 && moveCurrentSlotEval && !moveCurrentSlotEval.hasFreeGroom;
+                                  return (
+                                    <form
+                                      onSubmit={(e) => void submitReschedule(e, session)}
+                                      className="mt-2 space-y-1.5 rounded border border-equine-line bg-white p-2"
                                     >
-                                      {TRAINING_TIMETABLE_SLOTS.map((s) => (
-                                        <option key={s.id} value={`${s.start}|${s.end}`}>Ca {s.id} ({s.timeRange})</option>
-                                      ))}
-                                    </select>
-                                    <select
-                                      aria-label="Groom phụ trách"
-                                      name="assigned_groom_id"
-                                      defaultValue={session.assigned_groom_id ? String(session.assigned_groom_id) : ""}
-                                      className="field-control py-1 text-xs"
-                                    >
-                                      <option value="">Giữ nguyên Groom</option>
-                                      {grooms.map((g) => (
-                                        <option key={g.user_id} value={g.user_id}>{g.full_name}</option>
-                                      ))}
-                                    </select>
-                                    <div className="flex gap-1 pt-1">
-                                      <button type="submit" className="gold-button px-2 py-1 text-[10px]" disabled={busy || actionBusy}>
-                                        {actionBusy ? "Đang lưu..." : "Lưu lịch mới"}
-                                      </button>
-                                      <button type="button" className="soft-button px-2 py-1 text-[10px]" onClick={() => { setMoveId(""); setActionError(""); }}>Đóng</button>
-                                    </div>
-                                  </form>
-                                )}
+                                      <p className="text-[10px] font-bold uppercase text-equine-navy">Dời lịch & đổi ca / Groom</p>
+                                      {actionError && (
+                                        <p className="rounded border border-rose-200 bg-rose-50 p-1.5 text-[10px] font-semibold text-rose-700">
+                                          {actionError}
+                                        </p>
+                                      )}
+                                      <input
+                                        aria-label="Ngày mới"
+                                        name="event_date"
+                                        type="date"
+                                        required
+                                        min={minMoveDate}
+                                        max={maxMoveDate}
+                                        value={moveDate}
+                                        onChange={(e) => setMoveDate(e.target.value)}
+                                        className="field-control py-1 text-xs"
+                                      />
+                                      {moveWeekData.loading && (
+                                        <p className="rounded bg-sky-50 px-1.5 py-1 text-[10px] font-medium text-sky-800">
+                                          Đang kiểm tra lịch trống tuần đã chọn...
+                                        </p>
+                                      )}
+                                      <select
+                                        aria-label="Ca tập mới"
+                                        name="slot_time_range"
+                                        value={moveSlotId}
+                                        onChange={(e) => setMoveSlotId(e.target.value)}
+                                        className="field-control py-1 text-xs"
+                                      >
+                                        {moveSlotEvaluations.map((ev) => {
+                                          const isOriginal = moveDate === session.event_date && ev.slot.id === origSlotId;
+                                          return (
+                                            <option key={ev.slot.id} value={String(ev.slot.id)}>
+                                              {`Ca ${ev.slot.id}: ${ev.slot.timeRange} (${ev.statusLabel}${isOriginal ? " · Ca hiện tại" : ""})`}
+                                            </option>
+                                          );
+                                        })}
+                                      </select>
+                                      <select
+                                        aria-label="Groom phụ trách"
+                                        name="assigned_groom_id"
+                                        value={moveGroomId}
+                                        onChange={(e) => {
+                                          moveManualGroomKeyRef.current = `${session.training_schedule_id}|${moveDate}|${moveSlotId}`;
+                                          setMoveGroomId(e.target.value);
+                                        }}
+                                        className="field-control py-1 text-xs"
+                                      >
+                                        <option value="">Chưa phân công</option>
+                                        {(moveCurrentSlotEval?.rankedGrooms ?? []).map((item, idx) => (
+                                          <option key={item.groom.user_id} value={String(item.groom.user_id)}>
+                                            {item.busyReason
+                                              ? `${item.groom.full_name} (✗ Bận ca này: ${item.busyReason} · ${item.weekCount} ca/tuần)`
+                                              : `${item.groom.full_name} (✓ Rảnh ca này · ${item.dayCount} ca ngày / ${item.weekCount} ca tuần${idx === 0 ? " · Rảnh nhất" : ""})`}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      {moveBlockReason && (
+                                        <p className="rounded border border-rose-300 bg-rose-50 px-1.5 py-1 text-[10px] font-semibold text-rose-800">
+                                          ⚠️ {moveBlockReason}
+                                        </p>
+                                      )}
+                                      {noFreeGroomHint && (
+                                        <p className="rounded border border-amber-200 bg-amber-50 px-1.5 py-1 text-[10px] font-medium text-amber-900">
+                                          ⚠ Ca này không còn Groom rảnh; có thể lưu ở trạng thái Chưa phân công.
+                                        </p>
+                                      )}
+                                      <div className="flex gap-1 pt-1">
+                                        <button
+                                          type="submit"
+                                          className="gold-button px-2 py-1 text-[10px]"
+                                          disabled={busy || actionBusy || moveWeekData.loading || Boolean(moveBlockReason)}
+                                          title={moveBlockReason ?? undefined}
+                                        >
+                                          {actionBusy ? "Đang lưu..." : "Lưu lịch mới"}
+                                        </button>
+                                        <button type="button" className="soft-button px-2 py-1 text-[10px]" onClick={() => { setMoveId(""); setActionError(""); }}>Đóng</button>
+                                      </div>
+                                    </form>
+                                  );
+                                })()}
                               </div>
                             );
                           })}
@@ -4124,7 +4492,10 @@ function TrainingSessionDetail({ session, grooms, busy, nowMs, showMetrics, onAs
   const window = sessionWindow(session);
   const insideTimeWindow = Boolean(window && nowMs >= window.start && nowMs < window.end);
   const afterTimeWindow = Boolean(window && nowMs >= window.end);
-  const canStart = Boolean(session.assigned_groom_id) && session.status === "Scheduled" && session.session_type !== "Rest" && insideTimeWindow;
+  const hasActiveGroom = Boolean(
+    session.assigned_groom_id && (grooms.length === 0 || grooms.some((g) => g.user_id === session.assigned_groom_id)),
+  );
+  const canStart = hasActiveGroom && session.status === "Scheduled" && session.session_type !== "Rest" && insideTimeWindow;
   const canComplete = afterTimeWindow && (session.status === "InProgress" || (session.status === "Scheduled" && session.session_type === "Rest"));
   const isOpen = ["Scheduled", "Blocked", "InProgress", "Missed"].includes(session.status);
   const hasSimulationMetrics = session.status === "Completed" || Boolean(session.latest_metric || session.metrics?.length);
@@ -4133,6 +4504,11 @@ function TrainingSessionDetail({ session, grooms, busy, nowMs, showMetrics, onAs
       <div><div className="flex flex-wrap items-center gap-2"><h3 className="text-lg font-black text-slate-950">{session.horse_name}</h3><span className="rounded bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{sessionTypeLabel(session.session_type)}</span><span className="rounded bg-blue-50 px-2 py-1 text-xs font-bold text-blue-900">{scheduleStatusLabel(session.status)}</span></div><p className="mt-1 text-sm font-semibold text-slate-700">{new Date(`${session.event_date}T12:00:00`).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })} · {session.start_time?.slice(0, 5) ?? "Cả ngày"}{session.end_time ? `–${session.end_time.slice(0, 5)}` : ""} · {session.track_surface || "Chưa chọn mặt sân"}</p></div>
       <button type="button" className="soft-button" onClick={onToggleMetrics} disabled={!hasSimulationMetrics} title={!hasSimulationMetrics ? "Chỉ số sẽ tự động có sau khi hoàn thành mô phỏng buổi tập" : undefined}><HeartPulse size={14} /> {showMetrics ? "Ẩn chỉ số mô phỏng" : "Xem chỉ số mô phỏng & đánh giá"}</button>
     </div>
+    {session.assigned_groom_id && !hasActiveGroom && session.status === "Scheduled" && session.session_type !== "Rest" && (
+      <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+        ⚠️ Groom đang gắn ({session.groom_name ?? `#${session.assigned_groom_id}`}) chưa kích hoạt hoặc không còn khả dụng. Hãy chọn lại một Groom đang hoạt động ở ô bên dưới trước khi bắt đầu mô phỏng.
+      </p>
+    )}
     <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><p><span className="block text-xs text-slate-500">Giáo án</span><strong>{session.plan_stage_name ?? "Chưa gắn"}</strong></p><p><span className="block text-xs text-slate-500">Groom</span><strong>{session.groom_name ?? "Chưa phân công"}</strong></p><p><span className="block text-xs text-slate-500">Mục tiêu</span><strong>{session.plan_objective ?? "Chưa có mô tả"}</strong></p><p><span className="block text-xs text-slate-500">Chỉ tiêu</span><strong>{session.plan_target_distance_meters != null ? `${session.plan_target_distance_meters.toLocaleString("vi-VN")} m` : "—"}{session.plan_target_intensity ? ` · ${session.plan_target_intensity}` : ""}</strong></p></div>
     {session.notes && <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700"><strong>Ghi chú:</strong> {session.notes}</p>}
     <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-200 pt-3"><label className="min-w-52"><span className="mb-1 block text-xs font-semibold text-slate-600">Groom phụ trách</span><select aria-label={`Phân công Groom cho ${session.horse_name}`} className="field-control w-full" value={session.assigned_groom_id ?? ""} disabled={session.status !== "Scheduled" || busy} onChange={(event) => event.target.value && onAssign(session.training_schedule_id, Number(event.target.value))}><option value="">Chọn Groom</option>{grooms.map((groom) => <option key={groom.user_id} value={groom.user_id}>{groom.full_name}</option>)}</select></label>{canStart && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Play size={14} /> Bắt đầu tập (Mô phỏng)</button>}{session.status === "InProgress" && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Activity size={14} /> Mở lại giả lập</button>}{session.status === "InProgress" && <button type="button" className="soft-button text-emerald-700" disabled={busy || !canComplete} title={!canComplete ? `Chỉ hoàn tất sau khi kết thúc giả lập hoặc sau ${session.end_time?.slice(0, 5) ?? "giờ tập"}` : undefined} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất</button>}{session.status === "Scheduled" && session.session_type === "Rest" && canComplete && <button type="button" className="soft-button text-emerald-700" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất nghỉ</button>}{isOpen && <button type="button" className="soft-button text-rose-700" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Cancelled")}><X size={14} /> Hủy buổi tập</button>}</div>
@@ -5216,8 +5592,8 @@ function RaceEntriesPanel({
     )}
   </div>;
 }
-function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simulation, readings, phase, ranking, progress, vitals, onStart, onRestartSimulation, onRetryFinish, finishFailed, busy, error, notice }: {
-  sessions: TrainingSession[]; simulation: Simulation | null; readings: SensorReading[]; phase: string;
+function SimulationPanel({ sessions, grooms, activeSimulations, onSelectSimulation, simulation, readings, phase, ranking, progress, vitals, onStart, onRestartSimulation, onRetryFinish, finishFailed, busy, error, notice }: {
+  sessions: TrainingSession[]; grooms: Groom[]; simulation: Simulation | null; readings: SensorReading[]; phase: string;
   activeSimulations: Simulation[]; onSelectSimulation: (simulation: Simulation) => void;
   onRestartSimulation: (simulation: Simulation) => void;
   ranking: { rank: number; horse_id: string; horse_name: string; finish_time_seconds: number }[];
@@ -5234,7 +5610,10 @@ function SimulationPanel({ sessions, activeSimulations, onSelectSimulation, simu
   }, []);
   const eligible = sessions.filter(session => {
     const window = sessionWindow(session);
-    return session.session_type !== "Rest" && session.assigned_groom_id && ["Scheduled", "InProgress"].includes(session.status)
+    const hasActiveGroom = Boolean(
+      session.assigned_groom_id && (grooms.length === 0 || grooms.some((g) => g.user_id === session.assigned_groom_id)),
+    );
+    return session.session_type !== "Rest" && hasActiveGroom && ["Scheduled", "InProgress"].includes(session.status)
       && window && nowMs >= window.start && nowMs < window.end;
   });
   return <div className="space-y-5">

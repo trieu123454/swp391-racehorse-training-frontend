@@ -53,6 +53,8 @@ export type TrainingSession = {
   trainer_review?: string | null;
   training_plan_id?: string | null;
   plan_stage_name?: string | null;
+  plan_start_date?: string | null;
+  plan_end_date?: string | null;
   plan_objective?: string | null;
   plan_target_distance_meters?: number | null;
   plan_target_workload_minutes?: number | null;
