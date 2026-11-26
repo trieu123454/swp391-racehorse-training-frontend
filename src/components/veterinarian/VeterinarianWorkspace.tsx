@@ -42,6 +42,7 @@ const InjuryModel3D = dynamic(() => import("@/components/veterinarian/InjuryMode
 import StableWorkspace from "./StableWorkspace";
 import { formatDisplayDate, formatDoctorDisplayName, formatStableSection } from "@/lib/display-format";
 import { activeRecurringRules, buildCareProjections, careRulesForDoctor } from "@/lib/care-projections";
+import { careCalendarTarget } from "@/lib/care-calendar-navigation";
 import { CompactId } from "@/components/shared/CompactId";
 import { StatTile } from "@/components/shared/StatTile";
 import type { Horse } from "@/api/horses/api";
@@ -235,8 +236,8 @@ function HorseSummary({ horse }: { horse: VetHorse }) {
   </article>;
 }
 
-function SectionCard({ title, description, icon: Icon, children, action }: { title: string; description?: string; icon: typeof Activity; children: ReactNode; action?: ReactNode }) {
-  return <section className="rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5"><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{description && <details className="relative text-slate-500"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100" aria-label={`Giải thích ${title}`} title={description}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{description}</p></details>}</div></div></div>{action}</div>{children}</section>;
+function SectionCard({ title, description, icon: Icon, children, action, className = "" }: { title: string; description?: string; icon: typeof Activity; children: ReactNode; action?: ReactNode; className?: string }) {
+  return <section className={`rounded-lg border border-equine-line bg-white p-4 shadow-sm sm:p-5 ${className}`}><div className="mb-4 flex flex-col gap-3 border-b border-equine-line pb-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-equine-mist text-equine-navy"><Icon size={19} /></span><div><div className="flex items-center gap-2"><h3 className="font-sans text-lg font-semibold text-equine-navy">{title}</h3>{description && <details className="relative text-slate-500"><summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md hover:bg-slate-100" aria-label={`Giải thích ${title}`} title={description}><CircleHelp size={16} /></summary><p className="absolute left-0 z-20 mt-1 w-64 max-w-[70vw] rounded-md border border-equine-line bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg">{description}</p></details>}</div></div></div>{action}</div>{children}</section>;
 }
 
 function Field({ label, name, type = "text", required = false, defaultValue, maxLength, min, max, step, placeholder, disabled }: { label: string; name: string; type?: string; required?: boolean; defaultValue?: string | number | null; maxLength?: number; min?: number; max?: number; step?: string; placeholder?: string; disabled?: boolean }) {
@@ -1877,7 +1878,7 @@ function CarePanel({
   useEffect(() => {
     const syncTarget = () => {
       const params = new URLSearchParams(window.location.search);
-      if (!params.get("notificationTarget")) return;
+      if (!params.get("notificationTarget") && !(viewMode === "care" && params.get("horse") && params.get("date"))) return;
       if (params.get("date")?.match(/^\d{4}-\d{2}-\d{2}$/)) setWeekStart(mondayOfWeek(params.get("date")!));
       setCoverageFilter("all"); setDoctorFilter("all"); setDispatchSubTab("coverage");
       if (viewMode === "care") { setHorseFilter(params.get("horse") ?? "all"); if (isHeadVet) setScope("all"); }
@@ -1906,7 +1907,8 @@ function CarePanel({
   const weekOptions = useMemo(() => {
     const options = [];
     const curr = dateFromKey(currentWeekStart);
-    for (let i = -8; i <= 12; i++) {
+    const selectedWeekOffset = Math.round((dateFromKey(weekStart).getTime() - curr.getTime()) / (7 * 86400000));
+    for (let i = Math.min(-8, selectedWeekOffset); i <= Math.max(12, selectedWeekOffset); i++) {
       const monday = new Date(curr);
       monday.setDate(monday.getDate() + i * 7);
       const sunday = new Date(monday);
@@ -1919,7 +1921,7 @@ function CarePanel({
       options.push({ key, weekNum, year, label: `Week ${weekNum}, ${year}`, fullLabel: `${mStr}${year !== sunday.getFullYear() ? `/${year}` : ""} - ${sStr}/${sunday.getFullYear()}` });
     }
     return options;
-  }, [currentWeekStart]);
+  }, [currentWeekStart, weekStart]);
   const activeRules = useMemo(() => activeRecurringRules(schedules, horseFilter,
     scope === "mine" ? currentUser?.id ?? "" : undefined), [schedules, horseFilter, scope, currentUser]);
   const calendarItems = useMemo<CalendarCareItem[]>(() => {
@@ -2258,6 +2260,20 @@ function CarePanel({
     });
   }, [horseCoverage, coverageFilter, doctorFilter, events]);
 
+  function openCareCalendar(horseId: string, schedule?: CareSchedule) {
+    const target = schedule ? careCalendarTarget(schedule) : { horseId, date: today() };
+    const url = new URL(window.location.href);
+    url.searchParams.set("horse", target.horseId);
+    url.searchParams.set("date", target.date);
+    url.searchParams.delete("notificationTarget");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    onSelectHorse?.(target.horseId);
+    setHorseFilter(target.horseId);
+    setWeekStart(mondayOfWeek(target.date));
+    if (isHeadVet) setScope("all");
+    onSwitchView?.("care");
+  }
+
   const dispatchFilteredRules = useMemo(() => {
     return [...filteredSchedules]
       .filter(isActiveCareSchedule)
@@ -2266,6 +2282,7 @@ function CarePanel({
   }, [filteredSchedules, doctorFilter]);
 
   return <SectionCard
+    className={viewMode === "dispatch" ? "care-dispatch" : ""}
     title={
       viewMode === "dispatch"
         ? "Điều phối chăm sóc"
@@ -2511,16 +2528,20 @@ function CarePanel({
     {viewMode === "dispatch" ? (
       <div className="space-y-5">
         <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-3" data-dispatch-kpis>
-          <StatTile plain label="Độ phủ" value={`${coveredCount}/${horses.length}`} hint={`${uncoveredCount} ngựa chưa có lịch`}
-            active={dispatchSubTab === "coverage" && coverageFilter === "uncovered"}
-            onClick={() => { setDispatchSubTab("coverage"); setDoctorFilter("all"); setCoverageFilter(uncoveredCount ? "uncovered" : "all"); }} />
-          <StatTile plain tone="rose" label="Ngựa quá hạn" value={overdueHorsesCount} hint="Cần đôn đốc / đổi bác sĩ" highlight={overdueHorsesCount > 0}
-            tooltip="Đếm ngựa có ít nhất một quy tắc quá hạn; mỗi ngựa tính một lần."
-            active={dispatchSubTab === "coverage" && coverageFilter === "overdue"}
-            onClick={() => { setDispatchSubTab("coverage"); setDoctorFilter("all"); setCoverageFilter("overdue"); }} />
-          <StatTile plain label="Ca hôm nay" value={weeklyTodayCount} hint={weeklyTodayCount ? "Chưa hoàn thành" : "Không có ca hôm nay"}
-            active={dispatchSubTab === "coverage" && coverageFilter === "today"}
-            onClick={() => { setDispatchSubTab("coverage"); setDoctorFilter("all"); setCoverageFilter("today"); }} />
+          {[
+            { label: "Độ phủ", value: `${coveredCount}/${horses.length}`, hint: `${uncoveredCount} ngựa chưa có lịch`, Icon: ShieldAlert, tone: "blue", filter: "uncovered" as const },
+            { label: "Ngựa quá hạn", value: overdueHorsesCount, hint: "Cần đôn đốc / đổi bác sĩ", Icon: AlertTriangle, tone: "red", filter: "overdue" as const },
+            { label: "Ca hôm nay", value: weeklyTodayCount, hint: weeklyTodayCount ? "Chưa hoàn thành" : "Không có ca hôm nay", Icon: CalendarCheck, tone: "green", filter: "today" as const },
+          ].map(({ label, value, hint, Icon, tone, filter }) => <button key={filter} type="button"
+            className={`dispatch-kpi dispatch-kpi--${tone} ${tone === "red" && overdueHorsesCount > 0 ? "has-alert" : ""}`}
+            aria-pressed={dispatchSubTab === "coverage" && coverageFilter === filter}
+            title={filter === "overdue" ? "Đếm ngựa có ít nhất một quy tắc quá hạn; mỗi ngựa tính một lần." : undefined}
+            onClick={() => { setDispatchSubTab("coverage"); setDoctorFilter("all"); setCoverageFilter(filter === "uncovered" && !uncoveredCount ? "all" : filter); }}>
+            <span className="dispatch-kpi-icon"><Icon size={21} aria-hidden="true" /></span>
+            <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-slate-600">{label}</span><span className="my-1 block text-3xl font-bold tracking-tight tabular-nums">{value}</span><span className="block text-xs text-slate-600">{hint}</span>
+              {filter === "uncovered" && <span role="progressbar" aria-label="Độ phủ chăm sóc" aria-valuemin={0} aria-valuemax={horses.length || 1} aria-valuenow={coveredCount} className="mt-3 block h-1.5 overflow-hidden rounded-full bg-blue-100"><span className="block h-full rounded-full bg-equine-blue" style={{ width: `${horses.length ? coveredCount / horses.length * 100 : 0}%` }} /></span>}
+            </span>
+          </button>)}
         </div>
 
         {isHeadVet && <section className="rounded-xl border border-slate-200 bg-white p-4" aria-label="Phân bổ bác sĩ">
@@ -2531,16 +2552,21 @@ function CarePanel({
           </div>
           {(workloadsLoading || loading) && <p role="status" className="text-xs text-slate-500">Đang tải phân công…</p>}
           {workloadsError && <div role="alert" className="text-sm text-rose-700">{workloadsError}<button type="button" className="ml-2 underline" onClick={() => void loadWorkloads()}>Thử lại</button></div>}
-          <div className="flex flex-wrap gap-2">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {workloads.filter((doc) => doc.total_schedules > 0 || showIdleDoctors).map((doc) => {
               const selected = doctorFilter === String(doc.id);
               return <button key={doc.id} type="button" aria-pressed={selected}
                 onClick={() => { setDoctorFilter(selected ? "all" : String(doc.id)); setDispatchSubTab("rules"); }}
-                className={`inline-flex flex-wrap items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition ${selected ? "border-blue-500 bg-blue-50 text-blue-900 ring-1 ring-blue-200" : doc.overdue_count > 0 ? "border-rose-200 bg-white text-slate-800 hover:bg-rose-50" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}>
-                <span className="font-semibold">{doc.name}</span>
-                {doc.role_name === "HEAD_VETERINARIAN" && <span className="text-[10px] text-slate-500">Trưởng ban</span>}
-                {doc.total_schedules > 0 && <span>· {doc.total_schedules} đang nhận</span>}
-                {doc.overdue_count > 0 && <span className="text-rose-700">· {doc.overdue_count} quá hạn</span>}
+                className={`dispatch-doctor ${selected ? "is-selected" : ""}`}>
+                <span className="dispatch-avatar" aria-hidden="true">{doc.name.trim().split(/\s+/).slice(-2).map((name) => name[0]).join("")}</span>
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="flex flex-wrap items-center gap-2"><span className="font-semibold text-slate-900">{doc.name}</span>
+                    {doc.role_name === "HEAD_VETERINARIAN" && <span className="rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-800">Trưởng ban</span>}</span>
+                  <span className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600"><span>{doc.total_schedules} đang nhận</span>
+                    {doc.overdue_count > 0 && <span className="rounded-full bg-red-700 px-2 py-0.5 text-[10px] font-semibold text-white">{doc.overdue_count} quá hạn</span>}</span>
+                  <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-slate-100" role="meter" aria-label={`Tải công việc ${doc.name}`} aria-valuemin={0} aria-valuemax={Math.max(1, ...workloads.map((doctor) => doctor.total_schedules))} aria-valuenow={doc.total_schedules}>
+                    <span className="block h-full rounded-full bg-equine-blue" style={{ width: `${doc.total_schedules / Math.max(1, ...workloads.map((doctor) => doctor.total_schedules)) * 100}%` }} /></span>
+                </span>
               </button>;
             })}
           </div>
@@ -2552,15 +2578,15 @@ function CarePanel({
         <div className="rounded-xl border border-slate-200 bg-white shadow-xs">
           <div className="flex flex-wrap gap-4 border-b border-slate-200 px-4" role="tablist" aria-label="Bảng điều phối">
             <button id="dispatch-coverage-tab" type="button" role="tab" aria-controls="dispatch-results" aria-selected={dispatchSubTab === "coverage"} onClick={() => setDispatchSubTab("coverage")}
-              className={`border-b-2 py-3 text-xs font-semibold ${dispatchSubTab === "coverage" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-900"}`}>Độ phủ chăm sóc</button>
+              className={`border-b-[3px] py-4 text-sm font-bold ${dispatchSubTab === "coverage" ? "border-equine-blue text-equine-blue" : "border-transparent text-slate-500 hover:text-slate-900"}`}>Độ phủ chăm sóc</button>
             <button id="dispatch-rules-tab" type="button" role="tab" aria-controls="dispatch-results" aria-selected={dispatchSubTab === "rules"} onClick={() => setDispatchSubTab("rules")}
               title="Danh sách quy tắc còn hiệu lực, lọc theo ngựa và bác sĩ được phân công."
-              className={`border-b-2 py-3 text-xs font-semibold ${dispatchSubTab === "rules" ? "border-blue-600 text-blue-700" : "border-transparent text-slate-500 hover:text-slate-900"}`}>Danh sách quy tắc</button>
+              className={`border-b-[3px] py-4 text-sm font-bold ${dispatchSubTab === "rules" ? "border-equine-blue text-equine-blue" : "border-transparent text-slate-500 hover:text-slate-900"}`}>Danh sách quy tắc</button>
           </div>
           <div className="flex flex-wrap gap-2 border-b border-slate-100 px-4 py-3">
             {dispatchSubTab === "coverage" ? <>
               {([{ id: "all", label: "Tất cả" }, { id: "uncovered", label: "Chưa có lịch" }, { id: "overdue", label: "Quá hạn" }, { id: "covered", label: "Đầy đủ" }] as const).map((pill) => <button key={pill.id} type="button" aria-pressed={coverageFilter === pill.id} onClick={() => setCoverageFilter(pill.id)}
-                className={`rounded-full border px-3 py-1 text-xs ${coverageFilter === pill.id ? "border-blue-200 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"}`}>{pill.label}</button>)}
+                className={`rounded-full border px-3 py-1 text-xs ${coverageFilter === pill.id ? "border-equine-blue bg-equine-blue text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-100"}`}>{pill.label} · {horseCoverage.filter((item) => (doctorFilter === "all" || item.horseRules.some((rule) => String(rule.assigned_doctor_id ?? rule.assigned_doctor?.id ?? "") === doctorFilter)) && (pill.id === "all" || (pill.id === "uncovered" ? item.isUncovered : pill.id === "overdue" ? item.hasOverdue : !item.isUncovered && !item.hasOverdue))).length}</button>)}
               {coverageFilter === "today" && <button type="button" className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs text-blue-800" onClick={() => setCoverageFilter("all")}>Ca hôm nay · Bỏ lọc</button>}
             </> : <>
               <select aria-label="Ngựa trong danh sách quy tắc" value={horseFilter} onChange={(event) => setHorseFilter(event.target.value)} className="field-control h-8 max-w-full px-2 text-xs">
@@ -2581,14 +2607,14 @@ function CarePanel({
                 <tbody className="divide-y divide-slate-100">
                   {loading ? <tr><td colSpan={4} className="p-6 text-center text-slate-500">Đang tải điều phối…</td></tr> : filteredCoverage.length === 0 ? <tr><td colSpan={4} className="p-6 text-center text-slate-500">Không có ngựa khớp bộ lọc.</td></tr> : filteredCoverage.map((item) => {
                     const openRules = () => { setHorseFilter(item.horse.id); setDoctorFilter("all"); setDispatchSubTab("rules"); };
-                    const openCalendar = () => { onSelectHorse?.(item.horse.id); setHorseFilter(item.horse.id); if (item.nearestSchedule) setWeekStart(mondayOfWeek(item.nearestSchedule.next_due_date)); onSwitchView?.("care"); };
+                    const openCalendar = () => openCareCalendar(item.horse.id, item.nearestSchedule);
                     const assign = () => { onSelectHorse?.(item.horse.id); setCreateHorseId(item.horse.id); setCreateOpen(true); };
-                    return <tr data-notification-target={item.horse.id} key={item.horse.id} className="hover:bg-slate-50/60">
+                    return <tr data-notification-target={item.horse.id} key={item.horse.id} className={`transition-colors hover:bg-[#F4F6FA] ${item.hasOverdue ? "bg-red-50/50" : ""}`}>
                       <td className="px-4 py-3"><div className="font-semibold text-slate-900">{item.horse.horse_name}</div><div className="mt-1 text-[11px] text-slate-500">{formatStableSection(item.horse.stable_box?.section)}{item.horse.stable_box?.box_code ? ` · Chuồng ${item.horse.stable_box.box_code}` : ""}</div></td>
-                      <td className="px-4 py-3 text-slate-700">{[...item.horseRules].sort((a, b) => a.next_due_date.localeCompare(b.next_due_date)).map((rule) => <div key={rule.id} className="py-0.5">{careTypeLabels[rule.care_type] ?? rule.care_type} · {displayDate(rule.next_due_date)} · {rule.doctor_name || "Chưa phân công"}</div>)}</td>
-                      <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2.5 py-0.5 text-[11px] ${item.hasOverdue ? "border-rose-200 bg-rose-50 text-rose-800" : "border-slate-200 bg-slate-50 text-slate-600"}`} title={item.hasOverdue ? "Đếm quy tắc quá hạn của ngựa, không phải số ca." : undefined}>{item.hasOverdue ? `${item.overdueRules.length} quy tắc quá hạn` : item.isUncovered ? "Chưa có lịch" : "Đầy đủ"}</span></td>
+                      <td className="px-4 py-3 text-slate-700">{[...item.horseRules].sort((a, b) => a.next_due_date.localeCompare(b.next_due_date)).map((rule) => <div key={rule.id} className="py-0.5">{careTypeLabels[rule.care_type] ?? rule.care_type} · <span className={isScheduleOverdue(rule) ? "font-semibold text-red-700" : ""}>{displayDate(rule.next_due_date)}</span> · {rule.doctor_name || "Chưa phân công"}</div>)}</td>
+                      <td className="px-4 py-3"><span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${item.hasOverdue ? "border-rose-200 bg-rose-50 text-rose-800" : item.isUncovered ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`} title={item.hasOverdue ? "Đếm quy tắc quá hạn của ngựa, không phải số ca." : undefined}><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />{item.hasOverdue ? `${item.overdueRules.length} quy tắc quá hạn` : item.isUncovered ? "Chưa có lịch" : "Đầy đủ"}</span></td>
                       <td className="px-4 py-3"><div className="flex items-start justify-end gap-1.5">
-                        <button type="button" className={item.isUncovered ? "gold-button h-8 whitespace-nowrap px-3 text-xs" : "soft-button h-8 whitespace-nowrap px-3 text-xs"} onClick={item.isUncovered ? assign : item.hasOverdue ? openRules : openCalendar}>{item.isUncovered ? "+ Giao lịch" : item.hasOverdue ? "Đổi BS" : "Xem lịch"}</button>
+                        <button type="button" className={`dispatch-row-action ${item.isUncovered ? "is-primary" : item.hasOverdue ? "is-reassign" : ""}`} onClick={item.isUncovered ? assign : item.hasOverdue ? openRules : openCalendar}>{item.hasOverdue ? <Users size={13} aria-hidden="true" /> : <CalendarDays size={13} aria-hidden="true" />}{item.isUncovered ? "+ Giao lịch" : item.hasOverdue ? "Đổi BS" : "Xem lịch"}</button>
                         <details className="text-left"><summary aria-label={`Thao tác khác cho ${item.horse.horse_name}`} className="cursor-pointer list-none rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100">⋯</summary><div className="mt-2 flex min-w-28 flex-col gap-2 text-xs">
                           {!item.isUncovered && <button type="button" className="text-left text-slate-600 hover:text-blue-700" onClick={assign}>Giao lịch</button>}
                           {item.nearestSchedule && !item.hasOverdue && <button type="button" className="text-left text-slate-600 hover:text-blue-700" onClick={openRules}>Đổi BS</button>}
@@ -2628,14 +2654,14 @@ function CarePanel({
                       const isOverdue = isScheduleOverdue(schedule);
                       const isCompletedOnce = !schedule.frequency_days && schedule.event_status === "Completed";
                       return (
-                        <tr key={schedule.id} className="hover:bg-slate-50/80">
+                        <tr key={schedule.id} className={`transition-colors hover:bg-[#F4F6FA] ${isOverdue ? "bg-red-50/50" : ""}`}>
                           <td className="px-4 py-3">
                             <div className="font-bold text-slate-900">{horseName}</div>
                             <div className="text-[11px] font-semibold text-blue-800">{careTypeLabels[schedule.care_type] ?? schedule.care_type}</div>
                             {schedule.notes && <div className="mt-0.5 max-w-xs truncate text-[11px] text-slate-500">{schedule.notes}</div>}
                           </td>
                           <td className="px-4 py-3">
-                            <div className="font-bold text-slate-900">Hạn: {displayDate(schedule.next_due_date)}</div>
+                            <div className={`font-bold ${isOverdue ? "text-red-700" : "text-slate-900"}`}>Hạn: {displayDate(schedule.next_due_date)}</div>
                             <div className="text-[11px] text-slate-600">
                               {schedule.frequency_days ? `Lặp mỗi ${schedule.frequency_days} ngày` : "Thực hiện 1 lần"}
                               {schedule.last_done_date ? ` · Gần nhất: ${displayDate(schedule.last_done_date)}` : ""}
@@ -2643,20 +2669,21 @@ function CarePanel({
                           </td>
                           <td className="px-4 py-3">
                             <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-800 border border-slate-200">
-                              <User size={12} className="text-indigo-600" />
+                              <User size={12} className="text-equine-blue" />
                               {schedule.doctor_name ? schedule.doctor_name : "Chưa phân công"}
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
                               isOverdue
-                                ? "bg-rose-600 text-white border border-rose-700"
+                                ? "bg-red-50 text-red-800 border border-red-200"
                                 : schedule.event_status === "Scheduled"
                                 ? "bg-blue-100 text-blue-900 border border-blue-300"
                                 : isCompletedOnce
                                 ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
                                 : "bg-slate-200 text-slate-800"
                             }`}>
+                              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-current" />
                               {isOverdue ? "Quá hạn" : schedule.event_status === "Scheduled" ? "Đã đặt ca" : isCompletedOnce ? "Đã hoàn thành" : "Chưa chốt ca"}
                             </span>
                           </td>
@@ -2664,7 +2691,7 @@ function CarePanel({
                             <div className="flex items-center justify-end gap-1.5">
                               <button
                                 type="button"
-                                className="rounded-lg bg-indigo-50 px-2.5 py-1.5 text-[11px] font-bold text-indigo-800 hover:bg-indigo-100 border border-indigo-200"
+                                className="rounded-lg inline-flex items-center gap-1.5 bg-blue-50 px-2.5 py-1.5 text-[11px] font-bold text-blue-800 hover:bg-blue-100 border border-blue-200"
                                 onClick={() => {
                                   setReassignTarget(schedule);
                                   setReassignDoctorId(schedule.assigned_doctor_id ? String(schedule.assigned_doctor_id) : "");
@@ -2677,9 +2704,7 @@ function CarePanel({
                                 type="button"
                                 className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-200 border border-slate-300"
                                 onClick={() => {
-                                  setHorseFilter(schedule.horse_id);
-                                  setWeekStart(schedule.next_due_date < today() ? currentWeekStart : mondayOfWeek(schedule.next_due_date));
-                                  onSwitchView?.("care");
+                                  openCareCalendar(schedule.horse_id, schedule);
                                 }}
                               >
                                 Xem trên lịch →

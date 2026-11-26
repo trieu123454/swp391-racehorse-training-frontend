@@ -344,3 +344,8 @@
     transition: none;
   }
 }
+
+/* Brand accents and readable navigation groups. */
+.equine-section-label { color: #475569 !important; font-size: 11px; font-weight: 700 !important; letter-spacing: .08em; }
+.equine-menu-icon { color: #1040c5; background: #edf2ff; }
+.equine-sidebar .equine-menu-row.active { font-weight: 700; box-shadow: 0 3px 10px rgb(16 64 197 / 18%); }
