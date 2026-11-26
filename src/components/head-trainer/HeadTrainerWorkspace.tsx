@@ -528,6 +528,31 @@ export async function ensurePlanForHorse(
   });
 }
 
+function mergeWeekCareEvents(weekStart: string, rawCaret: CareCalendarEvent[]): CareCalendarEvent[] {
+  const mergedCare: CareCalendarEvent[] = [];
+  const seenKeys = new Set<string>();
+  const addItem = (item: CareCalendarEvent) => {
+    const key = `${item.event_id || item.source_id || item.title || "care"}|${item.horse_id || ""}|${item.event_date}|${item.start_time || ""}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      mergedCare.push(item);
+    }
+  };
+  for (const item of rawCaret) addItem(item);
+  try {
+    const cachedVetRaw = window.localStorage.getItem(`racehorse:shared-calendar:vet:${weekStart}`);
+    if (cachedVetRaw) {
+      const cachedVet = JSON.parse(cachedVetRaw) as CareCalendarEvent[];
+      if (Array.isArray(cachedVet)) {
+        for (const item of cachedVet) addItem(item);
+      }
+    }
+  } catch {
+    // ignore storage parse errors
+  }
+  return mergedCare;
+}
+
 export default function HeadTrainerWorkspace() {
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
   const [horses, setHorses] = useState<Horse[]>([]);
@@ -667,13 +692,47 @@ export default function HeadTrainerWorkspace() {
   const calendarRequestRef = useRef(0);
   const calendarQueryKey = `${calendarFrom}|${calendarTo}`;
   const calendarQueryRef = useRef(calendarQueryKey);
+  const calendarWeekCacheRef = useRef<Map<string, { sessions: TrainingSession[]; careEvents: CareCalendarEvent[] }>>(new Map());
+  const prefetchingWeeksRef = useRef<Set<string>>(new Set());
+  const lastSimSnapshotAtRef = useRef<number>(0);
+  const invalidateCalendarCache = useCallback(() => { calendarWeekCacheRef.current.clear(); }, []);
+
+  const prefetchWeek = useCallback((weekStart: string) => {
+    if (calendarWeekCacheRef.current.has(weekStart) || prefetchingWeeksRef.current.has(weekStart)) return;
+    prefetchingWeeksRef.current.add(weekStart);
+    headTrainerApi
+      .calendar(weekStart, plusDays(weekStart, 6))
+      .then((data) => {
+        const trainingList = Array.isArray(data.data) ? data.data : [];
+        const rawCaret = Array.isArray(data.care_events) ? data.care_events : [];
+        calendarWeekCacheRef.current.set(weekStart, {
+          sessions: trainingList,
+          careEvents: mergeWeekCareEvents(weekStart, rawCaret),
+        });
+      })
+      .catch(() => {
+        // Ignore background prefetch errors
+      })
+      .finally(() => {
+        prefetchingWeeksRef.current.delete(weekStart);
+      });
+  }, []);
+
   useEffect(() => { calendarQueryRef.current = calendarQueryKey; ++calendarRequestRef.current; }, [calendarQueryKey]);
   const loadCalendar = useCallback(async () => {
     if(calendarQueryRef.current!==calendarQueryKey) return;
+    const cached = calendarWeekCacheRef.current.get(calendarFrom);
+    if (cached) {
+      setSessions(cached.sessions);
+      setCareEvents(cached.careEvents);
+    }
     const request=++calendarRequestRef.current;
     const data = await headTrainerApi.calendar(calendarFrom, calendarTo);
     if(request===calendarRequestRef.current && calendarQueryRef.current===calendarQueryKey) {
       const trainingList = Array.isArray(data.data) ? data.data : [];
+      const rawCaret = Array.isArray(data.care_events) ? data.care_events : [];
+      const mergedCare = mergeWeekCareEvents(calendarFrom, rawCaret);
+      calendarWeekCacheRef.current.set(calendarFrom, { sessions: trainingList, careEvents: mergedCare });
       setSessions(trainingList);
       try {
         window.localStorage.setItem(
@@ -683,36 +742,21 @@ export default function HeadTrainerWorkspace() {
       } catch {
         // ignore storage quota errors
       }
-      const rawCaret = Array.isArray(data.care_events) ? data.care_events : [];
-      const mergedCare: CareCalendarEvent[] = [];
-      const seenKeys = new Set<string>();
-      for (const item of rawCaret) {
-        const key = `${item.event_id || item.source_id || item.title || "care"}|${item.horse_id || ""}|${item.event_date}|${item.start_time || ""}`;
-        if (!seenKeys.has(key)) {
-          seenKeys.add(key);
-          mergedCare.push(item);
-        }
-      }
-      try {
-        const cachedVetRaw = window.localStorage.getItem(`racehorse:shared-calendar:vet:${calendarFrom}`);
-        if (cachedVetRaw) {
-          const cachedVet = JSON.parse(cachedVetRaw) as CareCalendarEvent[];
-          if (Array.isArray(cachedVet)) {
-            for (const item of cachedVet) {
-              const key = `${item.event_id || item.source_id || item.title || "care"}|${item.horse_id || ""}|${item.event_date}|${item.start_time || ""}`;
-              if (!seenKeys.has(key)) {
-                seenKeys.add(key);
-                mergedCare.push(item);
-              }
-            }
-          }
-        }
-      } catch {
-        // ignore storage parse errors
-      }
       setCareEvents(mergedCare);
+      prefetchWeek(plusDays(calendarFrom, -7));
+      prefetchWeek(plusDays(calendarFrom, 7));
     }
-  }, [calendarFrom, calendarTo, calendarQueryKey]);
+  }, [calendarFrom, calendarTo, calendarQueryKey, prefetchWeek]);
+
+  const preloaded3DRef = useRef(false);
+  useEffect(() => {
+    if (tab !== "calendar" || preloaded3DRef.current) return;
+    const todayStr = today();
+    if (sessions.some((s) => s.event_date === todayStr && ["Scheduled", "InProgress"].includes(s.status))) {
+      preloaded3DRef.current = true;
+      void import("./RaceTrackScene3D");
+    }
+  }, [tab, sessions]);
 
   useEffect(() => {
     if (tab !== "calendar") return;
@@ -764,6 +808,7 @@ export default function HeadTrainerWorkspace() {
   const finishSimulation = useCallback(async (currentSimulation: Simulation) => {
     if (finishStartedRef.current) return;
     finishStartedRef.current = true;
+    invalidateCalendarCache();
     setBusy(true); setError(""); setNotice(""); setFinishFailed(false);
     let saved = false;
     try {
@@ -787,7 +832,7 @@ export default function HeadTrainerWorkspace() {
     } finally {
       setBusy(false);
     }
-  }, [loadOverview, loadHorseData, loadCalendar]);
+  }, [loadOverview, loadHorseData, loadCalendar, invalidateCalendarCache]);
 
   useEffect(() => {
     let active = true;
@@ -836,21 +881,25 @@ export default function HeadTrainerWorkspace() {
       } catch (reason) { if (active) setError(headTrainerError(reason)); }
       finally { fetching = false; }
     };
-    void tick();
+    if (Date.now() - lastSimSnapshotAtRef.current > 3000) {
+      void tick();
+    }
     const interval = window.setInterval(() => { void tick(); }, 5000);
     return () => { active = false; window.clearInterval(interval); };
   }, [simulation, finishSimulation, finishFailed, loadOverview, loadHorseData, loadCalendar]);
 
   const refresh = useCallback(async () => {
+    invalidateCalendarCache();
     try { setAnalysisRevision((value) => value + 1); await Promise.all([loadOverview(), loadHorseData(), loadCalendar()]); }
     catch (reason) { setError(headTrainerError(reason)); }
-  }, [loadOverview, loadHorseData, loadCalendar]);
+  }, [loadOverview, loadHorseData, loadCalendar, invalidateCalendarCache]);
 
   async function handleResetAndSeedCleanData() {
     const res = await run(
       () => headTrainerApi.resetCleanData(),
     );
     if (res) {
+      invalidateCalendarCache();
       setScheduleDraft(null);
       setPlansRevision((current) => current + 1);
       await Promise.all([loadOverview(), loadHorseData(), loadCalendar()]);
@@ -1036,6 +1085,7 @@ export default function HeadTrainerWorkspace() {
       });
     }, `✅ Đã tạo lịch tập ngày ${eventDateValue} (${String(data.get("start_time") || "")} – ${String(data.get("end_time") || "")}).`);
     if (result) {
+      invalidateCalendarCache();
       const createdId = result.training_schedule_id || result.id;
       const normalizedResult: TrainingSession = {
         ...result,
@@ -1091,9 +1141,12 @@ export default function HeadTrainerWorkspace() {
       horse_ids: [session.horse_id], training_schedule_id: session.training_schedule_id, scenario,
     }));
     if (result) {
-      selectSimulation(result); selectTab("simulation");
+      selectSimulation(result);
+      selectTab("simulation");
       setActiveSimulations(current => [...current.filter(item => item.simulation_id !== result.simulation_id), result]);
-      await loadCalendar();
+      setSessions(current => current.map(s => s.training_schedule_id === session.training_schedule_id ? { ...s, status: "InProgress" } : s));
+      invalidateCalendarCache();
+      void loadCalendar().catch(() => {});
     }
   }
 
@@ -1111,7 +1164,8 @@ export default function HeadTrainerWorkspace() {
     if (result?.data.length) {
       setActiveSimulations(current => [...current.filter(item => !result.data.some(next => next.simulation_id === item.simulation_id)), ...result.data]);
       selectSimulation(result.data[0]);
-      await loadCalendar();
+      invalidateCalendarCache();
+      void loadCalendar().catch(() => {});
     }
   }
 
@@ -1122,11 +1176,13 @@ export default function HeadTrainerWorkspace() {
     if (replacement) {
       selectSimulation(replacement);
       setActiveSimulations(items => [...items.filter(item => item.simulation_id !== current.simulation_id && item.simulation_id !== replacement.simulation_id), replacement]);
-      await loadCalendar();
+      invalidateCalendarCache();
+      void loadCalendar().catch(() => {});
     }
   }
 
   function selectSimulation(next: Simulation) {
+    lastSimSnapshotAtRef.current = Date.now();
     setRanking([]); setProgress(next.elapsed_seconds / next.duration_seconds);
     const latest = next.readings?.at(-1);
     setVitals(latest ? Object.fromEntries(next.horses.map(horse => [horse.horse_id, {
