@@ -599,6 +599,27 @@ export default function HeadTrainerWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [toast, setToast] = useState<{ id: number; kind: "success" | "error"; text: string } | null>(null);
+  const toastSeqRef = useRef(0);
+  const pushToast = useCallback((kind: "success" | "error", text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setToast({ id: ++toastSeqRef.current, kind, text: trimmed });
+  }, []);
+  useEffect(() => {
+    if (error) pushToast("error", error);
+  }, [error, pushToast]);
+  useEffect(() => {
+    if (notice) pushToast("success", notice);
+  }, [notice, pushToast]);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(
+      () => setToast((curr) => (curr?.id === toast.id ? null : curr)),
+      toast.kind === "error" ? 7000 : 4500,
+    );
+    return () => window.clearTimeout(timer);
+  }, [toast]);
   const [editingPlan, setEditingPlan] = useState<string | null>(null);
   const [selectedPlanHorseIds, setSelectedPlanHorseIds] = useState<string[]>([]);
   const [scheduleDraft, setScheduleDraft] = useState<{ horseId: string; planId: string; startDate: string | null; regimenKey?: RegimenLevel; preferRegimenValues?: boolean } | null>(null);
@@ -1204,7 +1225,7 @@ export default function HeadTrainerWorkspace() {
       </div>
     )}
     <div className={tab === "overview" && featuredSimulation ? "mt-4 space-y-4" : "space-y-4"}>
-      {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} error={error} notice={notice} />
+      {tab === "incidents" ? <TrainerIncidentsPanel incidents={incidents} busy={busy} onSubmit={submitIncidentResult} error={error} />
         : !horses.length ? <Notice>Chưa có hồ sơ ngựa đang hoạt động.</Notice> : <>
         {tab !== "simulation" && tab !== "races" && tab !== "calendar" && <div className="space-y-3 rounded-xl border border-blue-200 bg-gradient-to-r from-equine-mist via-white to-slate-50 p-4 shadow-sm ring-1 ring-blue-100/70">
           <HorseSearchPicker
@@ -1266,10 +1287,10 @@ export default function HeadTrainerWorkspace() {
 
           <select id="trainer-horse" className="hidden" value={horseId} onChange={(event) => setHorseId(event.target.value)}>{trainableHorses.map((horse) => <option key={horse.id} value={horse.id}>{horse.horse_name}</option>)}</select>
         </div>}
-        {tab === "overview" && <>{error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}<OverviewPanel horses={trainableHorses} overview={overview.filter((o) => trainableHorses.some((h) => h.id === o.horse_id))} selectedHorseId={horseId} onSelectHorse={setHorseId} metrics={metrics} compare={compare} compareIds={compareIds} setCompareIds={setCompareIds} from={from} setFrom={setFrom} to={to} setTo={setTo} includeSimulated={includeSimulated} setIncludeSimulated={setIncludeSimulated} /></>}
-        {tab === "analysis" && <>{error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}<TrainingAnalysisPanel horseId={horseId} from={from} to={to} setFrom={setFrom} setTo={setTo} revision={analysisRevision}/></>}
-        {tab === "plans" && <PlansPanel horse={selectedHorse} horses={trainableHorses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} selectedHorseIds={selectedPlanHorseIds} setSelectedHorseIds={setSelectedPlanHorseIds} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} busy={busy} error={error} notice={notice} />}
-        {tab === "calendar" && <CalendarPanel selectedHorseId={horseId} onSelectHorse={setHorseId} overview={overview.filter((o) => trainableHorses.some((h) => h.id === o.horse_id))} onTargetsSaved={refresh} horses={trainableHorses} sessions={sessions} careEvents={careEvents} grooms={grooms} from={calendarFrom} to={calendarTo} onWeekChange={(value) => { const start = mondayOfWeek(value); setCalendarFrom(start); setCalendarTo(plusDays(start, 6)); }} scheduleDraft={scheduleDraft} onCreate={createSchedule} onResetCleanData={handleResetAndSeedCleanData} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} error={error} notice={notice} lastCreatedSessionId={lastCreatedSessionId} />}
+        {tab === "overview" && <>{error && <Notice error>{error}</Notice>}<OverviewPanel horses={trainableHorses} overview={overview.filter((o) => trainableHorses.some((h) => h.id === o.horse_id))} selectedHorseId={horseId} onSelectHorse={setHorseId} metrics={metrics} compare={compare} compareIds={compareIds} setCompareIds={setCompareIds} from={from} setFrom={setFrom} to={to} setTo={setTo} includeSimulated={includeSimulated} setIncludeSimulated={setIncludeSimulated} /></>}
+        {tab === "analysis" && <>{error && <Notice error>{error}</Notice>}<TrainingAnalysisPanel horseId={horseId} from={from} to={to} setFrom={setFrom} setTo={setTo} revision={analysisRevision}/></>}
+        {tab === "plans" && <PlansPanel horse={selectedHorse} horses={trainableHorses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} selectedHorseIds={selectedPlanHorseIds} setSelectedHorseIds={setSelectedPlanHorseIds} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} busy={busy} error={error} />}
+        {tab === "calendar" && <CalendarPanel selectedHorseId={horseId} onSelectHorse={setHorseId} overview={overview.filter((o) => trainableHorses.some((h) => h.id === o.horse_id))} onTargetsSaved={refresh} horses={trainableHorses} sessions={sessions} careEvents={careEvents} grooms={grooms} from={calendarFrom} to={calendarTo} onWeekChange={(value) => { const start = mondayOfWeek(value); setCalendarFrom(start); setCalendarTo(plusDays(start, 6)); }} scheduleDraft={scheduleDraft} onCreate={createSchedule} onResetCleanData={handleResetAndSeedCleanData} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} error={error} onNotify={pushToast} lastCreatedSessionId={lastCreatedSessionId} />}
         {tab === "races" && <RaceEntriesPanel
           selectedHorse={selectedHorse}
           horses={trainableHorses}
@@ -1279,7 +1300,6 @@ export default function HeadTrainerWorkspace() {
           onSelectHorse={setHorseId}
           onCancelTrainingConflict={cancelTrainingConflict}
           error={error}
-          notice={notice}
           onOpenCalendarOnDate={(date) => {
             const start = mondayOfWeek(date);
             setCalendarFrom(start);
@@ -1317,22 +1337,55 @@ export default function HeadTrainerWorkspace() {
           }}
           busy={busy}
         />}
-        {tab === "simulation" && <SimulationPanel sessions={sessions} grooms={grooms} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} error={error} notice={notice} />}
+        {tab === "simulation" && <SimulationPanel sessions={sessions} grooms={grooms} activeSimulations={activeSimulations} onSelectSimulation={selectSimulation} simulation={simulation} readings={liveReadings} phase={simulationPhase} ranking={ranking} progress={progress} vitals={vitals} onStart={startSimulation} onRestartSimulation={restartOutdatedSimulation} onRetryFinish={() => { if (simulation) void finishSimulation(simulation); }} finishFailed={finishFailed} busy={busy} error={error} />}
       </>}
     </div>
+    {toast && (
+      <div
+        role={toast.kind === "error" ? "alert" : "status"}
+        className={`fixed bottom-4 right-4 z-50 flex max-w-md items-start gap-2.5 rounded-xl border px-4 py-3 text-xs font-semibold shadow-lg ${
+          toast.kind === "error"
+            ? "border-rose-300 bg-rose-50 text-rose-950"
+            : "border-emerald-300 bg-emerald-50 text-emerald-950"
+        }`}
+      >
+        {toast.kind === "error" ? <AlertTriangle size={16} className="mt-0.5 shrink-0 text-rose-600" /> : <Check size={16} className="mt-0.5 shrink-0 text-emerald-600" />}
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <p className="leading-snug">{toast.text}</p>
+          {toast.kind === "success" && tab === "calendar" && lastCreatedSessionId && toast.text.toLowerCase().includes("tạo") && (
+            <button
+              type="button"
+              onClick={() => {
+                document.getElementById(`session-card-${lastCreatedSessionId}`)?.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+              }}
+              className="rounded border border-emerald-400 bg-white px-2.5 py-1 text-[11px] font-bold text-emerald-900 hover:bg-emerald-100"
+            >
+              ↓ Xem trên bảng lịch
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label="Đóng thông báo"
+          onClick={() => setToast(null)}
+          className="shrink-0 rounded p-0.5 opacity-70 transition hover:bg-black/5 hover:opacity-100"
+        >
+          <X size={14} />
+        </button>
+      </div>
+    )}
   </section>;
 }
 
-function TrainerIncidentsPanel({ incidents, busy, onSubmit, error, notice }: {
+function TrainerIncidentsPanel({ incidents, busy, onSubmit, error }: {
   incidents: TrainerIncident[];
   busy: boolean;
   onSubmit: (event: FormEvent<HTMLFormElement>, incidentId: string) => void | Promise<void>;
   error?: string;
-  notice?: string;
 }) {
+  const [activeIncidentId, setActiveIncidentId] = useState<string | null>(null);
   return <Section title="Sự cố được giao cho bạn" help="Xem hướng dẫn, gửi kết quả xử lý để Club Manager đóng sự cố." icon={AlertTriangle}>
-    {error && <div className="mb-3"><Notice error>{error}</Notice></div>}
-    {notice && <div className="mb-3"><Notice>{notice}</Notice></div>}
+    {error && !activeIncidentId && <div className="mb-3"><Notice error>{error}</Notice></div>}
     {!incidents.length ? <p className="text-sm text-slate-500">Hiện chưa có sự cố nào được giao cho bạn.</p>
       : <div className="space-y-3">{incidents.map((incident) => <article key={incident.id} className={`rounded-lg border p-4 ${incident.is_emergency ? "border-rose-300 bg-rose-50/40" : "border-equine-line bg-white"}`}>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1346,8 +1399,9 @@ function TrainerIncidentsPanel({ incidents, busy, onSubmit, error, notice }: {
         <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{incident.issue_description}</p>
         {incident.assignment_note && <p className="mt-3 whitespace-pre-wrap rounded-lg bg-blue-50 p-3 text-sm text-blue-900"><strong>Hướng dẫn:</strong> {incident.assignment_note}</p>}
         {incident.result_note && <p className="mt-3 whitespace-pre-wrap rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900"><strong>Kết quả đã gửi:</strong> {incident.result_note}</p>}
-        {incident.status === "InProgress" && <form onSubmit={(event) => void onSubmit(event, incident.id)} className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+        {incident.status === "InProgress" && <form onSubmit={(event) => { setActiveIncidentId(incident.id); void onSubmit(event, incident.id); }} className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
           <label className="block"><span className="field-label">Kết quả xử lý</span><textarea className="field-control min-h-20 px-3 py-2" name="result_note" maxLength={2000} required /></label>
+          {error && activeIncidentId === incident.id && <div className="sm:col-span-2"><Notice error>{error}</Notice></div>}
           <button className="soft-button self-end" disabled={busy}>Gửi kết quả cho Club Manager</button>
         </form>}
       </article>)}</div>}
@@ -1998,7 +2052,7 @@ export function computeHorseCoverage(
   });
 }
 
-function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, selectedHorseIds, setSelectedHorseIds, onCreate, onUpdate, onDelete, onSchedule, busy, error, notice }: {
+function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, selectedHorseIds, setSelectedHorseIds, onCreate, onUpdate, onDelete, onSchedule, busy, error }: {
   horse: Horse | null; horses: Horse[]; plans: TrainingPlan[]; activeOnly: boolean; setActiveOnly: (value: boolean) => void;
   editingPlan: string | null; setEditingPlan: (id: string | null) => void;
   selectedHorseIds: string[]; setSelectedHorseIds: (value: string[] | ((current: string[]) => string[])) => void;
@@ -2006,7 +2060,6 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
   onDelete: (id: string) => void; onSchedule: (plan: TrainingPlan) => void;
   busy: boolean;
   error?: string;
-  notice?: string;
 }) {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [showCustomForm, setShowCustomForm] = useState(false);
@@ -2165,9 +2218,6 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
     >
       {showCustomForm && (
         <div className="mb-4 min-w-0 rounded-xl border border-blue-200 bg-slate-50/90 p-3.5">
-          {error && <div className="mb-3"><Notice error>{error}</Notice></div>}
-          {notice && <div className="mb-3"><Notice>{notice}</Notice></div>}
-
           {/* Chọn nhanh từ 9 mẫu chuẩn để điền sẵn vào form */}
           <div className="mb-3.5 rounded-lg border border-equine-line bg-white p-2.5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -2376,6 +2426,11 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
                 </div>
               </details>
             </div>
+            {error && (
+              <div className="sm:col-span-2 lg:col-span-4">
+                <Notice error>{error}</Notice>
+              </div>
+            )}
             <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-end gap-2 border-t border-slate-200 pt-3">
               <button
                 type="button"
@@ -2392,10 +2447,9 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
         </div>
       )}
 
-      {!showCustomForm && !editingPlanObj && (error || notice) && (
-        <div className="mb-3 space-y-2">
-          {error && <Notice error>{error}</Notice>}
-          {notice && <Notice>{notice}</Notice>}
+      {!showCustomForm && !editingPlanObj && error && (
+        <div className="mb-3">
+          <Notice error>{error}</Notice>
         </div>
       )}
       {editingPlanObj && (
@@ -2413,7 +2467,6 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
               <X size={13} /> Đóng
             </button>
           </div>
-          {error && <div className="mb-3"><Notice error>{error}</Notice></div>}
           <form key={editingPlanObj.id} onSubmit={(event) => onUpdate(event, editingPlanObj.id)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Tên giai đoạn" name="stage_name" required defaultValue={editingPlanObj.stage_name} />
             <SelectField label="Cường độ" name="target_intensity" required defaultValue={editingPlanObj.target_intensity ?? ""} options={[["", "Chưa đặt"], ["High", "Cao"], ["Medium", "Vừa"], ["Low", "Thấp"]]} />
@@ -2426,6 +2479,11 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
             <div className="sm:col-span-2 lg:col-span-4">
               <TextArea label="Mục tiêu" name="objective" defaultValue={editingPlanObj.objective} rows={2} />
             </div>
+            {error && (
+              <div className="sm:col-span-2 lg:col-span-4">
+                <Notice error>{error}</Notice>
+              </div>
+            )}
             <div className="flex flex-wrap items-center justify-end gap-2 pt-1 sm:col-span-2 lg:col-span-4">
               <button
                 type="button"
@@ -2942,7 +3000,7 @@ function findBestDateSlotAndGroom(
   return { date: def.date, slot: def.slot, groomId: ev.bestGroomId };
 }
 
-function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessions, careEvents, grooms, from, to, onWeekChange, scheduleDraft, onCreate, onResetCleanData, onAssign, onStatus, onVideo, showMetricsFor, setShowMetricsFor, busy, onOpenSimulation, onTargetsSaved, error, notice, lastCreatedSessionId }: {
+function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessions, careEvents, grooms, from, to, onWeekChange, scheduleDraft, onCreate, onResetCleanData, onAssign, onStatus, onVideo, showMetricsFor, setShowMetricsFor, busy, onOpenSimulation, onTargetsSaved, error, onNotify, lastCreatedSessionId }: {
   selectedHorseId: string; onSelectHorse: (id: string) => void; overview: TrainerHorse[]; horses: Horse[]; sessions: TrainingSession[]; careEvents: CareCalendarEvent[]; grooms: Groom[]; from: string; to: string; onWeekChange: (value: string) => void;
   onCreate: (event: FormEvent<HTMLFormElement>) => Promise<TrainingSession | null>;
   onResetCleanData: () => Promise<void>;
@@ -2953,7 +3011,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; showMetricsFor: string | null;
   setShowMetricsFor: (id: string | null) => void; busy: boolean;
   error?: string;
-  notice?: string;
+  onNotify?: (kind: "success" | "error", text: string) => void;
   lastCreatedSessionId?: string | null;
 }) {
   const [createHorse, setCreateHorse] = useState((selectedHorseId || horses[0]?.id) ?? "");
@@ -3293,7 +3351,6 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   const [completeId, setCompleteId] = useState<string>("");
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState("");
-  const [actionNotice, setActionNotice] = useState("");
   const [highlightedSessionId, setHighlightedSessionId] = useState<string | null>(null);
   const timetableRef = useRef<HTMLDivElement>(null);
 
@@ -3635,7 +3692,6 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
 
     setActionBusy(true);
     setActionError("");
-    setActionNotice("");
     try {
       const updated = await headTrainerApi.updateSchedule(session.training_schedule_id, payload);
       const updatedStart = updated.start_time ? updated.start_time.slice(0, 5) : "";
@@ -3667,13 +3723,16 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
         onWeekChange(nextDate);
       }
       await onTargetsSaved();
-      setActionNotice(`✅ Đã dời lịch tập của ${session.horse_name} sang ngày ${nextDate} (${nextStart} – ${nextEnd}).`);
+      const successMsg = `✅ Đã dời lịch tập của ${session.horse_name} sang ngày ${nextDate} (${nextStart} – ${nextEnd}).`;
+      onNotify?.("success", successMsg);
       window.setTimeout(() => {
         const el = document.getElementById(`session-card-${session.training_schedule_id}`);
         if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 150);
     } catch (err) {
-      setActionError(headTrainerError(err));
+      const errMsg = headTrainerError(err);
+      setActionError(errMsg);
+      onNotify?.("error", errMsg);
     } finally {
       setActionBusy(false);
     }
@@ -3686,7 +3745,6 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
     const review = String(data.get("trainer_review") ?? "").trim();
     setActionBusy(true);
     setActionError("");
-    setActionNotice("");
     try {
       await headTrainerApi.updateSchedule(session.training_schedule_id, {
         status: "Completed",
@@ -3703,9 +3761,12 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
       }
       setCompleteId("");
       await onTargetsSaved();
-      setActionNotice(`Đã ghi nhận hoàn thành buổi tập của ${session.horse_name}${recordNow ? " kèm chỉ số thể lực" : ""}.`);
+      const completeMsg = `Đã ghi nhận hoàn thành buổi tập của ${session.horse_name}${recordNow ? " kèm chỉ số thể lực" : ""}.`;
+      onNotify?.("success", completeMsg);
     } catch (err) {
-      setActionError(headTrainerError(err));
+      const errMsg = headTrainerError(err);
+      setActionError(errMsg);
+      onNotify?.("error", errMsg);
     } finally {
       setActionBusy(false);
     }
@@ -3817,27 +3878,9 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
       )}
     </div>
 
-    {!showCreateForm && !moveId && (error || notice || actionError || actionNotice) && (
+    {!showCreateForm && !moveId && !selectedSession && (error || actionError) && (
       <div className="space-y-2">
-        {(error || actionError) && <Notice error>{actionError || error}</Notice>}
-        {(notice || actionNotice) && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-950">
-            <span>{actionNotice || notice}</span>
-            {lastCreatedSessionId && (
-              <button
-                type="button"
-                onClick={() => {
-                  const el = document.getElementById(`session-card-${lastCreatedSessionId}`);
-                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-                  else timetableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-                className="rounded border border-emerald-400 bg-white px-2.5 py-1 text-[11px] font-bold text-emerald-900 hover:bg-emerald-100"
-              >
-                ↓ Xem trên bảng lịch
-              </button>
-            )}
-          </div>
-        )}
+        <Notice error>{actionError || error}</Notice>
       </div>
     )}
 
@@ -4012,24 +4055,6 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                 {(error || actionError) && !moveId && (
                   <div className="sm:col-span-2 lg:col-span-5">
                     <Notice error>{actionError || error}</Notice>
-                  </div>
-                )}
-                {(notice || actionNotice) && !moveId && (
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs font-bold text-emerald-950 sm:col-span-2 lg:col-span-5">
-                    <span>{actionNotice || notice}</span>
-                    {lastCreatedSessionId && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const el = document.getElementById(`session-card-${lastCreatedSessionId}`);
-                          if (el) el.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-                          else timetableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                        }}
-                        className="rounded border border-emerald-400 bg-white px-2.5 py-1 text-[11px] font-bold text-emerald-900 hover:bg-emerald-100"
-                      >
-                        ↓ Xem trên bảng lịch
-                      </button>
-                    )}
                   </div>
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/70 px-3 py-2 text-xs text-emerald-950 sm:col-span-2 lg:col-span-5">
@@ -4231,8 +4256,6 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
           <strong className="mt-0.5 block text-base font-black text-purple-950">{weeklyCareCount} ca</strong>
         </div>
       </div>
-
-      {error && <div className="mb-2.5"><Notice error>{error}</Notice></div>}
 
       <div ref={timetableRef} className="overflow-x-auto rounded-lg border border-slate-300">
         <table className="w-full min-w-[1080px] border-collapse text-left text-xs">
@@ -4515,11 +4538,6 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                                       className="mt-2 space-y-1.5 rounded border border-equine-line bg-white p-2"
                                     >
                                       <p className="text-[10px] font-bold uppercase text-equine-navy">Dời lịch & đổi ca / Groom</p>
-                                      {actionError && (
-                                        <p className="rounded border border-rose-200 bg-rose-50 p-1.5 text-[10px] font-semibold text-rose-700">
-                                          {actionError}
-                                        </p>
-                                      )}
                                       <input
                                         aria-label="Ngày mới"
                                         name="event_date"
@@ -4581,6 +4599,11 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
                                           ⚠ Ca này không còn Groom rảnh; có thể lưu ở trạng thái Chưa phân công.
                                         </p>
                                       )}
+                                      {actionError && (
+                                        <p className="rounded border border-rose-200 bg-rose-50 p-1.5 text-[10px] font-semibold text-rose-700">
+                                          {actionError}
+                                        </p>
+                                      )}
                                       <div className="flex gap-1 pt-1">
                                         <button
                                           type="submit"
@@ -4621,16 +4644,20 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
         onOpenSimulation={onOpenSimulation}
         onToggleMetrics={() => setShowMetricsFor(showMetricsFor === selectedSession.training_schedule_id ? null : selectedSession.training_schedule_id)}
         onTargetsSaved={onTargetsSaved}
+        error={error || actionError}
+        onNotify={onNotify}
       />}
     </section>
   </div>;
 }
 
-function TrainingSessionDetail({ session, grooms, busy, nowMs, showMetrics, onAssign, onStatus, onVideo, onOpenSimulation, onToggleMetrics, onTargetsSaved }: {
+function TrainingSessionDetail({ session, grooms, busy, nowMs, showMetrics, onAssign, onStatus, onVideo, onOpenSimulation, onToggleMetrics, onTargetsSaved, error, onNotify }: {
   session: TrainingSession; grooms: Groom[]; busy: boolean; nowMs: number; showMetrics: boolean;
   onAssign: (id: string, groomId: number) => void; onStatus: (id: string, status: string) => void;
   onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; onOpenSimulation: (session: TrainingSession) => void;
   onToggleMetrics: () => void; onTargetsSaved: () => Promise<void>;
+  error?: string;
+  onNotify?: (kind: "success" | "error", text: string) => void;
 }) {
   const window = sessionWindow(session);
   const insideTimeWindow = Boolean(window && nowMs >= window.start && nowMs < window.end);
@@ -4654,13 +4681,14 @@ function TrainingSessionDetail({ session, grooms, busy, nowMs, showMetrics, onAs
     )}
     <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"><p><span className="block text-xs text-slate-500">Giáo án</span><strong>{session.plan_stage_name ?? "Chưa gắn"}</strong></p><p><span className="block text-xs text-slate-500">Groom</span><strong>{session.groom_name ?? "Chưa phân công"}</strong></p><p><span className="block text-xs text-slate-500">Mục tiêu</span><strong>{session.plan_objective ?? "Chưa có mô tả"}</strong></p><p><span className="block text-xs text-slate-500">Chỉ tiêu</span><strong>{session.plan_target_distance_meters != null ? `${session.plan_target_distance_meters.toLocaleString("vi-VN")} m` : "—"}{session.plan_target_intensity ? ` · ${session.plan_target_intensity}` : ""}</strong></p></div>
     {session.notes && <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700"><strong>Ghi chú:</strong> {session.notes}</p>}
+    {error && <div className="mt-3"><Notice error>{error}</Notice></div>}
     <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-slate-200 pt-3"><label className="min-w-52"><span className="mb-1 block text-xs font-semibold text-slate-600">Groom phụ trách</span><select aria-label={`Phân công Groom cho ${session.horse_name}`} className="field-control w-full" value={session.assigned_groom_id ?? ""} disabled={session.status !== "Scheduled" || busy} onChange={(event) => event.target.value && onAssign(session.training_schedule_id, Number(event.target.value))}><option value="">Chọn Groom</option>{grooms.map((groom) => <option key={groom.user_id} value={groom.user_id}>{groom.full_name}</option>)}</select></label>{canStart && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Play size={14} /> Bắt đầu tập (Mô phỏng)</button>}{session.status === "InProgress" && <button type="button" className="gold-button" disabled={busy} onClick={() => onOpenSimulation(session)}><Activity size={14} /> Mở lại giả lập</button>}{session.status === "InProgress" && <button type="button" className="soft-button text-emerald-700" disabled={busy || !canComplete} title={!canComplete ? `Chỉ hoàn tất sau khi kết thúc giả lập hoặc sau ${session.end_time?.slice(0, 5) ?? "giờ tập"}` : undefined} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất</button>}{session.status === "Scheduled" && session.session_type === "Rest" && canComplete && <button type="button" className="soft-button text-emerald-700" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Completed")}><Check size={14} /> Hoàn tất nghỉ</button>}{isOpen && <button type="button" className="soft-button text-rose-700" disabled={busy} onClick={() => onStatus(session.training_schedule_id, "Cancelled")}><X size={14} /> Hủy buổi tập</button>}</div>
     {session.status === "Scheduled" && !afterTimeWindow && session.session_type !== "Rest" && <SessionTargetsEditor key={`${session.training_schedule_id}-${session.plan_target_distance_meters}-${session.plan_target_intensity}-${session.track_surface}`} session={session} onSaved={onTargetsSaved} />}
-    {showMetrics && <SessionMetrics session={session} onVideo={onVideo} onSaved={onTargetsSaved} busy={busy} />}
+    {showMetrics && <SessionMetrics session={session} onVideo={onVideo} onSaved={onTargetsSaved} onNotify={onNotify} busy={busy} />}
   </article>;
 }
 
-function SessionMetrics({ session, onVideo, onSaved, busy }: { session: TrainingSession; onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; onSaved: () => Promise<void>; busy: boolean }) {
+function SessionMetrics({ session, onVideo, onSaved, onNotify, busy }: { session: TrainingSession; onVideo: (event: FormEvent<HTMLFormElement>, id: string) => void; onSaved: () => Promise<void>; onNotify?: (kind: "success" | "error", text: string) => void; busy: boolean }) {
   const [detail, setDetail] = useState<TrainingSession | null>(session);
   const [savingReview, setSavingReview] = useState(false);
   const [reviewError, setReviewError] = useState("");
@@ -4685,9 +4713,13 @@ function SessionMetrics({ session, onVideo, onSaved, busy }: { session: Training
       });
       setDetail(updated);
       await onSaved();
-      setReviewSavedMsg("Đã lưu nhận xét chuyên môn của HLV.");
+      const savedText = "Đã lưu nhận xét chuyên môn của HLV.";
+      setReviewSavedMsg(savedText);
+      onNotify?.("success", savedText);
     } catch (err) {
-      setReviewError(headTrainerError(err));
+      const errText = headTrainerError(err);
+      setReviewError(errText);
+      onNotify?.("error", errText);
     } finally {
       setSavingReview(false);
     }
@@ -4724,9 +4756,9 @@ function SessionMetrics({ session, onVideo, onSaved, busy }: { session: Training
       <div className="space-y-4">
         <form key={defaultReview} onSubmit={(event) => void submitReviewForm(event)} className="grid gap-2.5 rounded-xl border border-equine-line bg-slate-50/70 p-3.5">
           <h4 className="text-sm font-bold text-equine-navy">Đánh giá chuyên môn của HLV sau buổi tập</h4>
+          <TextArea label="Nhận xét của HLV" name="trainer_review" defaultValue={defaultReview} rows={3} />
           {reviewError && <Notice error>{reviewError}</Notice>}
           {reviewSavedMsg && <Notice>{reviewSavedMsg}</Notice>}
-          <TextArea label="Nhận xét của HLV" name="trainer_review" defaultValue={defaultReview} rows={3} />
           <div className="flex justify-end">
             <button className="gold-button" disabled={busy || savingReview}><Check size={14} /> Lưu nhận xét HLV</button>
           </div>
@@ -4862,7 +4894,6 @@ function RaceEntriesPanel({
   onRestoreEntry,
   busy,
   error,
-  notice,
 }: {
   selectedHorse: Horse | null;
   horses: Horse[];
@@ -4878,7 +4909,6 @@ function RaceEntriesPanel({
   onRestoreEntry: (entryId: string) => Promise<void>;
   busy: boolean;
   error?: string;
-  notice?: string;
 }) {
   const [viewMode, setViewMode] = useState<"official" | "preview3d">("official");
   const [raceId, setRaceId] = useState("");
@@ -4895,6 +4925,7 @@ function RaceEntriesPanel({
   const [cancellingEntry, setCancellingEntry] = useState<{ id: string; raceName: string } | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [confirmingResult, setConfirmingResult] = useState<{ entryId: string; raceName: string; position: number; prize: number } | null>(null);
+  const [lastAction, setLastAction] = useState<{ area: "register" | "entry"; entryId?: string } | null>(null);
 
   const selectedHorseId = selectedHorse?.id;
   useEffect(() => {
@@ -5428,13 +5459,17 @@ function RaceEntriesPanel({
             </div>
 
             <div className="space-y-2">
-              {error && <Notice error>{error}</Notice>}
-              {notice && <Notice>{notice}</Notice>}
+              {error && (!lastAction || lastAction.area === "register") && <Notice error>{error}</Notice>}
               <button
                 type="button"
                 className="gold-button w-full justify-center"
                 disabled={busy || !canSubmitRegister}
-                onClick={() => { if (effectiveRaceId) onRegister(effectiveRaceId); }}
+                onClick={() => {
+                  if (effectiveRaceId) {
+                    setLastAction({ area: "register" });
+                    onRegister(effectiveRaceId);
+                  }
+                }}
               >
                 {canSubmitRegister && <Plus size={15} />}
                 <span>{registerButtonLabel}</span>
@@ -5563,6 +5598,12 @@ function RaceEntriesPanel({
                     </p>
                   ) : null}
 
+                  {error && lastAction?.area === "entry" && lastAction.entryId === entryId && (
+                    <div className="mt-3">
+                      <Notice error>{error}</Notice>
+                    </div>
+                  )}
+
                   {pendingResult && (
                     <form onSubmit={(event) => submitResult(event, entry)} className="mt-3 rounded-lg border border-amber-200 bg-white p-3 space-y-2.5">
                       <p className="text-xs font-bold text-amber-900">Đã đến / qua ngày thi đấu — Nhập kết quả chính thức:</p>
@@ -5585,7 +5626,10 @@ function RaceEntriesPanel({
                           type="button"
                           className="soft-button !min-h-[32px] !px-3 !text-xs border-emerald-200 bg-emerald-50 text-emerald-800"
                           disabled={busy || !isHealthy || !isReady || isLocked}
-                          onClick={() => void onRestoreEntry(entryId)}
+                          onClick={() => {
+                            setLastAction({ area: "entry", entryId });
+                            void onRestoreEntry(entryId);
+                          }}
                         >
                           <RotateCcw size={13} /> Khôi phục đăng ký
                         </button>
@@ -5678,6 +5722,7 @@ function RaceEntriesPanel({
             if (!cancelReason.trim()) return;
             const current = cancellingEntry;
             const reasonText = cancelReason.trim();
+            setLastAction({ area: "entry", entryId: current.id });
             setCancellingEntry(null);
             await onCancelEntry(current.id, reasonText);
           }}
@@ -5723,6 +5768,7 @@ function RaceEntriesPanel({
               disabled={busy}
               onClick={() => {
                 const payload = confirmingResult;
+                setLastAction({ area: "entry", entryId: payload.entryId });
                 setConfirmingResult(null);
                 onRecordResult(payload.entryId, { result_position: payload.position, prize_amount: payload.prize });
               }}
@@ -5735,7 +5781,7 @@ function RaceEntriesPanel({
     )}
   </div>;
 }
-function SimulationPanel({ sessions, grooms, activeSimulations, onSelectSimulation, simulation, readings, phase, ranking, progress, vitals, onStart, onRestartSimulation, onRetryFinish, finishFailed, busy, error, notice }: {
+function SimulationPanel({ sessions, grooms, activeSimulations, onSelectSimulation, simulation, readings, phase, ranking, progress, vitals, onStart, onRestartSimulation, onRetryFinish, finishFailed, busy, error }: {
   sessions: TrainingSession[]; grooms: Groom[]; simulation: Simulation | null; readings: SensorReading[]; phase: string;
   activeSimulations: Simulation[]; onSelectSimulation: (simulation: Simulation) => void;
   onRestartSimulation: (simulation: Simulation) => void;
@@ -5744,7 +5790,6 @@ function SimulationPanel({ sessions, grooms, activeSimulations, onSelectSimulati
   onStart: (event: FormEvent<HTMLFormElement>) => void; onRetryFinish: () => void;
   finishFailed: boolean; busy: boolean;
   error?: string;
-  notice?: string;
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -5816,18 +5861,18 @@ function SimulationPanel({ sessions, grooms, activeSimulations, onSelectSimulati
       {simulation.stop_reason && <Notice>Buổi tập đã dừng: {simulation.stop_reason}</Notice>}
       {simulation.recovery_heart_rate != null && <p className="mt-3 text-sm">Nhịp tim mô phỏng sau 15 phút nghỉ: {simulation.recovery_heart_rate} bpm · Điểm hồi phục ước tính: {simulation.stamina_score ?? "—"}/10</p>}
       {simulation.actual_distance_meters != null && <p className="mt-3">Cự ly thực hiện: {Number(simulation.actual_distance_meters).toFixed(1)} m</p>}
+      {finishFailed && error && <div className="mt-3"><Notice error>{error}</Notice></div>}
       {finishFailed && <button type="button" className="soft-button mt-3" onClick={onRetryFinish} disabled={busy}>Thử lưu kết quả lại</button>}
       {(ranking.length > 0 || simulation.status === "Completed") && <Notice>Đã hoàn tất buổi tập và lưu chỉ số vào biểu đồ phân tích.</Notice>}
     </section>}
     <Section title="Chuẩn bị buổi tập mô phỏng" help="Chọn tối đa 5 buổi đã có lịch, Groom và đang trong khung giờ tập để mô phỏng riêng hoặc theo nhóm." icon={Play}>
       <form onSubmit={onStart} className="training-start-form">
-        {error && <div className="mb-2"><Notice error>{error}</Notice></div>}
-        {notice && <div className="mb-2"><Notice>{notice}</Notice></div>}
         <SelectField label="Tình huống mô phỏng" name="scenario" options={[["Normal", "Phản ứng vận động bình thường"], ["Fatigue", "Phản ứng tải cao, hồi phục chậm"]]} />
         <fieldset className="training-session-options"><legend className="field-label">Buổi tập đang sẵn sàng</legend>{eligible.map(session => <label key={session.training_schedule_id} className="training-session-option">
           <input type="checkbox" name="training_schedule_id" value={session.training_schedule_id} disabled={busy}/>
           <span><strong>{session.horse_name}</strong><small>{session.event_date} · {session.start_time?.slice(0,5)}–{session.end_time?.slice(0,5)} · {surfaceLabel(session.track_surface)}</small></span>
         </label>)}</fieldset>
+        {error && !finishFailed && <div className="mt-2"><Notice error>{error}</Notice></div>}
         <button className="gold-button" disabled={busy || eligible.length === 0}><Play size={15} /> Mở các buổi đã chọn</button>
       </form>
       {eligible.length === 0 && <Notice>Chưa có lịch tập phù hợp trong khung giờ hiện tại. Tạo lịch từ giáo án, phân công Groom và mở giả lập tại tab Lịch tập khi đến giờ.</Notice>}
