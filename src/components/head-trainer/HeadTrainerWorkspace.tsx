@@ -1005,55 +1005,6 @@ export default function HeadTrainerWorkspace() {
     setNotice(`Đã chọn giáo án “${plan.stage_name}”. Hãy chọn ngày, giờ và Groom để lên lịch buổi tập.`);
   }
 
-  async function applyStandardRegimenToHorses(regimen: StandardRegimen, targetHorseIds: string[], openCalendarAfter = false) {
-    const validIds = targetHorseIds.filter((id) => horses.some((item) => item.id === id && !item.is_training_locked));
-    if (!validIds.length) {
-      setError("Hãy chọn ít nhất một ngựa không bị khóa huấn luyện để áp dụng liệu trình.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      let primaryPlan: TrainingPlan | null = null;
-      let count = 0;
-      for (const targetId of validIds) {
-        const plan = await ensurePlanForHorse(targetId, regimen, today());
-        if (targetId === validIds[0]) primaryPlan = plan;
-        count += 1;
-      }
-      setPlansRevision((current) => current + 1);
-      await Promise.all([loadOverview(), loadHorseData()]);
-      if (openCalendarAfter && primaryPlan) {
-        const primaryHorseId = validIds[0];
-        const planMatchesRegimen =
-          primaryPlan.target_intensity === regimen.target_intensity &&
-          primaryPlan.target_distance_meters === regimen.target_distance_meters &&
-          (primaryPlan.target_track_surface ?? "").toLowerCase() === regimen.target_track_surface.toLowerCase();
-        setHorseId(primaryHorseId);
-        setScheduleDraft({
-          horseId: primaryHorseId,
-          planId: primaryPlan.id,
-          startDate: today(),
-          regimenKey: regimen.key,
-          preferRegimenValues: !planMatchesRegimen,
-        });
-        selectTab("calendar");
-        setNotice(
-          planMatchesRegimen
-            ? `Đã áp dụng “${regimen.stage_name}” cho ${count} ngựa và chuyển sang Lịch tập.`
-            : `Đã chuyển sang Lịch tập với thông số “${regimen.stage_name}” (gắn theo giáo án đang hiệu lực “${primaryPlan.stage_name}”).`,
-        );
-      } else {
-        setNotice(`Đã gán sẵn “${regimen.stage_name}” cho ${count} ngựa.`);
-      }
-    } catch (reason) {
-      setError(headTrainerError(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function createSchedule(event: FormEvent<HTMLFormElement>): Promise<TrainingSession | null> {
     event.preventDefault();
     const form = event.currentTarget;
@@ -1317,7 +1268,7 @@ export default function HeadTrainerWorkspace() {
         </div>}
         {tab === "overview" && <>{error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}<OverviewPanel horses={trainableHorses} overview={overview.filter((o) => trainableHorses.some((h) => h.id === o.horse_id))} selectedHorseId={horseId} onSelectHorse={setHorseId} metrics={metrics} compare={compare} compareIds={compareIds} setCompareIds={setCompareIds} from={from} setFrom={setFrom} to={to} setTo={setTo} includeSimulated={includeSimulated} setIncludeSimulated={setIncludeSimulated} /></>}
         {tab === "analysis" && <>{error && <Notice error>{error}</Notice>}{notice && <Notice>{notice}</Notice>}<TrainingAnalysisPanel horseId={horseId} from={from} to={to} setFrom={setFrom} setTo={setTo} revision={analysisRevision}/></>}
-        {tab === "plans" && <PlansPanel horse={selectedHorse} horses={trainableHorses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} selectedHorseIds={selectedPlanHorseIds} setSelectedHorseIds={setSelectedPlanHorseIds} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} onApplyRegimen={applyStandardRegimenToHorses} busy={busy} error={error} notice={notice} />}
+        {tab === "plans" && <PlansPanel horse={selectedHorse} horses={trainableHorses} plans={plans} activeOnly={activeOnly} setActiveOnly={setActiveOnly} editingPlan={editingPlan} setEditingPlan={setEditingPlan} selectedHorseIds={selectedPlanHorseIds} setSelectedHorseIds={setSelectedPlanHorseIds} onCreate={createPlan} onUpdate={updatePlan} onDelete={deletePlan} onSchedule={scheduleFromPlan} busy={busy} error={error} notice={notice} />}
         {tab === "calendar" && <CalendarPanel selectedHorseId={horseId} onSelectHorse={setHorseId} overview={overview.filter((o) => trainableHorses.some((h) => h.id === o.horse_id))} onTargetsSaved={refresh} horses={trainableHorses} sessions={sessions} careEvents={careEvents} grooms={grooms} from={calendarFrom} to={calendarTo} onWeekChange={(value) => { const start = mondayOfWeek(value); setCalendarFrom(start); setCalendarTo(plusDays(start, 6)); }} scheduleDraft={scheduleDraft} onCreate={createSchedule} onResetCleanData={handleResetAndSeedCleanData} onAssign={async (id, groomId) => { const result = await run(() => headTrainerApi.assignGroom(id, groomId), "Đã phân công Groom."); if (result) await refresh(); }} onOpenSimulation={openTrainingSimulation} onStatus={async (id, status) => { const result = await run(() => headTrainerApi.updateSchedule(id, { status }), `Đã cập nhật buổi tập: ${status}.`); if (result) await refresh(); }} onVideo={addTrainingVideo} showMetricsFor={showMetricsFor} setShowMetricsFor={setShowMetricsFor} busy={busy} error={error} notice={notice} lastCreatedSessionId={lastCreatedSessionId} />}
         {tab === "races" && <RaceEntriesPanel
           selectedHorse={selectedHorse}
@@ -2047,13 +1998,12 @@ export function computeHorseCoverage(
   });
 }
 
-function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, selectedHorseIds, setSelectedHorseIds, onCreate, onUpdate, onDelete, onSchedule, onApplyRegimen, busy, error, notice }: {
+function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly, editingPlan, setEditingPlan, selectedHorseIds, setSelectedHorseIds, onCreate, onUpdate, onDelete, onSchedule, busy, error, notice }: {
   horse: Horse | null; horses: Horse[]; plans: TrainingPlan[]; activeOnly: boolean; setActiveOnly: (value: boolean) => void;
   editingPlan: string | null; setEditingPlan: (id: string | null) => void;
   selectedHorseIds: string[]; setSelectedHorseIds: (value: string[] | ((current: string[]) => string[])) => void;
   onCreate: (event: FormEvent<HTMLFormElement>) => Promise<boolean>; onUpdate: (event: FormEvent<HTMLFormElement>, id: string) => void;
   onDelete: (id: string) => void; onSchedule: (plan: TrainingPlan) => void;
-  onApplyRegimen: (regimen: StandardRegimen, targetHorseIds: string[], openCalendarAfter?: boolean) => Promise<void>;
   busy: boolean;
   error?: string;
   notice?: string;
@@ -2061,12 +2011,10 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [showCustomForm, setShowCustomForm] = useState(false);
   const [showDuplicatePlans, setShowDuplicatePlans] = useState(false);
-  const [planSearch, setPlanSearch] = useState("");
   const [levelFilter, setLevelFilter] = useState<"ALL" | "CAO" | "VỪA" | "THẤP">("ALL");
   const plansPerPage = 6;
   const [planPage, setPlanPage] = useState(1);
 
-  const unlockedHorses = useMemo(() => horses.filter((h) => !h.is_training_locked), [horses]);
   const { uniquePlans, hiddenDuplicateCount } = useMemo(() => deduplicateAndSortPlans(allPlans), [allPlans]);
   const displayPlansSource = useMemo(() => {
     return showDuplicatePlans
@@ -2074,26 +2022,15 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
       : uniquePlans;
   }, [allPlans, uniquePlans, showDuplicatePlans]);
 
-  const filteredStandardRegimens = useMemo(() => {
-    const q = normalizeHorseSearch(planSearch.trim());
-    return STANDARD_REGIMENS.filter((reg) => {
-      if (levelFilter !== "ALL" && reg.levelLabel !== levelFilter) return false;
-      if (q) {
-        const regText = normalizeHorseSearch(`${reg.title} ${reg.subtitle} ${reg.stage_name} ${reg.target_track_surface} ${reg.target_distance_meters}`);
-        const matchesHorseName = unlockedHorses.some((h) => normalizeHorseSearch(`${h.horse_name ?? ""} ${h.box_code ?? ""}`).includes(q));
-        if (!regText.includes(q) && !matchesHorseName) return false;
-      }
-      return true;
-    });
-  }, [planSearch, levelFilter, unlockedHorses]);
+  const filteredStandardRegimens = useMemo(
+    () => (levelFilter === "ALL" ? STANDARD_REGIMENS : STANDARD_REGIMENS.filter((reg) => reg.levelLabel === levelFilter)),
+    [levelFilter],
+  );
 
   const totalPlanPages = Math.max(1, Math.ceil(displayPlansSource.length / plansPerPage));
   const currentPlanPage = Math.min(planPage, totalPlanPages);
   const plans = displayPlansSource.slice((currentPlanPage - 1) * plansPerPage, currentPlanPage * plansPerPage);
   const selectableHorseId = horse && !horse.is_training_locked ? horse.id : null;
-  const createFormRef = useRef<HTMLFormElement>(null);
-  const [duplicateWarningPlan, setDuplicateWarningPlan] = useState<TrainingPlan | null>(null);
-  const [overlapWarningPlan, setOverlapWarningPlan] = useState<TrainingPlan | null>(null);
 
   const suggestedCustomDates = useMemo(() => {
     const todayStr = today();
@@ -2103,8 +2040,72 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
       .sort();
     const latestEnd = activeEnds.at(-1);
     const start = latestEnd ? plusDays(latestEnd, 1) : todayStr;
-    return { start, end: plusDays(start, 60) };
+    return { start, end: plusDays(start, 30) };
   }, [allPlans]);
+
+  const [selectedPresetKey, setSelectedPresetKey] = useState("");
+  const [stageName, setStageName] = useState("");
+  const [intensity, setIntensity] = useState<"High" | "Medium" | "Low">("Medium");
+  const [distance, setDistance] = useState("");
+  const [surface, setSurface] = useState("");
+  const [startDate, setStartDate] = useState(() => suggestedCustomDates.start);
+  const [endDate, setEndDate] = useState(() => suggestedCustomDates.end);
+  const [workloadMinutes, setWorkloadMinutes] = useState("180");
+  const [deadlineHours, setDeadlineHours] = useState("24");
+  const [objective, setObjective] = useState("");
+  const manualWorkloadRef = useRef(false);
+
+  const resetCreateFormFields = useCallback((start: string, end: string) => {
+    setSelectedPresetKey("");
+    setStageName("");
+    setIntensity("Medium");
+    setDistance("");
+    setSurface("");
+    setStartDate(start);
+    setEndDate(end);
+    setWorkloadMinutes("180");
+    setDeadlineHours("24");
+    setObjective("");
+    manualWorkloadRef.current = false;
+  }, []);
+
+  function applyPresetToForm(reg: StandardRegimen) {
+    setSelectedPresetKey(reg.key);
+    setStageName(reg.stage_name);
+    setIntensity(reg.target_intensity);
+    setDistance(String(reg.target_distance_meters));
+    setSurface(reg.target_track_surface);
+    setWorkloadMinutes(String(reg.target_workload_minutes));
+    setObjective(reg.objective);
+    manualWorkloadRef.current = false;
+  }
+
+  function handleIntensityChange(next: string) {
+    const val = (next === "High" || next === "Low" ? next : "Medium") as "High" | "Medium" | "Low";
+    setIntensity(val);
+    setSelectedPresetKey("");
+    if (!manualWorkloadRef.current) {
+      setWorkloadMinutes(val === "High" ? "270" : val === "Low" ? "90" : "180");
+    }
+  }
+
+  const overlapWarningPlan = useMemo(() => {
+    if (!startDate || !endDate || !selectedHorseIds.includes(horse?.id ?? "")) return null;
+    return allPlans.find((p) => Boolean(p.start_date && p.end_date && p.start_date <= endDate && p.end_date >= startDate)) ?? null;
+  }, [allPlans, startDate, endDate, selectedHorseIds, horse?.id]);
+
+  const duplicateWarningPlan = useMemo(() => {
+    const dist = Number(distance) || null;
+    const workload = Number(workloadMinutes) || null;
+    const surf = surface.trim().toLowerCase();
+    if (!dist || !surf || !intensity) return null;
+    return allPlans.find((p) =>
+      p.target_intensity === intensity &&
+      p.target_distance_meters === dist &&
+      (p.target_track_surface ?? "").toLowerCase() === surf &&
+      (!workload || p.target_workload_minutes === workload),
+    ) ?? null;
+  }, [allPlans, distance, workloadMinutes, surface, intensity]);
 
   useEffect(() => {
     setSelectedHorseIds(selectableHorseId ? [selectableHorseId] : []);
@@ -2112,45 +2113,18 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
   useEffect(() => {
     setPlanPage(1);
     setConfirmDelete(null);
-    setDuplicateWarningPlan(null);
-    setOverlapWarningPlan(null);
   }, [horse?.id, activeOnly, allPlans]);
+  useEffect(() => {
+    resetCreateFormFields(suggestedCustomDates.start, suggestedCustomDates.end);
+  }, [horse?.id, suggestedCustomDates.start, suggestedCustomDates.end, resetCreateFormFields]);
   useEffect(() => {
     if (planPage > totalPlanPages) setPlanPage(totalPlanPages);
   }, [planPage, totalPlanPages]);
 
-  function handleFormChange() {
-    const form = createFormRef.current;
-    if (!form) return;
-    const data = new FormData(form);
-    const startDate = String(data.get("start_date") || "");
-    const endDate = String(data.get("end_date") || "");
-    if (startDate && endDate && selectedHorseIds.includes(horse?.id ?? "")) {
-      const overlap = allPlans.find((p) => Boolean(p.start_date && p.end_date && p.start_date <= endDate && p.end_date >= startDate));
-      setOverlapWarningPlan(overlap ?? null);
-    } else {
-      setOverlapWarningPlan(null);
-    }
-    const dist = Number(data.get("target_distance_meters")) || null;
-    const workload = Number(data.get("target_workload_minutes")) || null;
-    const surface = String(data.get("target_track_surface") || "").toLowerCase();
-    const intensity = String(data.get("target_intensity") || "");
-    if (!dist || !surface || !intensity) {
-      setDuplicateWarningPlan(null);
-      return;
-    }
-    const existing = allPlans.find((p) =>
-      p.target_intensity === intensity &&
-      p.target_distance_meters === dist &&
-      (p.target_track_surface ?? "").toLowerCase() === surface &&
-      (!workload || p.target_workload_minutes === workload),
-    );
-    setDuplicateWarningPlan(existing ?? null);
-  }
-
   const canCreate = selectedHorseIds.length > 0 && selectedHorseIds.every((id) => horses.some((item) => item.id === id && !item.is_training_locked));
+  const editingPlanObj = editingPlan ? allPlans.find((p) => p.id === editingPlan) ?? null : null;
   return <div className="space-y-4">
-    {/* Bảng CHÍNH: Giáo án thật đã lưu của ngựa */}
+    {/* Bảng CHÍNH duy nhất: Giáo án thật đã lưu của ngựa */}
     <Section
       title={horse ? `Giáo án của ${horse.horse_name}` : "Giáo án của ngựa"}
       icon={ClipboardList}
@@ -2172,30 +2146,88 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
           </label>
           <button
             type="button"
-            onClick={() => setShowCustomForm((v) => !v)}
-            className={showCustomForm ? "soft-button px-2.5 py-1.5 text-xs" : "gold-button px-2.5 py-1.5 text-xs"}
+            onClick={() => {
+              if (!showCustomForm) {
+                resetCreateFormFields(suggestedCustomDates.start, suggestedCustomDates.end);
+                setEditingPlan(null);
+                setConfirmDelete(null);
+                setShowCustomForm(true);
+              } else {
+                setShowCustomForm(false);
+              }
+            }}
+            className={showCustomForm ? "soft-button shrink-0 px-2.5 py-1.5 text-xs" : "gold-button shrink-0 px-2.5 py-1.5 text-xs"}
           >
-            <Plus size={13} /> {showCustomForm ? "Đóng form" : "Tạo giáo án mới"}
+            {showCustomForm ? <><X size={13} /> Đóng</> : <><Plus size={13} /> Tạo giáo án mới</>}
           </button>
         </div>
       }
     >
       {showCustomForm && (
-        <div className="mb-4 rounded-xl border border-blue-200 bg-slate-50/90 p-3.5">
+        <div className="mb-4 min-w-0 rounded-xl border border-blue-200 bg-slate-50/90 p-3.5">
           {error && <div className="mb-3"><Notice error>{error}</Notice></div>}
           {notice && <div className="mb-3"><Notice>{notice}</Notice></div>}
+
+          {/* Chọn nhanh từ 9 mẫu chuẩn để điền sẵn vào form */}
+          <div className="mb-3.5 rounded-lg border border-equine-line bg-white p-2.5">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wide text-equine-navy">
+                ⚡ Điền nhanh từ 9 mẫu chuẩn (không bắt buộc)
+              </span>
+              <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-[11px]">
+                {(["ALL", "CAO", "VỪA", "THẤP"] as const).map((lvl) => (
+                  <button
+                    key={lvl}
+                    type="button"
+                    onClick={() => setLevelFilter(lvl)}
+                    className={`rounded-md px-2 py-0.5 font-semibold transition ${
+                      levelFilter === lvl ? "bg-equine-navy text-white shadow-2xs" : "text-slate-600 hover:bg-white hover:text-slate-900"
+                    }`}
+                  >
+                    {lvl === "ALL" ? "Tất cả" : lvl}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredStandardRegimens.map((reg) => {
+                const selected = selectedPresetKey === reg.key;
+                const cleanTitle = reg.title.replace(/\s*\([^)]*\)\s*$/, "");
+                return (
+                  <button
+                    key={reg.key}
+                    type="button"
+                    onClick={() => applyPresetToForm(reg)}
+                    className={`flex flex-col items-start gap-1 rounded-lg border px-2.5 py-2 text-left transition ${
+                      selected
+                        ? "border-equine-navy bg-equine-navy text-white shadow-xs"
+                        : "border-slate-200 bg-slate-50/80 text-slate-800 hover:border-equine-navy/40 hover:bg-equine-mist/40"
+                    }`}
+                    title={reg.objective}
+                  >
+                    <div className="flex w-full items-center gap-1.5">
+                      <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-extrabold ${selected ? "bg-white/20 text-white" : reg.badgeClass}`}>
+                        {reg.shortBadge}
+                      </span>
+                      <span className="truncate text-xs font-bold">{cleanTitle}</span>
+                    </div>
+                    <span className={`text-[11px] ${selected ? "text-slate-200" : "text-slate-500"}`}>
+                      {reg.target_distance_meters.toLocaleString("vi-VN")}m · {surfaceLabel(reg.target_track_surface)} · {reg.target_workload_minutes}p/tuần
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <form
-            key={`custom-plan-${horse?.id ?? ""}-${suggestedCustomDates.start}`}
-            ref={createFormRef}
             onSubmit={async (event) => {
               const ok = await onCreate(event);
               if (ok) {
                 setShowCustomForm(false);
-                setOverlapWarningPlan(null);
-                setDuplicateWarningPlan(null);
+                resetCreateFormFields(suggestedCustomDates.start, suggestedCustomDates.end);
               }
             }}
-            onChange={handleFormChange}
             className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
           >
             <div className="sm:col-span-2 lg:col-span-4">
@@ -2205,48 +2237,217 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
                 {selectedHorseIds.length > 0
                   ? selectedHorseIds.map((id) => {
                       const h = horses.find((item) => item.id === id);
-                      return h ? <span key={id} className="rounded bg-white border border-equine-line px-2 py-0.5 font-semibold text-equine-navy">{h.horse_name}</span> : null;
+                      return h ? <span key={id} className="rounded border border-equine-line bg-white px-2 py-0.5 font-semibold text-equine-navy">{h.horse_name}</span> : null;
                     })
                   : <span className="text-slate-500">Chưa chọn ngựa</span>}
               </div>
             </div>
             {overlapWarningPlan && (
               <div className="sm:col-span-2 lg:col-span-4 rounded-lg border border-rose-300 bg-rose-50 p-2.5 text-xs font-semibold text-rose-900">
-                ⚠️ Khoảng ngày đang chọn bị chồng với giáo án <b>“{overlapWarningPlan.stage_name}”</b> ({overlapWarningPlan.start_date} → {overlapWarningPlan.end_date}). Hãy chọn ngày bắt đầu từ <b>{suggestedCustomDates.start}</b> trở đi để không bị lỗi chồng giai đoạn.
+                ⚠️ Khoảng ngày đang chọn bị chồng với giáo án <b>“{overlapWarningPlan.stage_name}”</b> ({overlapWarningPlan.start_date} → {overlapWarningPlan.end_date}). Hãy chọn Từ ngày từ <b>{suggestedCustomDates.start}</b> trở đi để không bị lỗi chồng giai đoạn.
               </div>
             )}
             {duplicateWarningPlan && (
               <div className="sm:col-span-2 lg:col-span-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-950">
                 <span>⚠️ Đã có giáo án trùng thông số: <b>{duplicateWarningPlan.stage_name}</b></span>
                 <button type="button" className="gold-button shrink-0 px-2.5 py-1 text-xs" onClick={() => onSchedule(duplicateWarningPlan)}>
-                  <CalendarDays size={12} /> Chọn lên lịch luôn
+                  <CalendarDays size={12} /> Lên lịch luôn
                 </button>
               </div>
             )}
-            <Field label="Tên giai đoạn" name="stage_name" required maxLength={100} />
-            <SelectField label="Cự ly (m)" name="target_distance_meters" required options={distanceOptions} />
-            <Field label="Khối lượng (phút/tuần)" name="target_workload_minutes" type="number" min={1} required max={1440} />
-            <SelectField label="Mặt sân" name="target_track_surface" required options={[["", "Chưa chọn"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
-            <Field label="Bắt đầu" name="start_date" type="date" required defaultValue={suggestedCustomDates.start} />
-            <Field label="Kết thúc" name="end_date" type="date" required defaultValue={suggestedCustomDates.end} />
-            <SelectField label="Cường độ" name="target_intensity" required options={[["High", "Cao"], ["Medium", "Vừa"], ["Low", "Thấp"]]} />
-            <Field label="Hạn sửa trước (giờ)" name="update_deadline_hours" type="number" min={0} defaultValue={24} />
-            <div className="sm:col-span-2 lg:col-span-3">
-              <TextArea label="Mục tiêu" name="objective" rows={2} />
+
+            <Field
+              label="Tên giáo án"
+              name="stage_name"
+              required
+              maxLength={100}
+              value={stageName}
+              onChange={(v) => { setStageName(v); setSelectedPresetKey(""); }}
+              placeholder="VD: Giai đoạn thể lực nền tảng"
+            />
+            <SelectField
+              label="Cường độ"
+              name="target_intensity"
+              required
+              value={intensity}
+              onChange={handleIntensityChange}
+              options={[["High", "Cao"], ["Medium", "Vừa"], ["Low", "Thấp"]]}
+            />
+            <SelectField
+              label="Cự ly (m)"
+              name="target_distance_meters"
+              required
+              value={distance}
+              onChange={(v) => { setDistance(v); setSelectedPresetKey(""); }}
+              options={distanceOptions}
+            />
+            <SelectField
+              label="Mặt sân"
+              name="target_track_surface"
+              required
+              value={surface}
+              onChange={(v) => { setSurface(v); setSelectedPresetKey(""); }}
+              options={[["", "Chưa chọn"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]}
+            />
+
+            <div className="sm:col-span-2 lg:col-span-4 grid gap-3 rounded-lg border border-equine-line bg-white p-2.5 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+              <Field
+                label="Từ ngày"
+                name="start_date"
+                type="date"
+                required
+                value={startDate}
+                onChange={(v) => {
+                  setStartDate(v);
+                  if (v && (!endDate || endDate < v)) setEndDate(plusDays(v, 30));
+                }}
+              />
+              <Field
+                label="Đến ngày"
+                name="end_date"
+                type="date"
+                required
+                min={startDate || undefined}
+                value={endDate}
+                onChange={setEndDate}
+              />
+              <div className="flex flex-col justify-end">
+                <span className="field-label">Chọn nhanh thời hạn</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {([7, 14, 30, 60] as const).map((days) => {
+                    const base = startDate || today();
+                    const targetEnd = plusDays(base, days);
+                    const active = endDate === targetEnd;
+                    return (
+                      <button
+                        key={days}
+                        type="button"
+                        onClick={() => {
+                          if (!startDate) setStartDate(base);
+                          setEndDate(targetEnd);
+                        }}
+                        className={`rounded-lg border px-2.5 py-2 text-xs font-semibold transition ${
+                          active
+                            ? "border-equine-navy bg-equine-navy text-white"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        {days} ngày
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
-            <div className="flex items-end"><button className="gold-button w-full justify-center" disabled={busy || !canCreate}><Plus size={14} /> Lưu giáo án</button></div>
+
+            <div className="sm:col-span-2 lg:col-span-4">
+              <details>
+                <summary className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                  ⚙️ Tùy chọn nâng cao ({workloadMinutes || "180"}p/tuần · hạn sửa {deadlineHours || "24"}h)
+                </summary>
+                <div className="mt-2 grid gap-3 rounded-xl border border-equine-line bg-white p-3 sm:grid-cols-2">
+                  <Field
+                    label="Khối lượng (phút/tuần)"
+                    name="target_workload_minutes"
+                    type="number"
+                    min={1}
+                    required
+                    max={1440}
+                    value={workloadMinutes}
+                    onChange={(v) => { manualWorkloadRef.current = true; setWorkloadMinutes(v); }}
+                  />
+                  <Field
+                    label="Hạn sửa trước (giờ)"
+                    name="update_deadline_hours"
+                    type="number"
+                    min={0}
+                    value={deadlineHours}
+                    onChange={setDeadlineHours}
+                  />
+                  <div className="sm:col-span-2">
+                    <TextArea
+                      label="Mục tiêu"
+                      name="objective"
+                      rows={2}
+                      value={objective}
+                      onChange={setObjective}
+                    />
+                  </div>
+                </div>
+              </details>
+            </div>
+            <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-end gap-2 border-t border-slate-200 pt-3">
+              <button
+                type="button"
+                className="soft-button px-3 py-2 text-xs"
+                onClick={() => setShowCustomForm(false)}
+              >
+                Hủy
+              </button>
+              <button className="gold-button px-4 py-2 text-xs" disabled={busy || !canCreate || Boolean(overlapWarningPlan)}>
+                <Plus size={14} /> Lưu giáo án
+              </button>
+            </div>
           </form>
         </div>
       )}
 
-      {!showCustomForm && !editingPlan && (error || notice) && (
+      {!showCustomForm && !editingPlanObj && (error || notice) && (
         <div className="mb-3 space-y-2">
           {error && <Notice error>{error}</Notice>}
           {notice && <Notice>{notice}</Notice>}
         </div>
       )}
+      {editingPlanObj && (
+        <div className="mb-4 min-w-0 rounded-xl border border-amber-200 bg-amber-50/40 p-3.5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-amber-800">Chỉnh sửa giáo án</p>
+              <h4 className="truncate text-sm font-bold text-equine-navy">{editingPlanObj.stage_name}</h4>
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+              onClick={() => setEditingPlan(null)}
+            >
+              <X size={13} /> Đóng
+            </button>
+          </div>
+          {error && <div className="mb-3"><Notice error>{error}</Notice></div>}
+          <form key={editingPlanObj.id} onSubmit={(event) => onUpdate(event, editingPlanObj.id)} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Tên giai đoạn" name="stage_name" required defaultValue={editingPlanObj.stage_name} />
+            <SelectField label="Cường độ" name="target_intensity" required defaultValue={editingPlanObj.target_intensity ?? ""} options={[["", "Chưa đặt"], ["High", "Cao"], ["Medium", "Vừa"], ["Low", "Thấp"]]} />
+            <SelectField label="Cự ly (m)" name="target_distance_meters" required defaultValue={String(editingPlanObj.target_distance_meters ?? "")} options={distanceOptionsWithCurrent(editingPlanObj.target_distance_meters)} />
+            <SelectField label="Mặt sân" name="target_track_surface" required defaultValue={editingPlanObj.target_track_surface ?? ""} options={[["", "Chưa chọn"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
+            <Field label="Từ ngày" name="start_date" type="date" required defaultValue={editingPlanObj.start_date} />
+            <Field label="Đến ngày" name="end_date" type="date" required defaultValue={editingPlanObj.end_date} />
+            <Field label="Khối lượng (phút/tuần)" name="target_workload_minutes" type="number" min={1} required max={1440} defaultValue={editingPlanObj.target_workload_minutes} />
+            <Field label="Hạn sửa trước (giờ)" name="update_deadline_hours" type="number" min={0} defaultValue={editingPlanObj.update_deadline_hours} />
+            <div className="sm:col-span-2 lg:col-span-4">
+              <TextArea label="Mục tiêu" name="objective" defaultValue={editingPlanObj.objective} rows={2} />
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-1 sm:col-span-2 lg:col-span-4">
+              <button
+                type="button"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                disabled={busy}
+                onClick={() => setEditingPlan(null)}
+              >
+                <X size={13} /> Hủy
+              </button>
+              <button
+                type="submit"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#1d4ed8] px-3.5 text-xs font-bold text-white shadow-xs transition hover:bg-[#1e40af] disabled:opacity-50"
+                disabled={busy}
+              >
+                <Check size={14} /> Lưu thay đổi
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
       {plans.length === 0 ? (
-        <Notice>Chưa có giáo án{horse ? ` cho ${horse.horse_name}` : ""}. Bấm “+ Tạo giáo án mới” hoặc chọn nhanh 1 mẫu gợi ý bên dưới.</Notice>
+        <Notice>Chưa có giáo án{horse ? ` cho ${horse.horse_name}` : ""}. Bấm “+ Tạo giáo án mới” để tự tạo hoặc chọn nhanh từ 9 mẫu chuẩn.</Notice>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-equine-line bg-white">
           <table className="w-full min-w-[780px] text-left text-xs">
@@ -2272,7 +2473,7 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
 
                 return (
                   <Fragment key={plan.id}>
-                    <tr className="transition hover:bg-slate-50/90">
+                    <tr className={editingPlan === plan.id ? "bg-amber-50/60" : "transition hover:bg-slate-50/90"}>
                       <td className="px-3 py-2.5 align-middle">
                         <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${intensityBadge}`}>
                           {intensityLabel}
@@ -2298,15 +2499,15 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
                         <strong>{runInfo.runsPerSession} lượt × {runInfo.distancePerRunMeters.toLocaleString("vi-VN")}m</strong> ({runInfo.totalLaps} vòng)
                       </td>
                       <td className="px-3 py-2.5 align-middle">
-                        <span className="rounded-full bg-equine-mist px-2 py-0.5 text-[11px] font-semibold text-equine-navy">
+                        <span className="inline-flex items-center whitespace-nowrap rounded-full bg-equine-mist px-2.5 py-0.5 text-[11px] font-semibold text-equine-navy">
                           {plan.training_schedules_count} buổi
                         </span>
                       </td>
                       <td className="px-3 py-2.5 align-middle text-right">
-                        <div className="inline-flex flex-wrap items-center justify-end gap-1">
+                        <div className="inline-flex flex-nowrap items-center justify-end gap-1.5 whitespace-nowrap">
                           <button
                             type="button"
-                            className="gold-button px-2.5 py-1 text-xs"
+                            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-[#1d4ed8] px-2.5 text-xs font-semibold text-white shadow-2xs transition hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                             disabled={busy || Boolean(plan.end_date && plan.end_date < today())}
                             onClick={() => onSchedule(plan)}
                           >
@@ -2314,55 +2515,50 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
                           </button>
                           <button
                             type="button"
-                            className="soft-button px-2 py-1 text-xs"
+                            className={editingPlan === plan.id
+                              ? "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-amber-400 bg-amber-100 px-2.5 text-xs font-semibold text-amber-900 transition"
+                              : "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-xs font-semibold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"}
                             disabled={busy}
-                            onClick={() => { setConfirmDelete(null); setEditingPlan(editingPlan === plan.id ? null : plan.id); }}
+                            onClick={() => { setShowCustomForm(false); setConfirmDelete(null); setEditingPlan(editingPlan === plan.id ? null : plan.id); }}
                           >
-                            <Pencil size={12} />
+                            <Pencil size={12} /> Sửa
                           </button>
-                          {plan.training_schedules_count === 0 && (
-                            <button
-                              type="button"
-                              className="soft-button px-2 py-1 text-xs text-rose-700"
-                              disabled={busy}
-                              onClick={() => setConfirmDelete(confirmDelete === plan.id ? null : plan.id)}
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            className={confirmDelete === plan.id
+                              ? "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-rose-500 bg-rose-600 px-2.5 text-xs font-semibold text-white transition"
+                              : "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"}
+                            disabled={busy || plan.training_schedules_count > 0}
+                            title={plan.training_schedules_count > 0 ? `Không thể xóa vì giáo án đang gắn ${plan.training_schedules_count} buổi tập` : "Xóa giáo án"}
+                            onClick={() => setConfirmDelete(confirmDelete === plan.id ? null : plan.id)}
+                          >
+                            <Trash2 size={12} /> Xóa
+                          </button>
                         </div>
                       </td>
                     </tr>
-                    {editingPlan === plan.id && (
-                      <tr className="bg-slate-50">
-                        <td colSpan={6} className="p-3.5">
-                          {error && <div className="mb-2.5"><Notice error>{error}</Notice></div>}
-                          {notice && <div className="mb-2.5"><Notice>{notice}</Notice></div>}
-                          <form onSubmit={(event) => onUpdate(event, plan.id)} className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-                            <Field label="Tên giai đoạn" name="stage_name" required defaultValue={plan.stage_name} />
-                            <SelectField label="Cự ly (m)" name="target_distance_meters" required defaultValue={String(plan.target_distance_meters ?? "")} options={distanceOptionsWithCurrent(plan.target_distance_meters)} />
-                            <Field label="Khối lượng (phút/tuần)" name="target_workload_minutes" type="number" min={1} required max={1440} defaultValue={plan.target_workload_minutes} />
-                            <SelectField label="Mặt sân" name="target_track_surface" required defaultValue={plan.target_track_surface ?? ""} options={[["", "Chưa chọn"], ["Dirt", "Đất"], ["Turf", "Cỏ"], ["Synthetic", "Nhân tạo"]]} />
-                            <Field label="Bắt đầu" name="start_date" type="date" required defaultValue={plan.start_date} />
-                            <Field label="Kết thúc" name="end_date" type="date" required defaultValue={plan.end_date} />
-                            <SelectField label="Cường độ" name="target_intensity" required defaultValue={plan.target_intensity ?? ""} options={[["", "Chưa đặt"], ["High", "Cao"], ["Medium", "Vừa"], ["Low", "Thấp"]]} />
-                            <Field label="Hạn sửa (giờ)" name="update_deadline_hours" type="number" min={0} defaultValue={plan.update_deadline_hours} />
-                            <div className="sm:col-span-2 lg:col-span-3">
-                              <TextArea label="Mục tiêu" name="objective" defaultValue={plan.objective} rows={2} />
-                            </div>
-                            <div className="flex items-end gap-2"><button className="gold-button" disabled={busy}><Check size={14} /> Lưu</button><button type="button" className="soft-button" onClick={() => setEditingPlan(null)}><X size={14} /> Đóng</button></div>
-                          </form>
-                        </td>
-                      </tr>
-                    )}
                     {confirmDelete === plan.id && editingPlan !== plan.id && (
                       <tr className="bg-rose-50/80">
                         <td colSpan={6} className="px-4 py-2.5">
                           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-rose-900">
                             <span>Xóa giáo án <strong>“{plan.stage_name}”</strong>?</span>
                             <div className="flex gap-2">
-                              <button type="button" className="soft-button px-2.5 py-1" disabled={busy} onClick={() => setConfirmDelete(null)}>Hủy</button>
-                              <button type="button" className="soft-button border-rose-200 bg-rose-600 px-2.5 py-1 text-white hover:bg-rose-700" disabled={busy} onClick={() => { setConfirmDelete(null); onDelete(plan.id); }}><Trash2 size={12} /> Xóa</button>
+                              <button
+                                type="button"
+                                className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                                disabled={busy}
+                                onClick={() => setConfirmDelete(null)}
+                              >
+                                Hủy
+                              </button>
+                              <button
+                                type="button"
+                                className="inline-flex h-8 items-center gap-1 rounded-lg bg-rose-600 px-2.5 text-xs font-semibold text-white transition hover:bg-rose-700 disabled:opacity-50"
+                                disabled={busy}
+                                onClick={() => { setConfirmDelete(null); onDelete(plan.id); }}
+                              >
+                                <Trash2 size={12} /> Xóa
+                              </button>
                             </div>
                           </div>
                         </td>
@@ -2383,106 +2579,6 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
         <button type="button" className="soft-button min-w-9 justify-center px-3" onClick={() => setPlanPage((page) => Math.min(totalPlanPages, page + 1))} disabled={currentPlanPage === totalPlanPages} aria-label="Trang sau">›</button>
         <button type="button" className="soft-button min-w-9 justify-center px-3" onClick={() => setPlanPage(totalPlanPages)} disabled={currentPlanPage === totalPlanPages} aria-label="Trang cuối">»</button>
       </nav>}
-    </Section>
-
-    {/* Bảng phụ: 9 Mẫu giáo án chuẩn gợi ý nhanh */}
-    <Section
-      title="Mẫu giáo án gợi ý nhanh (9 mẫu chuẩn)"
-      icon={ClipboardList}
-      action={
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-          <div className="relative flex-1 min-w-[200px] sm:w-64 sm:flex-none">
-            <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={planSearch}
-              onChange={(e) => setPlanSearch(e.target.value)}
-              placeholder="Tìm giáo án, cự ly, sân..."
-              className="h-9 w-full rounded-lg border border-equine-line bg-white pl-8 pr-7 text-xs text-slate-800 outline-none focus:border-equine-navy"
-            />
-            {planSearch && (
-              <button
-                type="button"
-                onClick={() => setPlanSearch("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                title="Xóa tìm kiếm"
-              >
-                <X size={12} />
-              </button>
-            )}
-          </div>
-          <div className="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-slate-50 p-0.5">
-            {(["ALL", "CAO", "VỪA", "THẤP"] as const).map((lvl) => (
-              <button
-                key={lvl}
-                type="button"
-                onClick={() => setLevelFilter(lvl)}
-                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                  levelFilter === lvl ? "bg-equine-navy text-white shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900"
-                }`}
-              >
-                {lvl === "ALL" ? "Tất cả" : `Mức ${lvl}`}
-              </button>
-            ))}
-          </div>
-        </div>
-      }
-    >
-      <div className="overflow-x-auto rounded-xl border border-equine-line bg-white">
-        <table className="w-full min-w-[780px] text-left text-xs">
-          <thead>
-            <tr className="border-b border-equine-line bg-slate-100 text-[11px] font-extrabold uppercase tracking-wide text-slate-700">
-              <th className="px-3 py-2.5">Mức độ</th>
-              <th className="px-3 py-2.5">Giáo án</th>
-              <th className="px-3 py-2.5">Thông số tự điền</th>
-              <th className="px-3 py-2.5">Số lượt chạy / ca (90p)</th>
-              <th className="px-3 py-2.5 text-right">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-equine-line">
-            {filteredStandardRegimens.map((reg) => {
-              const runInfo = analyzeSessionRunStructure(reg.target_distance_meters, reg.target_intensity);
-              return (
-                <tr
-                  key={reg.key}
-                  className="transition hover:bg-slate-50/80"
-                >
-                  <td className="px-3 py-2 align-middle">
-                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${reg.badgeClass}`}>
-                      {reg.shortBadge}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 align-middle">
-                    <p className="font-bold text-equine-navy">{reg.title}</p>
-                    <p className="text-[11px] text-slate-500">{reg.subtitle}</p>
-                  </td>
-                  <td className="px-3 py-2 align-middle font-medium text-slate-800">
-                    <strong>{reg.target_distance_meters.toLocaleString("vi-VN")}m</strong> · {surfaceLabel(reg.target_track_surface)} · {reg.recommended_sessions_per_week} buổi/tuần ({reg.target_workload_minutes}p)
-                  </td>
-                  <td className="px-3 py-2 align-middle">
-                    <strong className="text-slate-900">
-                      {runInfo.runsPerSession} lượt × {runInfo.distancePerRunMeters.toLocaleString("vi-VN")}m
-                    </strong>
-                    <span className="ml-1 text-[11px] text-slate-500">
-                      ({runInfo.totalLaps} vòng · nghỉ {runInfo.restBetweenRunsMinutes}p)
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 align-middle text-right">
-                    <button
-                      type="button"
-                      disabled={busy || !canCreate}
-                      onClick={() => void onApplyRegimen(reg, selectedHorseIds.length ? selectedHorseIds : (horse ? [horse.id] : []), true)}
-                      className="gold-button px-2.5 py-1 text-xs"
-                    >
-                      <CalendarDays size={12} /> Áp dụng & lên lịch
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
     </Section>
   </div>;
 }
@@ -3184,7 +3280,7 @@ function CalendarPanel({ selectedHorseId, onSelectHorse, overview, horses, sessi
   const [intensityFilter, setIntensityFilter] = useState<"ALL" | "High" | "Medium" | "Low">("ALL");
   const [horseFilterState, setHorseFilterState] = useState<HorseSearchFilterState | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "Scheduled" | "Overdue" | "InProgress" | "Completed" | "Cancelled">("all");
-  const [includeCareEvents, setIncludeCareEvents] = useState(true);
+  const [includeCareEvents, setIncludeCareEvents] = useState(false);
   const [showAllSlots, setShowAllSlots] = useState(true);
   const [showDispatchDrawer, setShowDispatchDrawer] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(() => Boolean(scheduleDraft));
@@ -5776,6 +5872,8 @@ function SelectField({ label, name, options, value, defaultValue, onChange, requ
   return <label className="block"><span className="field-label">{label}</span><select required={required} name={name} value={value} defaultValue={value === undefined ? defaultValue : undefined} onChange={onChange ? (event) => onChange(event.target.value) : undefined} className="field-control px-3">{options.map(([optionValue, text]) => <option key={optionValue} value={optionValue}>{text}</option>)}</select></label>;
 }
 
-function TextArea({ label, name, required = false, defaultValue, rows = 3 }: { label: string; name: string; required?: boolean; defaultValue?: string | null; rows?: number }) {
-  return <label className="block"><span className="field-label">{label}</span><textarea name={name} required={required} defaultValue={defaultValue ?? ""} rows={rows} className="field-control px-3 py-2" /></label>;
+function TextArea({ label, name, required = false, defaultValue, value, onChange, rows = 3 }: {
+  label: string; name: string; required?: boolean; defaultValue?: string | null; value?: string; onChange?: (value: string) => void; rows?: number;
+}) {
+  return <label className="block"><span className="field-label">{label}</span><textarea name={name} required={required} value={value} defaultValue={value === undefined ? defaultValue ?? "" : undefined} onChange={onChange ? (event) => onChange(event.target.value) : undefined} rows={rows} className="field-control px-3 py-2" /></label>;
 }
