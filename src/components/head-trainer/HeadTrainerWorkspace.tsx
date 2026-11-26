@@ -2069,22 +2069,10 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
   const unlockedHorses = useMemo(() => horses.filter((h) => !h.is_training_locked), [horses]);
   const { uniquePlans, hiddenDuplicateCount } = useMemo(() => deduplicateAndSortPlans(allPlans), [allPlans]);
   const displayPlansSource = useMemo(() => {
-    const baseList = showDuplicatePlans
+    return showDuplicatePlans
       ? [...allPlans].sort((a, b) => intensityOrderScore(a.target_intensity) - intensityOrderScore(b.target_intensity))
       : uniquePlans;
-    const q = normalizeHorseSearch(planSearch.trim());
-    return baseList.filter((p) => {
-      if (levelFilter === "CAO" && p.target_intensity !== "High") return false;
-      if (levelFilter === "VỪA" && p.target_intensity !== "Medium") return false;
-      if (levelFilter === "THẤP" && p.target_intensity !== "Low") return false;
-      if (q) {
-        const planText = normalizeHorseSearch(`${p.stage_name ?? ""} ${p.objective ?? ""} ${p.target_track_surface ?? ""} ${p.target_distance_meters ?? ""}`);
-        const matchesHorseName = unlockedHorses.some((h) => normalizeHorseSearch(`${h.horse_name ?? ""} ${h.box_code ?? ""}`).includes(q));
-        if (!planText.includes(q) && !matchesHorseName) return false;
-      }
-      return true;
-    });
-  }, [allPlans, uniquePlans, showDuplicatePlans, planSearch, levelFilter, unlockedHorses]);
+  }, [allPlans, uniquePlans, showDuplicatePlans]);
 
   const filteredStandardRegimens = useMemo(() => {
     const q = normalizeHorseSearch(planSearch.trim());
@@ -2162,110 +2150,9 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
 
   const canCreate = selectedHorseIds.length > 0 && selectedHorseIds.every((id) => horses.some((item) => item.id === id && !item.is_training_locked));
   return <div className="space-y-4">
+    {/* Bảng CHÍNH: Giáo án thật đã lưu của ngựa */}
     <Section
-      title="Giáo án chuẩn (Cao → Vừa → Thấp)"
-      icon={ClipboardList}
-      action={
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-          <div className="relative flex-1 min-w-[200px] sm:w-64 sm:flex-none">
-            <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={planSearch}
-              onChange={(e) => setPlanSearch(e.target.value)}
-              placeholder="Tìm giáo án, cự ly, sân..."
-              className="h-9 w-full rounded-lg border border-equine-line bg-white pl-8 pr-7 text-xs text-slate-800 outline-none focus:border-equine-navy"
-            />
-            {planSearch && (
-              <button
-                type="button"
-                onClick={() => setPlanSearch("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                title="Xóa tìm kiếm"
-              >
-                <X size={12} />
-              </button>
-            )}
-          </div>
-          <div className="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-slate-50 p-0.5">
-            {(["ALL", "CAO", "VỪA", "THẤP"] as const).map((lvl) => (
-              <button
-                key={lvl}
-                type="button"
-                onClick={() => setLevelFilter(lvl)}
-                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
-                  levelFilter === lvl ? "bg-equine-navy text-white shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900"
-                }`}
-              >
-                {lvl === "ALL" ? "Tất cả" : `Mức ${lvl}`}
-              </button>
-            ))}
-          </div>
-        </div>
-      }
-    >
-
-      {/* Bảng List 9 Giáo án Chuẩn: CAO (3) -> VỪA (3) -> THẤP (3) */}
-      <div className="overflow-x-auto rounded-xl border border-equine-line bg-white">
-        <table className="w-full min-w-[780px] text-left text-xs">
-          <thead>
-            <tr className="border-b border-equine-line bg-slate-100 text-[11px] font-extrabold uppercase tracking-wide text-slate-700">
-              <th className="px-3 py-2.5">Mức độ</th>
-              <th className="px-3 py-2.5">Giáo án</th>
-              <th className="px-3 py-2.5">Thông số tự điền</th>
-              <th className="px-3 py-2.5">Số lượt chạy / ca (90p)</th>
-              <th className="px-3 py-2.5 text-right">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-equine-line">
-            {filteredStandardRegimens.map((reg) => {
-              const runInfo = analyzeSessionRunStructure(reg.target_distance_meters, reg.target_intensity);
-              return (
-                <tr
-                  key={reg.key}
-                  className="transition hover:bg-slate-50/80"
-                >
-                  <td className="px-3 py-2 align-middle">
-                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${reg.badgeClass}`}>
-                      {reg.shortBadge}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 align-middle">
-                    <p className="font-bold text-equine-navy">{reg.title}</p>
-                    <p className="text-[11px] text-slate-500">{reg.subtitle}</p>
-                  </td>
-                  <td className="px-3 py-2 align-middle font-medium text-slate-800">
-                    <strong>{reg.target_distance_meters.toLocaleString("vi-VN")}m</strong> · {surfaceLabel(reg.target_track_surface)} · {reg.recommended_sessions_per_week} buổi/tuần ({reg.target_workload_minutes}p)
-                  </td>
-                  <td className="px-3 py-2 align-middle">
-                    <strong className="text-slate-900">
-                      {runInfo.runsPerSession} lượt × {runInfo.distancePerRunMeters.toLocaleString("vi-VN")}m
-                    </strong>
-                    <span className="ml-1 text-[11px] text-slate-500">
-                      ({runInfo.totalLaps} vòng · nghỉ {runInfo.restBetweenRunsMinutes}p)
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 align-middle text-right">
-                    <button
-                      type="button"
-                      disabled={busy || !canCreate}
-                      onClick={() => void onApplyRegimen(reg, selectedHorseIds.length ? selectedHorseIds : (horse ? [horse.id] : []), true)}
-                      className="gold-button px-2.5 py-1 text-xs"
-                    >
-                      <CalendarDays size={12} /> Chọn lên lịch
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </Section>
-
-    {/* Danh sách Giáo án đã có của ngựa */}
-    <Section
-      title={horse ? `Giáo án đã có — ${horse.horse_name}` : "Giáo án đã có"}
+      title={horse ? `Giáo án của ${horse.horse_name}` : "Giáo án của ngựa"}
       icon={ClipboardList}
       action={
         <div className="flex flex-wrap items-center gap-2.5 text-xs">
@@ -2286,9 +2173,9 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
           <button
             type="button"
             onClick={() => setShowCustomForm((v) => !v)}
-            className="soft-button px-2.5 py-1.5 text-xs"
+            className={showCustomForm ? "soft-button px-2.5 py-1.5 text-xs" : "gold-button px-2.5 py-1.5 text-xs"}
           >
-            <Plus size={13} /> {showCustomForm ? "Đóng form" : "Tạo tùy chỉnh"}
+            <Plus size={13} /> {showCustomForm ? "Đóng form" : "Tạo giáo án mới"}
           </button>
         </div>
       }
@@ -2359,7 +2246,7 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
         </div>
       )}
       {plans.length === 0 ? (
-        <Notice>Chưa có giáo án. Hãy chọn 1 trong 3 mức Cao / Vừa / Thấp ở trên.</Notice>
+        <Notice>Chưa có giáo án{horse ? ` cho ${horse.horse_name}` : ""}. Bấm “+ Tạo giáo án mới” hoặc chọn nhanh 1 mẫu gợi ý bên dưới.</Notice>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-equine-line bg-white">
           <table className="w-full min-w-[780px] text-left text-xs">
@@ -2394,7 +2281,11 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
                       <td className="px-3 py-2.5 align-middle">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <strong className="font-bold text-equine-navy">{plan.stage_name}</strong>
-                          {!plan.is_active && (
+                          {plan.is_active ? (
+                            <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">Đang áp dụng</span>
+                          ) : plan.start_date && plan.start_date > today() ? (
+                            <span className="rounded bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700">Sắp tới</span>
+                          ) : (
                             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">Hết hạn</span>
                           )}
                         </div>
@@ -2492,6 +2383,106 @@ function PlansPanel({ horse, horses, plans: allPlans, activeOnly, setActiveOnly,
         <button type="button" className="soft-button min-w-9 justify-center px-3" onClick={() => setPlanPage((page) => Math.min(totalPlanPages, page + 1))} disabled={currentPlanPage === totalPlanPages} aria-label="Trang sau">›</button>
         <button type="button" className="soft-button min-w-9 justify-center px-3" onClick={() => setPlanPage(totalPlanPages)} disabled={currentPlanPage === totalPlanPages} aria-label="Trang cuối">»</button>
       </nav>}
+    </Section>
+
+    {/* Bảng phụ: 9 Mẫu giáo án chuẩn gợi ý nhanh */}
+    <Section
+      title="Mẫu giáo án gợi ý nhanh (9 mẫu chuẩn)"
+      icon={ClipboardList}
+      action={
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <div className="relative flex-1 min-w-[200px] sm:w-64 sm:flex-none">
+            <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={planSearch}
+              onChange={(e) => setPlanSearch(e.target.value)}
+              placeholder="Tìm giáo án, cự ly, sân..."
+              className="h-9 w-full rounded-lg border border-equine-line bg-white pl-8 pr-7 text-xs text-slate-800 outline-none focus:border-equine-navy"
+            />
+            {planSearch && (
+              <button
+                type="button"
+                onClick={() => setPlanSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                title="Xóa tìm kiếm"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+          <div className="inline-flex h-9 items-center rounded-lg border border-slate-300 bg-slate-50 p-0.5">
+            {(["ALL", "CAO", "VỪA", "THẤP"] as const).map((lvl) => (
+              <button
+                key={lvl}
+                type="button"
+                onClick={() => setLevelFilter(lvl)}
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  levelFilter === lvl ? "bg-equine-navy text-white shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900"
+                }`}
+              >
+                {lvl === "ALL" ? "Tất cả" : `Mức ${lvl}`}
+              </button>
+            ))}
+          </div>
+        </div>
+      }
+    >
+      <div className="overflow-x-auto rounded-xl border border-equine-line bg-white">
+        <table className="w-full min-w-[780px] text-left text-xs">
+          <thead>
+            <tr className="border-b border-equine-line bg-slate-100 text-[11px] font-extrabold uppercase tracking-wide text-slate-700">
+              <th className="px-3 py-2.5">Mức độ</th>
+              <th className="px-3 py-2.5">Giáo án</th>
+              <th className="px-3 py-2.5">Thông số tự điền</th>
+              <th className="px-3 py-2.5">Số lượt chạy / ca (90p)</th>
+              <th className="px-3 py-2.5 text-right">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-equine-line">
+            {filteredStandardRegimens.map((reg) => {
+              const runInfo = analyzeSessionRunStructure(reg.target_distance_meters, reg.target_intensity);
+              return (
+                <tr
+                  key={reg.key}
+                  className="transition hover:bg-slate-50/80"
+                >
+                  <td className="px-3 py-2 align-middle">
+                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-extrabold ${reg.badgeClass}`}>
+                      {reg.shortBadge}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 align-middle">
+                    <p className="font-bold text-equine-navy">{reg.title}</p>
+                    <p className="text-[11px] text-slate-500">{reg.subtitle}</p>
+                  </td>
+                  <td className="px-3 py-2 align-middle font-medium text-slate-800">
+                    <strong>{reg.target_distance_meters.toLocaleString("vi-VN")}m</strong> · {surfaceLabel(reg.target_track_surface)} · {reg.recommended_sessions_per_week} buổi/tuần ({reg.target_workload_minutes}p)
+                  </td>
+                  <td className="px-3 py-2 align-middle">
+                    <strong className="text-slate-900">
+                      {runInfo.runsPerSession} lượt × {runInfo.distancePerRunMeters.toLocaleString("vi-VN")}m
+                    </strong>
+                    <span className="ml-1 text-[11px] text-slate-500">
+                      ({runInfo.totalLaps} vòng · nghỉ {runInfo.restBetweenRunsMinutes}p)
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 align-middle text-right">
+                    <button
+                      type="button"
+                      disabled={busy || !canCreate}
+                      onClick={() => void onApplyRegimen(reg, selectedHorseIds.length ? selectedHorseIds : (horse ? [horse.id] : []), true)}
+                      className="gold-button px-2.5 py-1 text-xs"
+                    >
+                      <CalendarDays size={12} /> Áp dụng & lên lịch
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </Section>
   </div>;
 }
