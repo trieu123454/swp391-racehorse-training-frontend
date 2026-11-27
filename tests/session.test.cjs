@@ -27,6 +27,24 @@ const user = { id: 1, fullName: "Owner", email: "owner@example.com", roleName: "
 const auth = { accessToken: "access", refreshToken: "refresh", user };
 const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
 
+test("409 preserves backend code, message and details without automatic retry", async () => {
+  let calls = 0;
+  const details = { injury_markers: [{ id: "injury-1", body_part: "Leg", recovery_status: "Active", marked_at: "2026-11-26T10:00:00Z" }] };
+  const app = setup(async () => {
+    calls++;
+    return reply(409, { error: { code: "ACTIVE_INJURY_MARKER", message: "Chưa hồi phục", details } });
+  });
+  app.session.saveSession(auth);
+  await assert.rejects(app.api.authenticatedRequest("/api/horses/horse-1/health-status", { method: "PATCH", body: "{}" }), error => {
+    assert.equal(error.status, 409);
+    assert.equal(error.code, "ACTIVE_INJURY_MARKER");
+    assert.equal(error.message, "Chưa hồi phục");
+    assert.equal(JSON.stringify(error.details), JSON.stringify(details));
+    return true;
+  });
+  assert.equal(calls, 1);
+});
+
 test("sessions stay in the current tab and remember choice controls refresh credentials", () => {
   const { session, localStorage, sessionStorage } = setup();
   session.saveSession(auth);

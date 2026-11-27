@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, Shield, ShieldAlert, X } from "lucide-react";
 import { horseRequest, horseStatus, type Horse } from "@/api/horses/api";
 import { APP_MUTATION_COMPLETED_EVENT, SWR_CACHE_UPDATED_EVENT } from "@/api/client";
@@ -108,12 +109,31 @@ export function StatusBadge({ horse }: { horse: Horse }) {
 
 export function Notice({ children, error = false, variant }: { children: ReactNode; error?: boolean; variant?: "error" | "warning" | "success" | "info" }) {
   const finalVariant = variant ?? (error ? "error" : "info");
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    let region = document.getElementById("workspace-floating-notices");
+    if (!region) {
+      region = document.createElement("div");
+      region.id = "workspace-floating-notices";
+      region.className = "pointer-events-none fixed right-4 top-[5.75rem] z-[200] flex max-h-[80vh] w-[calc(100vw_-_2rem)] max-w-md flex-col gap-3 overflow-y-auto sm:right-6";
+      document.body.appendChild(region);
+    }
+    setHost(region);
+  }, []);
+  useEffect(() => {
+    setVisible(true);
+    const timer = window.setTimeout(() => setVisible(false), finalVariant === "error" || finalVariant === "warning" ? 8000 : 5000);
+    return () => window.clearTimeout(timer);
+  }, [children, finalVariant]);
   const Icon = finalVariant === "error" ? AlertCircle : finalVariant === "warning" ? AlertTriangle : finalVariant === "success" ? CheckCircle2 : Info;
-  return (
-    <div role={finalVariant === "error" ? "alert" : "status"} className={`horse-notice ${finalVariant}`}>
+  if (!host || !visible) return null;
+  return createPortal(
+    <div role={finalVariant === "error" ? "alert" : "status"} className={`horse-notice ${finalVariant} pointer-events-auto !m-0 shadow-xl`}>
       <Icon size={16} className="mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1">{children}</div>
-    </div>
+      <button type="button" aria-label="Đóng thông báo" className="shrink-0 rounded p-1 hover:bg-black/5" onClick={() => setVisible(false)}><X size={16} /></button>
+    </div>, host
   );
 }
 

@@ -11,6 +11,8 @@ export class ApiRequestError extends Error {
   constructor(
     message: string,
     public status: number,
+    public code?: string,
+    public details?: unknown,
   ) {
     super(message);
   }
@@ -125,8 +127,10 @@ const API_BASE_URL =
   (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080").replace(/\/+$/, "");
 
 type ApiError = {
+  code?: string;
   message?: string;
   error?: {
+    code?: string;
     message?: string;
     details?: unknown;
   };
@@ -167,7 +171,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       error = { message: response.statusText };
     }
-    throw new ApiRequestError(extractApiErrorMessage(error, response.statusText), response.status);
+    throw new ApiRequestError(extractApiErrorMessage(error, response.statusText), response.status, error.error?.code ?? error.code, error.error?.details);
   }
 
   if (response.status === 204) return undefined as T;

@@ -19,7 +19,6 @@ import {
   LockKeyhole,
   MapPin,
   Pill,
-  Search,
   ShieldAlert,
   Stethoscope,
   UnlockKeyhole,
@@ -40,6 +39,7 @@ const InjuryModel3D = dynamic(() => import("@/components/veterinarian/InjuryMode
   loading: () => <p role="status" className="p-5 text-sm text-slate-500">Đang tải mô hình 3D…</p>,
 });
 import StableWorkspace from "./StableWorkspace";
+import { createInjuryWorkflow } from "@/lib/injury-workflow";
 import { formatDisplayDate, formatDoctorDisplayName, formatStableSection } from "@/lib/display-format";
 import { activeRecurringRules, buildCareProjections, careRulesForDoctor } from "@/lib/care-projections";
 import { careCalendarTarget } from "@/lib/care-calendar-navigation";
@@ -102,7 +102,14 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
   const [overview, setOverview] = useState<HealthOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [selectedId, setSelectedId] = useState("");
+  const [selectedId, setSelectedHorseId] = useState("");
+  const setSelectedId = useCallback((id: string) => {
+    setSelectedHorseId(id);
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set("horse", id);
+    else url.searchParams.delete("horse");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
   const [tab, selectTab] = useDashboardTab(workspaceTabIds, "overview");
   const [autoOpenExam, setAutoOpenExam] = useState(false);
   const [linkedScheduleId, setLinkedScheduleId] = useState<string | undefined>(undefined);
@@ -113,7 +120,7 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
     try {
       const result = await veterinarianApi.overview();
       setOverview(result);
-      setSelectedId((current) => {
+      setSelectedHorseId((current) => {
         const linkedId = new URLSearchParams(window.location.search).get("horse");
         const candidate = current || linkedId;
         return result.horses.some((horse) => horse.id === candidate) ? candidate! : result.horses[0]?.id ?? "";
@@ -146,9 +153,14 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
       const horseId = new URLSearchParams(window.location.search).get("horse");
       if (horseId && horses.some((horse) => horse.id === horseId)) setSelectedId(horseId);
     };
-    selectLinkedHorse(); window.addEventListener("workspace-tab-change", selectLinkedHorse);
-    return () => window.removeEventListener("workspace-tab-change", selectLinkedHorse);
-  }, [horses]);
+    selectLinkedHorse();
+    window.addEventListener("workspace-tab-change", selectLinkedHorse);
+    window.addEventListener("popstate", selectLinkedHorse);
+    return () => {
+      window.removeEventListener("workspace-tab-change", selectLinkedHorse);
+      window.removeEventListener("popstate", selectLinkedHorse);
+    };
+  }, [horses, setSelectedId]);
   function changed(message: string) {
     showToast(message);
   }
@@ -198,7 +210,7 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
           {isSingleHorseTab && horse && <>
             {tab !== "exams" && <HorseSummary horse={horse} />}
             <div className="mt-4">
-              {tab === "overview" && <HorseStatusPanel horse={horse} onChanged={changed} />}
+              {tab === "overview" && <HorseStatusPanel key={horse.id} horse={horse} onChanged={changed} onOpenInjuries={() => selectTab("injuries")} />}
               {tab === "exams" && (
                 <ExamsPanel
                   key={horse.id}
@@ -217,7 +229,7 @@ export default function VeterinarianWorkspace({ isHeadVet }: { isHeadVet?: boole
               )}
               {tab === "medical" && <MedicalPanel horse={horse} onChanged={changed} />}
               {tab === "diet" && <DietPanel horse={horse} onChanged={changed} />}
-              {tab === "injuries" && <InjuriesPanel horse={horse} onChanged={changed} />}
+              {tab === "injuries" && <InjuriesPanel key={horse.id} horse={horse} onChanged={changed} onRefresh={loadOverview} />}
             </div>
           </>}
           {!horse && loading && !["stables", "incidents", "notifications"].includes(tab) && <WorkspaceSkeleton label="Đang tải hồ sơ sức khỏe..." />}
@@ -294,17 +306,22 @@ function Empty({ children }: { children: string }) {
   return <p className="rounded-xl bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">{children}</p>;
 }
 
-function HorseStatusPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message: string) => void }) {
+function HorseStatusPanel({ horse, onChanged, onOpenInjuries }: { horse: VetHorse; onChanged: (message: string) => void; onOpenInjuries: () => void }) {
   const [error, setError] = useState("");
+  const [needsInjuryReview, setNeedsInjuryReview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [suggestLock, setSuggestLock] = useState(false);
   const [sessions, setSessions] = useState<{ training_schedule_id?: string; event_date?: string; start_time?: string; session_type?: string }[]>([]);
   async function updateStatus(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(""); setSuggestLock(false);
+    event.preventDefault(); setBusy(true); setError(""); setSuggestLock(false); setNeedsInjuryReview(false);
     const values = formValues(event.currentTarget);
     try {
       const status = String(values.current_status);
       const readiness = String(values.readiness_status);
+      if (["Injured", "Quarantine"].includes(status) && readiness === "Ready") {
+        setError("Ngựa chấn thương hoặc cách ly chưa thể sẵn sàng thi đấu. Hãy chọn Chưa sẵn sàng hoặc Chưa đánh giá.");
+        return;
+      }
       const result = await veterinarianApi.updateHealthStatus(horse.id, status, readiness, String(values.note ?? ""));
       setSuggestLock(["Injured", "Quarantine"].includes(status));
       setSessions(result.upcoming_sessions ?? []);
@@ -312,7 +329,10 @@ function HorseStatusPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (m
       const relocationNotice = result.stable_relocation?.message ? ` ${result.stable_relocation.message}` : "";
       onChanged(`Đã cập nhật sức khỏe: ${statusLabels[status] ?? status}; ${readinessLabels[readiness] ?? readiness}.${lockNotice}${relocationNotice}`);
     }
-    catch (reason) { setError(veterinarianError(reason)); }
+    catch (reason) {
+      setError(veterinarianError(reason));
+      setNeedsInjuryReview(reason instanceof ApiRequestError && reason.code === "ACTIVE_INJURY_MARKER");
+    }
     finally { setBusy(false); }
   }
   async function lock(event: FormEvent<HTMLFormElement>) {
@@ -328,6 +348,7 @@ function HorseStatusPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (m
     finally { setBusy(false); }
   }
   return <div className="space-y-4">
+    {error && <div role="alert"><ErrorLine>{error}</ErrorLine>{needsInjuryReview && <button type="button" className="soft-button mt-2" onClick={onOpenInjuries}>Mở mục Chấn thương để cập nhật hồi phục</button>}</div>}
     <SectionCard title="Trạng thái sức khỏe" description="Cập nhật trạng thái sau khi khám. Trạng thái sức khỏe và khóa huấn luyện được quản lý riêng." icon={HeartPulse}>
       <form onSubmit={updateStatus} className="grid gap-3 sm:grid-cols-2 sm:items-end"><SelectField label="Trạng thái mới" name="current_status" defaultValue={horse.current_status} required options={[{ value: "Healthy", label: "Khỏe mạnh" }, { value: "Monitoring", label: "Cần theo dõi" }, { value: "Injured", label: "Chấn thương" }, { value: "Quarantine", label: "Cách ly" }]} /><SelectField label="Sẵn sàng thi đấu" name="readiness_status" defaultValue={horse.readiness_status ?? "Unknown"} required options={[{ value: "Ready", label: "Sẵn sàng" }, { value: "NotReady", label: "Chưa sẵn sàng" }, { value: "Unknown", label: "Chưa đánh giá" }]} /><Field label="Ghi chú kiểm tra (không bắt buộc)" name="note" maxLength={500} placeholder="Lý do thay đổi..." /><button className="gold-button h-12" disabled={busy}><Check size={15} /> Lưu trạng thái</button></form>
       {suggestLock && <p className="mt-3 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900"><AlertTriangle size={16} /> Trạng thái này tự động khóa lịch huấn luyện sắp tới. Hãy xử lý các lịch bị chặn trước khi mở khóa.</p>}
@@ -336,7 +357,6 @@ function HorseStatusPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (m
       {horse.is_training_locked ? <div className="space-y-4"><div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"><strong>Đang khóa · {horse.lock_level}</strong><p className="mt-1">{horse.lock_reason}</p></div><form onSubmit={unlock} className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end"><Field label="Lý do mở khóa" name="reason" required maxLength={500} placeholder="Ví dụ: đã hồi phục, kết quả kiểm tra bình thường" /><button className="soft-button h-12 border-emerald-200 bg-emerald-50 px-4 text-emerald-800" disabled={busy}><UnlockKeyhole size={15} /> Mở khóa</button></form></div> : <form onSubmit={lock} className="grid gap-3 md:grid-cols-[180px_1fr_auto] md:items-end"><SelectField label="Mức cảnh báo" name="lock_level" required options={[{ value: "Warning", label: "Warning · Cam" }, { value: "Critical", label: "Critical · Đỏ" }]} /><Field label="Lý do khóa" name="lock_reason" required maxLength={255} placeholder="Mô tả ngắn tình trạng cần ngừng tập" /><button className="soft-button h-12 border-rose-200 bg-rose-50 px-4 text-rose-800" disabled={busy}><ShieldAlert size={15} /> Khóa huấn luyện</button></form>}
       {sessions.length > 0 && <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="font-semibold text-amber-900">Lịch tập sắp tới cần được xử lý</p><ul className="mt-2 space-y-1 text-sm text-amber-900">{sessions.map((item) => <li key={item.training_schedule_id}>{displayDate(item.event_date)} {item.start_time ?? ""} · {item.session_type ?? "Training"}</li>)}</ul></div>}
     </SectionCard>
-    <ErrorLine>{error}</ErrorLine>
   </div>;
 }
 
@@ -960,7 +980,7 @@ function injuryCoordinatePayload(coordinates: InjuryCase["coordinates"]): Record
 
 function statusFromLegacyMarker(marker: InjuryMarker, index: number): InjuryTimelineStatus {
   const metadata = injuryMetadata(marker);
-  if (metadata) return metadata.status;
+  if (metadata && recoveryStatusFor(metadata.status) === marker.recovery_status) return metadata.status;
   if (marker.recovery_status === "Recovering") return "Recovering";
   if (marker.recovery_status === "Recovered") return "Recovered";
   return index === 0 ? "New" : "Treatment";
@@ -981,50 +1001,24 @@ function inferInjuryGroup(bodyPart: string): InjuryGroup {
   return "SoftTissue";
 }
 
-function buildInjuryCases(markers: InjuryMarker[]): InjuryCase[] {
-  const ordered = [...markers].sort((a, b) => Date.parse(a.marked_at) - Date.parse(b.marked_at));
-  const cases: InjuryCase[] = [];
-  const legacyByPart = new Map<string, InjuryMarker[]>();
-  for (const marker of ordered) {
-    const key = marker.body_part.trim().toLocaleLowerCase("vi");
-    const entries = legacyByPart.get(key) ?? [];
-    entries.push(marker);
-    legacyByPart.set(key, entries);
-  }
-  for (const [key, entries] of legacyByPart) {
-    const episodes: InjuryMarker[][] = [];
-    for (const marker of entries) {
-      const current = episodes.at(-1);
-      if (!current || (current.at(-1)?.recovery_status === "Recovered" && marker.recovery_status === "Active")) episodes.push([marker]);
-      else current.push(marker);
-    }
-    episodes.forEach((episode) => {
-      const [first, ...rest] = episode;
-      if (!first) return;
-      const timeline: InjuryTimelineEntry[] = episode.map((marker, index) => ({
-        id: marker.id,
-        date: marker.marked_at,
-        status: statusFromLegacyMarker(marker, index),
-        note: visibleInjuryNote(marker.description),
-        updated_by: marker.marked_by,
-      }));
-      const latest = rest.at(-1) ?? first;
-      cases.push({
-        id: first.id,
-        markerIds: episode.map((marker) => marker.id),
-        bodyPart: latest.body_part,
-        group: latest.injury_group ?? injuryMetadata(latest)?.group ?? inferInjuryGroup(key),
-        severity: latest.severity,
-        timeline,
-        coordinates: {
-          x: latest.coordinate_x ?? first.coordinate_x,
-          y: latest.coordinate_y ?? first.coordinate_y,
-          z: latest.coordinate_z ?? first.coordinate_z,
-        },
-      });
-    });
-  }
-  return cases;
+function buildInjuryCases(markers: InjuryMarker[], latestMarkers: InjuryMarker[]): InjuryCase[] {
+  // Only the backend snapshot determines the current marker. History is sorted for display.
+  return latestMarkers.map((latest) => {
+    const key = latest.body_part.trim().toLocaleLowerCase("vi");
+    const history = markers.filter((marker) => marker.id !== latest.id && marker.body_part.trim().toLocaleLowerCase("vi") === key)
+      .sort((a, b) => Date.parse(a.marked_at) - Date.parse(b.marked_at));
+    const entries = [...history, latest];
+    return {
+      id: latest.id,
+      markerIds: entries.map((marker) => marker.id),
+      bodyPart: latest.body_part,
+      group: latest.injury_group ?? injuryMetadata(latest)?.group ?? inferInjuryGroup(key),
+      severity: latest.severity,
+      timeline: entries.map((marker, index) => ({ id: marker.id, date: marker.marked_at,
+        status: statusFromLegacyMarker(marker, index), note: visibleInjuryNote(marker.description), updated_by: marker.marked_by })),
+      coordinates: { x: latest.coordinate_x, y: latest.coordinate_y, z: latest.coordinate_z },
+    };
+  });
 }
 
 function currentInjuryStatus(injury: InjuryCase): InjuryTimelineStatus {
@@ -1052,8 +1046,12 @@ function severityBars(severity: InjuryMarker["severity"]) {
   return <span className="inline-flex items-center gap-1" aria-hidden="true">{[1, 2, 3].map((bar) => <i key={bar} className={`h-3 w-1.5 rounded-sm ${bar <= count ? "bg-amber-600" : "bg-slate-200"}`} />)}</span>;
 }
 
-function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (message: string) => void }) {
+function InjuriesPanel({ horse, onChanged, onRefresh }: { horse: VetHorse; onChanged: (message: string) => void; onRefresh: () => Promise<unknown> }) {
   const [markers, setMarkers] = useState<InjuryMarker[]>([]);
+  const [latestMarkers, setLatestMarkers] = useState<InjuryMarker[]>([]);
+  const submitting = useRef(false);
+  const savedIds = useRef(new Map<string, string>());
+  const saveAssessment = useMemo(() => createInjuryWorkflow(veterinarianApi), []);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1075,7 +1073,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     coordinate_z: draftCoordinates.coordinate_z === "" ? null : Number(draftCoordinates.coordinate_z),
   };
   const displayMarkers = useMemo(() => markers.map((marker) => ({ ...marker, description: visibleInjuryNote(marker.description) })), [markers]);
-  const cases = useMemo(() => buildInjuryCases(markers), [markers]);
+  const cases = useMemo(() => buildInjuryCases(markers, latestMarkers), [markers, latestMarkers]);
   const activeCases = cases.filter((injury) => ["New", "Treatment"].includes(currentInjuryStatus(injury)));
   const recoveringCases = cases.filter((injury) => currentInjuryStatus(injury) === "Recovering");
   const recoveredCases = cases.filter((injury) => currentInjuryStatus(injury) === "Recovered");
@@ -1112,7 +1110,11 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     setError("");
     setLoadFailed(false);
     try {
-      setMarkers((await veterinarianApi.injuries(horse.id, false)).data);
+      const latest = (await veterinarianApi.injuries(horse.id, true)).data;
+      const history = (await veterinarianApi.injuries(horse.id, false)).data;
+      setLatestMarkers(latest);
+      setMarkers(history);
+      savedIds.current.clear();
     } catch (reason) {
       setMarkers([]);
       setLoadFailed(true);
@@ -1151,7 +1153,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
   useEffect(() => {
     if (!dialogMode && !selectedCase && !creating) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setDialogMode(null); setDetailsCaseId(null); setCreating(false); }
+      if (!submitting.current && event.key === "Escape") { setDialogMode(null); setDetailsCaseId(null); setCreating(false); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -1184,228 +1186,91 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     else if (category) setDraftGroup("SoftTissue");
   }
 
-  function markerFromTimeline(injury: InjuryCase, entry: InjuryTimelineEntry, id = entry.id ?? `pending-${Date.now()}`): InjuryMarker {
-    return {
-      id,
-      horse_id: horse.id,
-      medical_record_id: null,
-      body_part: injury.bodyPart,
-      coordinate_x: injury.coordinates.x,
-      coordinate_y: injury.coordinates.y,
-      coordinate_z: injury.coordinates.z,
-      severity: injury.severity,
-      injury_group: injury.group,
-      recovery_status: recoveryStatusFor(entry.status),
-      description: encodeInjuryNote(entry.status, injury.group, entry.note),
-      marked_at: entry.date,
-    };
+  async function persistAssessment(
+    markerId: string | null, bodyPart: string, input: Record<string, unknown>,
+    onSuccess: (saved: InjuryMarker) => void,
+  ) {
+    if (submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
+    setError("");
+    let persisted = false;
+    try {
+      const result = await saveAssessment(horse, savedIds.current.get(bodyPart) ?? markerId, input,
+        (saved) => { persisted = true; savedIds.current.set(bodyPart, saved.id); },
+        ({ latest, history, saved }) => {
+          setLatestMarkers(latest);
+          setMarkers(history);
+          setLoadFailed(false);
+          savedIds.current.delete(bodyPart);
+          onSuccess(saved);
+        });
+      if (result) {
+        onChanged(`Đã lưu đánh giá chấn thương tại ${bodyPart}.`);
+        if (result.syncError) setError(`Đã lưu đánh giá, nhưng chưa đồng bộ sức khỏe hoặc khóa lịch tập: ${veterinarianError(result.syncError)}`);
+      }
+    } catch (reason) {
+      setError(`${persisted ? "Đã lưu đánh giá nhưng chưa tải lại được dữ liệu. Chưa cập nhật sức khỏe. " : "Không thể lưu đánh giá. "}${veterinarianError(reason)}`);
+    } finally {
+      try { if (persisted) await onRefresh(); }
+      finally { submitting.current = false; setBusy(false); }
+    }
   }
 
   async function createInjury(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting.current) return;
     const values = formValues(event.currentTarget, ["coordinate_x", "coordinate_y", "coordinate_z"], ["coordinate_x", "coordinate_y", "coordinate_z", "note"]);
     if (("coordinate_x" in values) !== ("coordinate_y" in values)) {
       setError("Cần nhập cả tọa độ X và Y để lưu vị trí trên mô hình.");
       return;
     }
-    setBusy(true);
-    setError("");
-    const tempId = `pending-${Date.now()}`;
-    const date = String(values.date);
-    const status: InjuryTimelineStatus = "New";
-    const note = String(values.note ?? "").trim() || null;
-    const severity = String(values.severity) as InjuryMarker["severity"];
-    const group = String(values.injury_group) as InjuryGroup;
-    const draft: InjuryMarker = {
-      id: tempId,
-      horse_id: horse.id,
-      medical_record_id: null,
-      body_part: String(values.body_part).trim(),
-      coordinate_x: values.coordinate_x == null ? null : Number(values.coordinate_x),
-      coordinate_y: values.coordinate_y == null ? null : Number(values.coordinate_y),
-      coordinate_z: values.coordinate_z == null ? null : Number(values.coordinate_z),
-      severity,
-      injury_group: group,
-      recovery_status: "Active",
-      description: encodeInjuryNote(status, group, note),
-      marked_at: `${date}T12:00:00.000Z`,
-    };
-    setMarkers((current) => [...current, draft]);
-    setCreating(false);
-    setTab("active");
-    setHighlightId(tempId);
-    try {
-      const created = await veterinarianApi.createInjury(horse.id, {
-        body_part: draft.body_part,
-        severity,
-        recovery_status: "Active",
-        marked_at: draft.marked_at,
-        description: draft.description,
-        ...injuryCoordinatePayload({ x: draft.coordinate_x, y: draft.coordinate_y, z: draft.coordinate_z }),
-      });
-      const saved = { ...draft, ...created, injury_group: group };
-      setMarkers((current) => current.map((marker) => marker.id === tempId ? saved : marker));
-      setHighlightId(saved.id);
-      const reason = `Chấn thương ${draft.body_part}: ${note || injurySeverityLabels[severity]}`.slice(0, 255);
-      try {
-        const health = await veterinarianApi.updateHealthStatus(horse.id, "Injured", "NotReady", reason);
-        if (!health.is_training_locked) await veterinarianApi.lockTraining(horse.id, {
-          lock_level: severity === "Severe" ? "Critical" : "Warning",
-          lock_reason: reason,
-        });
-        onChanged(`Đã ghi nhận chấn thương tại ${draft.body_part}. Lịch tập đã khóa.`);
-      } catch (reasonError) {
-        setError(`Đã lưu ca chấn thương nhưng không thể khóa lịch tập: ${veterinarianError(reasonError)}`);
-        onChanged(`Đã ghi nhận chấn thương tại ${draft.body_part}; cần kiểm tra trạng thái khóa lịch tập.`);
-      }
-    } catch (reason) {
-      setMarkers((current) => current.filter((marker) => marker.id !== tempId));
-      setHighlightId(null);
-      setError(veterinarianError(reason));
-    } finally {
-      setBusy(false);
-    }
+    const bodyPart = String(values.body_part).trim();
+    await persistAssessment(null, bodyPart, {
+      body_part: bodyPart, severity: String(values.severity), recovery_status: "Active",
+      description: encodeInjuryNote("New", String(values.injury_group) as InjuryGroup, String(values.note ?? "").trim() || null),
+      ...injuryCoordinatePayload({ x: values.coordinate_x as number, y: values.coordinate_y as number, z: values.coordinate_z as number }),
+    }, (saved) => {
+      setCreating(false); setTab("active"); setHighlightId(saved.id);
+    });
   }
 
   async function updateStatus(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!editingCase) return;
+    if (!editingCase || submitting.current) return;
+    const injury = editingCase;
     const values = formValues(event.currentTarget, [], ["note"]);
-    const latestDate = normalizeDay(editingCase.timeline.at(-1)?.date ?? today());
-    const date = String(values.date);
-    if (date < latestDate) {
-      setError("Ngày cập nhật không được trước mốc gần nhất của ca này.");
-      return;
-    }
     const status = String(values.status) as InjuryTimelineStatus;
-    const previousStatus = currentInjuryStatus(editingCase);
-    const entry: InjuryTimelineEntry = {
-      id: `event-${Date.now()}`,
-      date: `${date}T12:00:00.000Z`,
-      status,
-      note: String(values.note ?? "").trim() || null,
-    };
-    const tempId = `pending-${Date.now()}`;
-    const optimisticMarker = markerFromTimeline(editingCase, entry, tempId);
-    const previousMarkers = markers;
-    setMarkers((current) => [...current, optimisticMarker]);
-    setDialogMode(null);
-    setTab(injuryTabForStatus(status));
-    setHighlightId(editingCase.id);
-    setToast({ caseId: editingCase.id, bodyPart: editingCase.bodyPart, from: previousStatus, to: status });
-    setBusy(true);
-    setError("");
-    try {
-      const saved = await veterinarianApi.createInjury(horse.id, {
-        body_part: editingCase.bodyPart,
-        severity: editingCase.severity,
-        recovery_status: recoveryStatusFor(status),
-        marked_at: entry.date,
-        description: optimisticMarker.description,
-        ...injuryCoordinatePayload(editingCase.coordinates),
-      });
-      const savedMarker = { ...optimisticMarker, ...saved, injury_group: editingCase.group };
-      setMarkers((current) => current.map((marker) => marker.id === optimisticMarker.id ? savedMarker : marker));
-      setHighlightId(editingCase.id);
-      onChanged(`${editingCase.bodyPart} đã chuyển sang ${injuryLifecycleLabels[status]}.`);
-      const allResolved = status === "Recovered" && cases.every((item) => item.id === editingCase.id || currentInjuryStatus(item) === "Recovered");
-      if (status !== "Recovered" || allResolved) {
-        const reason = allResolved
-          ? `Đã hồi phục các ca chấn thương của ngựa ${horse.horse_name}.`
-          : `Cần hạn chế vận động do ca chấn thương tại ${editingCase.bodyPart}.`;
-        try {
-          if (allResolved) {
-            await veterinarianApi.updateHealthStatus(horse.id, "Healthy", "Ready", reason);
-            await veterinarianApi.unlockTraining(horse.id, reason);
-          } else {
-            const health = await veterinarianApi.updateHealthStatus(horse.id, "Injured", "NotReady", reason);
-            if (!health.is_training_locked) await veterinarianApi.lockTraining(horse.id, {
-              lock_level: editingCase.severity === "Severe" ? "Critical" : "Warning",
-              lock_reason: reason,
-            });
-          }
-        } catch (reasonError) {
-          setError(`Ca đã được cập nhật, nhưng không thể đồng bộ khóa lịch tập: ${veterinarianError(reasonError)}`);
-        }
-      }
-    } catch (reason) {
-      setMarkers(previousMarkers);
-      setToast(null);
-      setHighlightId(null);
-      setTab(injuryTabForStatus(previousStatus));
-      setError(`Không thể cập nhật ca chấn thương. Thay đổi đã được hoàn tác. ${veterinarianError(reason)}`);
-    } finally {
-      setBusy(false);
-    }
+    const previousStatus = currentInjuryStatus(injury);
+    await persistAssessment(injury.id, injury.bodyPart, {
+      recovery_status: recoveryStatusFor(status),
+      description: encodeInjuryNote(status, injury.group, String(values.note ?? "").trim() || null),
+    }, (saved) => {
+      setDialogMode(null); setUpdateCaseId(saved.id); setDetailsCaseId((current) => current === injury.id ? saved.id : current);
+      setTab(injuryTabForStatus(status)); setHighlightId(saved.id);
+      setToast({ caseId: saved.id, bodyPart: saved.body_part, from: previousStatus, to: status });
+    });
   }
 
   async function undoLastUpdate() {
-    if (!toast) return;
+    if (!toast || submitting.current) return;
     const injury = cases.find((item) => item.id === toast.caseId);
-    if (!injury) { setToast(null); return; }
-    const previousMarkers = markers;
-    const undoEntry: InjuryTimelineEntry = {
-      id: `undo-${Date.now()}`,
-      date: `${today() < normalizeDay(injury.timeline.at(-1)?.date ?? today()) ? normalizeDay(injury.timeline.at(-1)?.date ?? today()) : today()}T12:00:00.000Z`,
-      status: toast.from,
-      note: `Hoàn tác: trở về trạng thái ${injuryLifecycleLabels[toast.from]}`,
-    };
-    const tempId = `pending-${Date.now()}`;
-    const optimisticMarker = markerFromTimeline(injury, undoEntry, tempId);
-    setMarkers((current) => [...current, optimisticMarker]);
-    setToast(null);
-    setHighlightId(injury.id);
-    try {
-      const saved = await veterinarianApi.createInjury(horse.id, {
-        body_part: injury.bodyPart,
-        severity: injury.severity,
-        recovery_status: recoveryStatusFor(toast.from),
-        marked_at: undoEntry.date,
-        description: optimisticMarker.description,
-        ...injuryCoordinatePayload(injury.coordinates),
-      });
-      setMarkers((current) => current.map((marker) => marker.id === optimisticMarker.id ? { ...optimisticMarker, ...saved, injury_group: injury.group } : marker));
-      setTab(injuryTabForStatus(toast.from));
-      onChanged(`Đã hoàn tác trạng thái của ${injury.bodyPart}.`);
-      const allResolved = toast.from === "Recovered" && cases.every((item) => item.id === injury.id || currentInjuryStatus(item) === "Recovered");
-      if (toast.from !== "Recovered" || allResolved) {
-        const reason = allResolved
-          ? `Đã hồi phục các ca chấn thương của ngựa ${horse.horse_name}.`
-          : `Cần hạn chế vận động do ca chấn thương tại ${injury.bodyPart}.`;
-        try {
-          if (allResolved) {
-            await veterinarianApi.updateHealthStatus(horse.id, "Healthy", "Ready", reason);
-            await veterinarianApi.unlockTraining(horse.id, reason);
-          } else {
-            const health = await veterinarianApi.updateHealthStatus(horse.id, "Injured", "NotReady", reason);
-            if (!health.is_training_locked) await veterinarianApi.lockTraining(horse.id, {
-              lock_level: injury.severity === "Severe" ? "Critical" : "Warning",
-              lock_reason: reason,
-            });
-          }
-        } catch (reasonError) {
-          setError(`Đã hoàn tác trạng thái, nhưng không thể đồng bộ khóa lịch tập: ${veterinarianError(reasonError)}`);
-        }
-      }
-    } catch (reason) {
-      setMarkers(previousMarkers);
-      setError(`Không thể hoàn tác thay đổi: ${veterinarianError(reason)}`);
-    }
+    if (!injury) return;
+    const target = toast.from;
+    await persistAssessment(injury.id, injury.bodyPart, {
+      recovery_status: recoveryStatusFor(target),
+      description: encodeInjuryNote(target, injury.group, `Hoàn tác: trở về trạng thái ${injuryLifecycleLabels[target]}`),
+    }, (saved) => { setToast(null); setTab(injuryTabForStatus(target)); setHighlightId(saved.id); });
   }
 
   const todayValue = today();
   const activeBanner = activeCases.length > 0;
   const severeActive = activeCases.filter((injury) => injury.severity === "Severe");
   const bannerText = activeBanner
-    ? `Ngựa đang ở trạng thái Chấn thương (${severeActive.length} vị trí Nặng${severeActive.length ? `: ${severeActive.map((injury) => injury.bodyPart).join(", ")}` : ""}). Chưa sẵn sàng thi đấu, lịch tập đã khóa.`
+    ? `Còn vị trí đang chấn thương (${severeActive.length} vị trí Nặng${severeActive.length ? `: ${severeActive.map((injury) => injury.bodyPart).join(", ")}` : ""}). Lịch tập ${horse.is_training_locked ? "đang khóa" : "chưa khóa; cần kiểm tra trạng thái sức khỏe"}.`
     : recoveringCases.length > 0
-      ? `Ngựa còn ${recoveringCases.length} vị trí chưa hồi phục hoàn toàn, lịch tập vẫn khóa.`
-      : "Ngựa sẵn sàng thi đấu, lịch tập đã mở khóa.";
-  const bannerClasses = activeBanner
-    ? "border-amber-300 bg-amber-50 text-amber-950"
-    : recoveringCases.length > 0
-      ? "border-orange-300 bg-orange-50 text-orange-950"
-      : "border-emerald-300 bg-emerald-50 text-emerald-950";
+      ? `Ngựa còn ${recoveringCases.length} vị trí chưa hồi phục hoàn toàn. Lịch tập ${horse.is_training_locked ? "đang khóa" : "chưa khóa; cần kiểm tra trạng thái sức khỏe"}.`
+      : `Không còn vị trí chấn thương chưa hồi phục. Trạng thái: ${statusLabels[horse.current_status] ?? horse.current_status}; ${readinessLabels[horse.readiness_status] ?? horse.readiness_status}. Lịch tập ${horse.is_training_locked ? "đang khóa" : "đã mở khóa"}.`;
   const tabs: { id: InjuryTab; label: string }[] = [
     { id: "all", label: "Tất cả" },
     { id: "active", label: "Đang chấn thương" },
@@ -1413,11 +1278,11 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     { id: "recovered", label: "Đã hồi phục" },
   ];
 
-  return <SectionCard title="Chấn thương & phục hồi" description="Mỗi ca có một hồ sơ với lịch sử cập nhật trạng thái theo thời gian." icon={Activity} action={<button type="button" className="gold-button min-h-11 px-4" onClick={openCreate}>{creating ? "Đóng ghi nhận" : "Ghi nhận chấn thương"}</button>}>
+  return <SectionCard title="Chấn thương & phục hồi" description="Mỗi ca có một hồ sơ với lịch sử cập nhật trạng thái theo thời gian." icon={Activity} action={<button type="button" className="gold-button min-h-11 px-4" disabled={busy || loading || loadFailed} onClick={openCreate}>{creating ? "Đóng ghi nhận" : "Ghi nhận chấn thương"}</button>}>
     <ErrorLine>{error}</ErrorLine>
     {loadFailed && <button type="button" className="soft-button mb-4 min-h-11 px-4" disabled={loading} onClick={() => void load()}>Thử tải lại hồ sơ chấn thương</button>}
     {!loading && !loadFailed && <>
-      <div className={`mb-4 rounded-lg border px-4 py-3 text-sm font-medium leading-6 ${bannerClasses}`} role="status">{bannerText}</div>
+      <Notice variant={activeBanner || recoveringCases.length > 0 ? "warning" : "success"}>{bannerText}</Notice>
       <div className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
         {[
           { label: "Tổng số", count: cases.length, subset: cases },
@@ -1455,10 +1320,9 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
         <label className="block"><span className="field-label">Vị trí cơ thể<span className="text-rose-600"> *</span></span><input name="body_part" required maxLength={100} placeholder="Chọn vị trí trên mô hình hoặc nhập tên" value={draftBodyPart} onChange={(event) => setDraftBodyPart(event.target.value)} className="field-control px-3" /></label>
         <label className="block"><span className="field-label">Nhóm</span><select name="injury_group" required value={draftGroup} onChange={(event) => setDraftGroup(event.target.value as InjuryGroup)} className="field-control px-3">{Object.entries(injuryGroupLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <SelectField label="Mức độ" name="severity" required options={[{ value: "Mild", label: "Nhẹ" }, { value: "Moderate", label: "Vừa" }, { value: "Severe", label: "Nặng" }]} />
-        <label className="block"><span className="field-label">Ngày bắt đầu<span className="text-rose-600"> *</span></span><input name="date" type="date" required defaultValue={todayValue} max={todayValue} className="field-control px-3" /></label>
         <label className="block sm:col-span-2"><span className="field-label">Ghi chú</span><textarea name="note" rows={3} maxLength={1000} className="field-control resize-y px-3 py-2" /></label>
         <CoordinateFields value={draftCoordinates} onChange={setDraftCoordinates} />
-        <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className="soft-button min-h-11 px-4" onClick={() => setCreating(false)}>Hủy</button><button className="gold-button min-h-11 px-4" disabled={busy}>Lưu ca chấn thương</button></div>
+        <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className="soft-button min-h-11 px-4" disabled={busy} onClick={() => setCreating(false)}>Hủy</button><button className="gold-button min-h-11 px-4" disabled={busy}>Lưu ca chấn thương</button></div>
       </form>}
 
       <div className="mb-3 flex gap-2 overflow-x-auto border-b border-equine-line" role="tablist" aria-label="Lọc ca chấn thương">
@@ -1487,7 +1351,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
                 <td className="whitespace-nowrap px-4 py-3 text-slate-700">{recoveryDate ? displayInjuryDate(recoveryDate) : "—"}</td>
                 <td className="px-4 py-3 tabular-nums text-slate-800">{duration} ngày</td>
                 <td className="px-4 py-3"><div className="flex min-w-32 items-center gap-2"><div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label={`Tiến độ hồi phục ${injury.bodyPart}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><div className="h-full rounded-full bg-sky-700" style={{ width: `${progress}%` }} /></div><span className="w-9 text-right text-xs font-semibold tabular-nums text-slate-700">{progress}%</span></div></td>
-                <td className="px-4 py-3"><button type="button" className="soft-button min-h-11 whitespace-nowrap px-3 text-xs" onClick={() => openUpdate(injury)}>Cập nhật</button></td>
+                <td className="px-4 py-3"><button type="button" className="soft-button min-h-11 whitespace-nowrap px-3 text-xs" disabled={busy || loading || loadFailed} onClick={() => openUpdate(injury)}>Cập nhật</button></td>
               </tr>;
             })}
           </tbody>
@@ -1496,20 +1360,20 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
     </>}
     {loading && <PanelListSkeleton rows={3} label="Đang tải ca chấn thương..." />}
 
-    {dialogMode === "update" && <dialog ref={updateDialogRef} aria-modal="true" aria-labelledby="injury-dialog-title" className="overflow-y-auto rounded-xl border border-slate-200 bg-white text-slate-900 shadow-2xl" style={{ position: "fixed", inset: 0, margin: "auto", padding: 0, width: "calc(100vw - 2rem)", maxWidth: "42rem", maxHeight: "calc(100dvh - 2rem)" }} onCancel={(event) => { event.preventDefault(); setDialogMode(null); }} onMouseDown={(event) => {
-      if (event.target !== event.currentTarget) return;
+    {dialogMode === "update" && <dialog ref={updateDialogRef} aria-modal="true" aria-labelledby="injury-dialog-title" className="overflow-y-auto rounded-xl border border-slate-200 bg-white text-slate-900 shadow-2xl" style={{ position: "fixed", inset: 0, margin: "auto", padding: 0, width: "calc(100vw - 2rem)", maxWidth: "42rem", maxHeight: "calc(100dvh - 2rem)" }} onCancel={(event) => { event.preventDefault(); if (!submitting.current) setDialogMode(null); }} onMouseDown={(event) => {
+      if (submitting.current || event.target !== event.currentTarget) return;
       const rect = event.currentTarget.getBoundingClientRect();
       if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) setDialogMode(null);
     }}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-equine-line bg-white px-4 py-3 sm:px-6">
           <h3 id="injury-dialog-title" className="text-lg font-semibold">Cập nhật · {editingCase?.bodyPart ?? "ca chấn thương"}</h3>
-          <button type="button" className="min-h-11 min-w-11 rounded-md text-2xl text-slate-600 hover:bg-slate-100:bg-slate-800" aria-label="Đóng hộp thoại" onClick={() => setDialogMode(null)}>×</button>
+          <button type="button" className="min-h-11 min-w-11 rounded-md text-2xl text-slate-600 hover:bg-slate-100:bg-slate-800" aria-label="Đóng hộp thoại" disabled={busy} onClick={() => setDialogMode(null)}>×</button>
         </div>
         {editingCase && <form key={editingCase.id} onSubmit={(event) => void updateStatus(event)} className="grid gap-4 p-4 sm:grid-cols-2 sm:p-6">
+          <div className="sm:col-span-2" role="alert"><ErrorLine>{error}</ErrorLine></div>
           <label className="block"><span className="field-label">Trạng thái mới</span><select name="status" defaultValue={defaultNextStatus} className="field-control px-3">{injuryLifecycle.map((status) => <option key={status} value={status}>{injuryLifecycleLabels[status]}</option>)}</select></label>
-          <label className="block"><span className="field-label">Ngày cập nhật<span className="text-rose-600"> *</span></span><input name="date" type="date" required defaultValue={todayValue < normalizeDay(editingCase.timeline.at(-1)?.date ?? todayValue) ? normalizeDay(editingCase.timeline.at(-1)?.date ?? todayValue) : todayValue} min={normalizeDay(editingCase.timeline.at(-1)?.date ?? todayValue)} className="field-control px-3" /></label>
           <label className="block sm:col-span-2"><span className="field-label">Ghi chú</span><textarea name="note" rows={3} maxLength={1000} className="field-control resize-y px-3 py-2" /></label>
-          <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className="soft-button min-h-11 px-4" onClick={() => setDialogMode(null)}>Hủy</button><button className="gold-button min-h-11 px-4" disabled={busy}>Lưu cập nhật</button></div>
+          <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" className="soft-button min-h-11 px-4" disabled={busy} onClick={() => setDialogMode(null)}>Hủy</button><button className="gold-button min-h-11 px-4" disabled={busy}>Lưu cập nhật</button></div>
         </form>}
     </dialog>}
 
@@ -1525,7 +1389,7 @@ function InjuriesPanel({ horse, onChanged }: { horse: VetHorse; onChanged: (mess
 
     {toast && <div className="fixed bottom-4 left-3 right-3 z-[100] mx-auto flex max-w-3xl flex-col gap-3 rounded-xl border border-sky-300 bg-slate-900 p-3 text-white shadow-2xl sm:flex-row sm:items-center sm:justify-between sm:px-4" role="status" aria-live="polite">
       <p className="text-sm font-medium">{toast.bodyPart} đã chuyển sang {injuryLifecycleLabels[toast.to]}.</p>
-      <div className="flex flex-wrap gap-2"><button type="button" className="min-h-11 rounded-md bg-white/10 px-3 text-sm font-semibold hover:bg-white/20" onClick={() => void undoLastUpdate()}>Hoàn tác</button><button type="button" className="min-h-11 rounded-md bg-sky-300 px-3 text-sm font-semibold text-slate-950 hover:bg-sky-200" onClick={() => setTab(injuryTabForStatus(toast.to))}>Xem tab {injuryTabLabels[injuryTabForStatus(toast.to)]}</button></div>
+      <div className="flex flex-wrap gap-2"><button type="button" className="min-h-11 rounded-md bg-white/10 px-3 text-sm font-semibold hover:bg-white/20" disabled={busy} onClick={() => void undoLastUpdate()}>Hoàn tác</button><button type="button" className="min-h-11 rounded-md bg-sky-300 px-3 text-sm font-semibold text-slate-950 hover:bg-sky-200" onClick={() => setTab(injuryTabForStatus(toast.to))}>Xem tab {injuryTabLabels[injuryTabForStatus(toast.to)]}</button></div>
     </div>}
   </SectionCard>;
 }
