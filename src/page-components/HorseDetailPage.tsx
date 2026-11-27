@@ -3,10 +3,11 @@
 import { formatDisplayDate } from "@/lib/display-format";
 import { Routes } from "@/routes/Routes";
 
+/* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, CalendarDays, Download, ExternalLink, FileText, MapPin, Pencil, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { ArrowLeft, CalendarDays, Download, ExternalLink, FileText, MapPin, Pencil, Plus, RotateCcw, Trash2, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
 import { useHorseUser } from "@/components/horses/HorseShell";
 import { HorseImage, Modal, Notice, StatusBadge } from "@/components/horses/HorseUI";
@@ -21,10 +22,23 @@ import {
   horseStatus,
   openFreshDocument,
   peekCachedHorse,
+  revokeHorseSupplementDocument,
+  uploadHorseSupplementDocument,
   type Horse,
+  type HorseRegistrationDocument,
   type OwnershipHistoryEntry,
+  type SupplementDocumentType,
   type Warnings,
 } from "@/api/horses/api";
+
+const ALLOWED_DOC_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"] as const;
+const MAX_DOC_BYTES = 10 * 1024 * 1024;
+const DOCUMENT_TYPE_LABELS: Record<string, string> = {
+  OWNERSHIP_PROOF: "Chứng minh sở hữu",
+  HORSE_CERTIFICATE: "Giấy chứng nhận / Hộ chiếu",
+  HEALTH_DOCUMENT: "Hồ sơ sức khỏe / Kiểm dịch",
+  OTHER: "Giấy tờ khác",
+};
 
 export default function HorseDetailPage() {
   const router = useRouter();
@@ -43,6 +57,31 @@ export default function HorseDetailPage() {
   const [deleteWarnings, setDeleteWarnings] = useState<Warnings | null>(null);
   const [deleteError, setDeleteError] = useState("");
   const [deleting, setDeleting] = useState(false);
+
+  const [addDocOpen, setAddDocOpen] = useState(false);
+  const [docType, setDocType] = useState<SupplementDocumentType>("HORSE_CERTIFICATE");
+  const [docNote, setDocNote] = useState("");
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [docPreviewUrl, setDocPreviewUrl] = useState<string | null>(null);
+  const [docProgress, setDocProgress] = useState(0);
+  const [docSaving, setDocSaving] = useState(false);
+  const [docError, setDocError] = useState("");
+  const docInputRef = useRef<HTMLInputElement>(null);
+
+  const [revokingDoc, setRevokingDoc] = useState<HorseRegistrationDocument | null>(null);
+  const [revokeReason, setRevokeReason] = useState("");
+  const [revokeError, setRevokeError] = useState("");
+  const [revokeSaving, setRevokeSaving] = useState(false);
+
+  useEffect(() => {
+    if (!docFile || !docFile.type.startsWith("image/")) {
+      setDocPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(docFile);
+    setDocPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [docFile]);
 
   const loadHorse = useCallback(async (force = false) => {
     const id = horseId;
@@ -101,6 +140,80 @@ export default function HorseDetailPage() {
     } catch (reason) {
       setDeleteError(errorMessage(reason));
       setDeleting(false);
+    }
+  }
+
+  function resetAddDocModal() {
+    setDocType("HORSE_CERTIFICATE");
+    setDocNote("");
+    setDocFile(null);
+    setDocProgress(0);
+    setDocError("");
+    if (docInputRef.current) docInputRef.current.value = "";
+  }
+
+  function onSelectSupplementFile(fileList: FileList | null) {
+    const picked = fileList?.[0] ?? null;
+    if (!picked) return;
+    if (!ALLOWED_DOC_TYPES.includes(picked.type as (typeof ALLOWED_DOC_TYPES)[number])) {
+      setDocError("Chỉ chấp nhận tệp PDF, JPG, PNG hoặc WebP.");
+      if (docInputRef.current) docInputRef.current.value = "";
+      return;
+    }
+    if (picked.size > MAX_DOC_BYTES) {
+      setDocError("Dung lượng mỗi tệp không được vượt quá 10 MB.");
+      if (docInputRef.current) docInputRef.current.value = "";
+      return;
+    }
+    setDocError("");
+    setDocFile(picked);
+  }
+
+  async function submitSupplementDoc(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!horse || user.roleName !== "CLUB_MANAGER") return;
+    if (!docFile) {
+      setDocError("Vui lòng chọn tệp giấy tờ trước khi lưu.");
+      return;
+    }
+    setDocSaving(true);
+    setDocError("");
+    setDocProgress(0);
+    try {
+      await uploadHorseSupplementDocument(
+        horse.id,
+        { file: docFile, documentType: docType, note: docNote },
+        setDocProgress,
+      );
+      setAddDocOpen(false);
+      resetAddDocModal();
+      await loadHorse(true);
+    } catch (reason) {
+      setDocError(errorMessage(reason));
+    } finally {
+      setDocSaving(false);
+    }
+  }
+
+  async function submitRevokeDoc(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!horse || !revokingDoc || user.roleName !== "CLUB_MANAGER") return;
+    const trimmed = revokeReason.trim();
+    if (trimmed.length < 3) {
+      setRevokeError("Vui lòng nhập lý do thu hồi tối thiểu 3 ký tự.");
+      return;
+    }
+    setRevokeSaving(true);
+    setRevokeError("");
+    try {
+      await revokeHorseSupplementDocument(horse.id, revokingDoc.id, trimmed);
+      setRevokingDoc(null);
+      setRevokeReason("");
+      await loadHorse(true);
+    } catch (reason) {
+      setRevokeError(errorMessage(reason));
+    } finally {
+      setRevokeSaving(false);
     }
   }
 
@@ -236,57 +349,122 @@ export default function HorseDetailPage() {
               </div>
             </section>
 
-            {(user.roleName === "CLUB_MANAGER" || user.roleName === "HORSE_OWNER") && (
-              <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center gap-2 text-slate-900">
-                  <FileText size={17} className="text-teal-700" />
-                  <h2 className="font-sans text-lg font-bold">Giấy tờ sở hữu & kiểm định</h2>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {horse.registration_documents?.map((document) => (
-                    <article key={document.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3.5">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-white text-teal-800 border border-slate-200">
-                          <FileText size={16} />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-bold text-slate-900">{document.name}</p>
-                          <p className="mt-0.5 text-[11px] text-slate-500">
-                            {formatFileSize(document.file_size)} · {formatDateTime(document.uploaded_at)}
-                          </p>
+            {(user.roleName === "CLUB_MANAGER" || user.roleName === "HORSE_OWNER") && (() => {
+              const allDocs = horse.registration_documents ?? [];
+              const activeDocs = allDocs.filter((document) => !document.revoked_at);
+              const revokedDocs = allDocs.filter((document) => Boolean(document.revoked_at));
+              return (
+                <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-slate-900">
+                    <div className="flex items-center gap-2">
+                      <FileText size={17} className="text-teal-700" />
+                      <h2 className="font-sans text-lg font-bold">Giấy tờ sở hữu & kiểm định</h2>
+                    </div>
+                    {user.roleName === "CLUB_MANAGER" && (
+                      <button
+                        type="button"
+                        className="soft-button !min-h-[34px] !px-3 !text-xs"
+                        onClick={() => {
+                          resetAddDocModal();
+                          setAddDocOpen(true);
+                        }}
+                      >
+                        <Plus size={14} /> Bổ sung giấy tờ
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Giấy tờ đăng ký gốc được khóa cố định; Quản lý CLB chỉ có thể bổ sung giấy tờ mới hoặc thu hồi có lý do các tệp do CLB tải lên.
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    {activeDocs.map((document) => {
+                      const isSupplement = document.source === "MANAGER_SUPPLEMENT";
+                      return (
+                        <article key={document.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3.5">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-white text-teal-800 border border-slate-200">
+                              <FileText size={16} />
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <p className="truncate text-xs font-bold text-slate-900">{document.name}</p>
+                                <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${isSupplement ? "bg-sky-100 text-sky-900" : "bg-slate-200 text-slate-700"}`}>
+                                  {isSupplement ? "CLB bổ sung" : "Hồ sơ đăng ký gốc"}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-[11px] text-slate-500">
+                                {DOCUMENT_TYPE_LABELS[document.document_type] ?? document.document_type} · {formatFileSize(document.file_size)} · {formatDateTime(document.uploaded_at)}
+                                {document.uploaded_by_name ? ` · ${document.uploaded_by_name}` : ""}
+                              </p>
+                              {document.note && (
+                                <p className="mt-1 text-[11px] text-slate-600">Ghi chú: {document.note}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              className="soft-button !min-h-[32px] !px-3 !text-xs"
+                              onClick={() => void openFreshDocument(() => getHorseDocumentUrl(horse.id, document.id, false), document.url)}
+                            >
+                              Xem <ExternalLink size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              className="gold-button !min-h-[32px] !px-3 !text-xs"
+                              onClick={() => void openFreshDocument(() => getHorseDocumentUrl(horse.id, document.id, true), document.download_url, document.name)}
+                            >
+                              <Download size={13} /> Tải về
+                            </button>
+                            {user.roleName === "CLUB_MANAGER" && document.can_revoke && (
+                              <button
+                                type="button"
+                                className="soft-button !min-h-[32px] !border-rose-200 !px-3 !text-xs !text-rose-700 hover:!bg-rose-50"
+                                onClick={() => {
+                                  setRevokingDoc(document);
+                                  setRevokeReason("");
+                                  setRevokeError("");
+                                }}
+                              >
+                                <RotateCcw size={13} /> Thu hồi
+                              </button>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                    {!horse.registration_documents && (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900">
+                        Máy chủ chưa trả danh sách giấy tờ. Hãy tải lại trang để kiểm tra.
+                      </p>
+                    )}
+                    {horse.registration_documents && activeDocs.length === 0 && (
+                      <p className="rounded-lg bg-slate-50 p-3.5 text-xs text-slate-500 border border-slate-200">
+                        Chưa có tệp đính kèm giấy tờ chứng nhận còn hiệu lực cho hồ sơ ngựa này.
+                      </p>
+                    )}
+                    {user.roleName === "CLUB_MANAGER" && revokedDocs.length > 0 && (
+                      <details className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 text-xs">
+                        <summary className="cursor-pointer font-semibold text-slate-600">
+                          Giấy tờ bổ sung đã thu hồi ({revokedDocs.length})
+                        </summary>
+                        <div className="mt-2.5 space-y-2">
+                          {revokedDocs.map((doc) => (
+                            <div key={doc.id} className="rounded-md border border-slate-200 bg-white p-2.5 text-[11px] text-slate-600">
+                              <p className="font-semibold text-slate-800 line-through">{doc.name}</p>
+                              <p className="mt-0.5">Lý do thu hồi: <strong className="text-rose-700">{doc.revoke_reason}</strong></p>
+                              <p className="mt-0.5 text-slate-500">
+                                Thu hồi lúc {formatDateTime(doc.revoked_at)}{doc.revoked_by_name ? ` bởi ${doc.revoked_by_name}` : ""}
+                              </p>
+                            </div>
+                          ))}
                         </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="soft-button !min-h-[32px] !px-3 !text-xs"
-                          onClick={() => void openFreshDocument(() => getHorseDocumentUrl(horse.id, document.id, false), document.url)}
-                        >
-                          Xem <ExternalLink size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          className="gold-button !min-h-[32px] !px-3 !text-xs"
-                          onClick={() => void openFreshDocument(() => getHorseDocumentUrl(horse.id, document.id, true), document.download_url, document.name)}
-                        >
-                          <Download size={13} /> Tải về
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                  {!horse.registration_documents && (
-                    <p className="rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900">
-                      Máy chủ chưa trả danh sách giấy tờ. Hãy tải lại trang để kiểm tra.
-                    </p>
-                  )}
-                  {horse.registration_documents?.length === 0 && (
-                    <p className="rounded-lg bg-slate-50 p-3.5 text-xs text-slate-500 border border-slate-200">
-                      Chưa có tệp đính kèm giấy tờ chứng nhận cho hồ sơ ngựa này.
-                    </p>
-                  )}
-                </div>
-              </section>
-            )}
+                      </details>
+                    )}
+                  </div>
+                </section>
+              );
+            })()}
 
             <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center gap-2 text-slate-900">
@@ -337,6 +515,124 @@ export default function HorseDetailPage() {
               </button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {addDocOpen && (
+        <Modal title="Bổ sung giấy tờ cho hồ sơ ngựa" busy={docSaving} onClose={() => { if (!docSaving) { setAddDocOpen(false); resetAddDocModal(); } }}>
+          <form className="space-y-4" onSubmit={(event) => void submitSupplementDoc(event)}>
+            <p className="text-xs leading-5 text-slate-600">
+              Giấy tờ gốc từ đăng ký ban đầu được giữ nguyên. Tệp bổ sung sau khi lưu không thể sửa đè; kiểm tra kỹ bản xem trước bên dưới trước khi bấm lưu.
+            </p>
+            <label className="block">
+              <span className="field-label">Loại giấy tờ</span>
+              <select
+                className="field-control w-full cursor-pointer"
+                value={docType}
+                disabled={docSaving}
+                onChange={(event) => setDocType(event.target.value as SupplementDocumentType)}
+              >
+                <option value="HORSE_CERTIFICATE">Giấy chứng nhận / Hộ chiếu</option>
+                <option value="HEALTH_DOCUMENT">Hồ sơ sức khỏe / Kiểm dịch</option>
+                <option value="OTHER">Giấy tờ khác</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="field-label">Ghi chú (không bắt buộc)</span>
+              <input
+                maxLength={500}
+                placeholder="Ví dụ: Hộ chiếu ngựa gia hạn năm 2026"
+                className="field-control w-full px-3"
+                value={docNote}
+                disabled={docSaving}
+                onChange={(event) => setDocNote(event.target.value)}
+              />
+            </label>
+            <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5">
+              <span className="field-label">Tệp đính kèm (PDF, JPG, PNG, WebP · tối đa 10 MB)</span>
+              {docFile ? (
+                <div className="space-y-2 rounded-md border border-slate-200 bg-white p-3">
+                  {docPreviewUrl && (
+                    <img src={docPreviewUrl} alt="Xem trước tệp" className="max-h-44 w-full rounded object-contain bg-slate-50" />
+                  )}
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-900">{docFile.name}</p>
+                      <p className="text-[11px] text-slate-500">{formatFileSize(docFile.size)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={docSaving}
+                      className="soft-button !min-h-[30px] !px-2.5 !text-xs"
+                      onClick={() => {
+                        setDocFile(null);
+                        if (docInputRef.current) docInputRef.current.value = "";
+                      }}
+                    >
+                      <X size={13} /> Chọn tệp khác
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-4 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                  <Upload size={15} /> Chọn tệp từ máy tính
+                  <input
+                    ref={docInputRef}
+                    type="file"
+                    accept="application/pdf,image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    disabled={docSaving}
+                    onChange={(event) => onSelectSupplementFile(event.target.files)}
+                  />
+                </label>
+              )}
+              {docSaving && <progress className="h-1.5 w-full accent-teal-700" max="100" value={docProgress} />}
+            </div>
+            {docError ? <Notice error>{docError}</Notice> : null}
+            <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button type="button" className="soft-button !text-xs" disabled={docSaving} onClick={() => { setAddDocOpen(false); resetAddDocModal(); }}>
+                Hủy
+              </button>
+              <button type="submit" className="gold-button !text-xs" disabled={docSaving || !docFile}>
+                <Upload size={14} /> {docSaving ? "Đang tải lên..." : "Lưu giấy tờ bổ sung"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {revokingDoc && (
+        <Modal title="Thu hồi giấy tờ bổ sung" busy={revokeSaving} onClose={() => { if (!revokeSaving) setRevokingDoc(null); }}>
+          <form className="space-y-4" onSubmit={(event) => void submitRevokeDoc(event)}>
+            <p className="text-xs leading-5 text-slate-600">
+              Tệp <strong className="text-slate-900">{revokingDoc.name}</strong> sẽ được ẩn khỏi danh sách hiệu lực và phía Chủ ngựa, nhưng vẫn giữ lịch sử kiểm toán trong hệ thống.
+            </p>
+            <label className="block">
+              <span className="field-label">Lý do thu hồi <span className="text-rose-600">*</span></span>
+              <textarea
+                rows={3}
+                maxLength={500}
+                required
+                placeholder="Ví dụ: Tải nhầm tệp của ngựa khác / ảnh bị mờ"
+                className="field-control w-full px-3 py-2"
+                value={revokeReason}
+                disabled={revokeSaving}
+                onChange={(event) => {
+                  setRevokeReason(event.target.value);
+                  setRevokeError("");
+                }}
+              />
+            </label>
+            {revokeError ? <Notice error>{revokeError}</Notice> : null}
+            <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button type="button" className="soft-button !text-xs" disabled={revokeSaving} onClick={() => setRevokingDoc(null)}>
+                Đóng
+              </button>
+              <button type="submit" className="danger-button !text-xs" disabled={revokeSaving}>
+                <RotateCcw size={14} /> {revokeSaving ? "Đang thu hồi..." : "Xác nhận thu hồi"}
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
     </main>

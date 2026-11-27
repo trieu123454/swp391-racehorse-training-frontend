@@ -85,17 +85,26 @@ export type HorseStatus =
   | "Under Observation"
   | "Sick";
 
+export type SupplementDocumentType = "HORSE_CERTIFICATE" | "HEALTH_DOCUMENT" | "OTHER";
+
 export type HorseRegistrationDocument = {
   id: string;
   name: string;
   content_type: string;
   file_size: number;
-  document_type: "OWNERSHIP_PROOF" | "HORSE_CERTIFICATE" | "HEALTH_DOCUMENT" | "OTHER";
+  document_type: "OWNERSHIP_PROOF" | SupplementDocumentType;
   revision_no: number;
   uploaded_at: string;
   url: string;
   download_url: string;
   expires_in: number;
+  source?: "REGISTRATION" | "MANAGER_SUPPLEMENT";
+  note?: string | null;
+  uploaded_by_name?: string | null;
+  revoked_at?: string | null;
+  revoked_by_name?: string | null;
+  revoke_reason?: string | null;
+  can_revoke?: boolean;
 };
 
 export type Horse = {
@@ -291,6 +300,39 @@ export function getHorseDocumentUrl(horseId: string, docId: string, download = f
   return horseRequest<{ url: string; expiresIn: number }>(
     `/${encodeURIComponent(horseId)}/documents/${encodeURIComponent(docId)}/url?download=${download ? "true" : "false"}`,
   );
+}
+
+export async function uploadHorseSupplementDocument(
+  horseId: string,
+  input: { file: File; documentType: SupplementDocumentType; note?: string },
+  onProgress?: (percent: number) => void,
+) {
+  const form = new FormData();
+  form.append("file", input.file);
+  form.append("documentType", input.documentType);
+  if (input.note?.trim()) {
+    form.append("note", input.note.trim());
+  }
+  const res = await authenticatedUploadWithProgress<HorseRegistrationDocument>(
+    `/api/horses/${encodeURIComponent(horseId)}/documents`,
+    "POST",
+    form,
+    (fraction) => onProgress?.(Math.round(fraction * 100)),
+  );
+  broadcastWorkspaceSync("horse-profile", horseId);
+  return res;
+}
+
+export async function revokeHorseSupplementDocument(horseId: string, docId: string, reason: string) {
+  const res = await horseRequest<{ id: string; status: string; revoked_at: string; revoke_reason: string }>(
+    `/${encodeURIComponent(horseId)}/documents/${encodeURIComponent(docId)}/revoke`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ reason }),
+    },
+  );
+  broadcastWorkspaceSync("horse-profile", horseId);
+  return res;
 }
 
 export async function openFreshDocument(
