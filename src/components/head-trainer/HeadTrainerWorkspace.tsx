@@ -5933,12 +5933,24 @@ function SimulationPanel({ sessions, grooms, activeSimulations, onSelectSimulati
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  const runningScheduleIds = new Set(
+    activeSimulations
+      .filter((item) => item.status === "Running" && item.training_schedule_id)
+      .map((item) => item.training_schedule_id as string),
+  );
+  const runningHorseIds = new Set(
+    activeSimulations
+      .filter((item) => item.status === "Running")
+      .flatMap((item) => item.horses.map((horse) => horse.horse_id)),
+  );
   const eligible = sessions.filter(session => {
     const window = sessionWindow(session);
     const hasActiveGroom = Boolean(
       session.assigned_groom_id && (grooms.length === 0 || grooms.some((g) => g.user_id === session.assigned_groom_id)),
     );
-    return session.session_type !== "Rest" && hasActiveGroom && ["Scheduled", "InProgress"].includes(session.status)
+    return session.session_type !== "Rest" && hasActiveGroom && session.status === "Scheduled"
+      && !runningScheduleIds.has(session.training_schedule_id)
+      && !runningHorseIds.has(session.horse_id)
       && window && nowMs >= window.start && nowMs < window.end;
   });
   return <div className="space-y-5">
@@ -6012,7 +6024,7 @@ function SimulationPanel({ sessions, grooms, activeSimulations, onSelectSimulati
         {error && !finishFailed && <div className="mt-2"><Notice error>{error}</Notice></div>}
         <button className="gold-button" disabled={busy || eligible.length === 0}><Play size={15} /> Mở các buổi đã chọn</button>
       </form>
-      {eligible.length === 0 && <Notice>Chưa có lịch tập phù hợp trong khung giờ hiện tại. Tạo lịch từ giáo án, phân công Groom và mở giả lập tại tab Lịch tập khi đến giờ.</Notice>}
+      {eligible.length === 0 && <Notice>{activeSimulations.length > 0 ? "Tất cả buổi tập trong khung giờ hiện tại đang chạy mô phỏng." : "Chưa có lịch tập phù hợp trong khung giờ hiện tại. Tạo lịch từ giáo án, phân công Groom và mở giả lập tại tab Lịch tập khi đến giờ."}</Notice>}
     </Section>
   </div>;
 }
