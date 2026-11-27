@@ -358,19 +358,37 @@ export function getHorseOwners(query: string, page = 0, signal?: AbortSignal) {
 }
 
 export async function saveHorse(input: HorseInput, id?: string) {
+  const previousDocs = id ? horseDetailCache.get(id)?.data.registration_documents : undefined;
   const res = await horseRequest<Horse>(id ? `/${id}` : "", {
     method: id ? "PUT" : "POST",
     body: JSON.stringify(input),
   });
   invalidateHorseCaches();
-  if (res?.id) {
+  const merged =
+    res && res.registration_documents === undefined && previousDocs !== undefined
+      ? { ...res, registration_documents: previousDocs }
+      : res;
+  if (merged?.id) {
+    for (const cacheKey of horseImageUrlCache.keys()) {
+      if (cacheKey === merged.id || cacheKey.startsWith(`${merged.id}|`)) {
+        horseImageUrlCache.delete(cacheKey);
+      }
+    }
     const now = Date.now();
-    horseDetailCache.set(res.id, { data: res, expiresAt: now + HORSE_CACHE_TTL_MS });
-    if (res.image_signed_url) {
-      horseImageUrlCache.set(res.id, { url: res.image_signed_url, expiresAt: now + 240_000 });
+    if (merged.registration_documents !== undefined) {
+      horseDetailCache.set(merged.id, { data: merged, expiresAt: now + HORSE_CACHE_TTL_MS });
+    }
+    if (merged.image_signed_url) {
+      horseImageUrlCache.set(merged.id, { url: merged.image_signed_url, expiresAt: now + 240_000 });
+      if (merged.image_url) {
+        horseImageUrlCache.set(`${merged.id}|${merged.image_url}`, {
+          url: merged.image_signed_url,
+          expiresAt: now + 240_000,
+        });
+      }
     }
   }
-  return res;
+  return merged;
 }
 
 export function getHorseDeletionWarnings(id: string) {

@@ -10,6 +10,44 @@ import { Notice } from "@/components/horses/HorseUI";
 import { FormSkeleton } from "@/components/shared/LoadingSkeletons";
 import { errorMessage, getHorse, getHorseStables, peekCachedHorse, peekCachedStables, saveHorse, uploadHorseImage, type Horse, type Stable } from "@/api/horses/api";
 
+type UploadStage = "idle" | "compressing" | "uploading" | "saving" | "done";
+
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+
+async function compressHorseImage(file: File): Promise<File> {
+  if (typeof window === "undefined" || typeof document === "undefined") return file;
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type as (typeof ALLOWED_IMAGE_TYPES)[number])) return file;
+  if (file.size <= 350 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maxDim = 1500;
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width || 1, bitmap.height || 1));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    const targetType = file.type === "image/png" ? "image/jpeg" : file.type;
+    if (targetType === "image/jpeg") {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+    }
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close?.();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, targetType, 0.82));
+    if (!blob || blob.size >= file.size) return file;
+    const actualType = blob.type || targetType;
+    if (!ALLOWED_IMAGE_TYPES.includes(actualType as (typeof ALLOWED_IMAGE_TYPES)[number])) return file;
+    const ext = actualType === "image/jpeg" ? ".jpg" : actualType === "image/webp" ? ".webp" : ".png";
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+    return new File([blob], `${baseName}${ext}`, { type: actualType, lastModified: Date.now() });
+  } catch {
+    return file;
+  }
+}
+
 function formFromHorse(currentHorse: Horse, nextStables: Stable[]) {
   return {
     horseName: currentHorse.horse_name,
@@ -39,10 +77,14 @@ export default function EditHorsePage() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imagePath, setImagePath] = useState<string | null>(initialHorse?.image_url ?? null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStage, setUploadStage] = useState<UploadStage>("idle");
   const [uploading, setUploading] = useState(false);
+  const uploadAbortRef = useRef<AbortController | null>(null);
   const [stables, setStables] = useState<Stable[]>(initialStables);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => () => uploadAbortRef.current?.abort(), []);
 
   const isManager = !user || user.roleName === "CLUB_MANAGER";
 
@@ -163,15 +205,51 @@ export default function EditHorsePage() {
     }).catch((reason) => { setSaving(false); setError(errorMessage(reason)); });
   }
 
-  function onFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+  async function onFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) { setError("Ảnh phải là .jpg, .png hoặc .webp và không vượt quá 5MB."); return; }
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      setError("Ảnh phải là .jpg, .png hoặc .webp và không vượt quá 5MB.");
+      return;
+    }
+    uploadAbortRef.current?.abort();
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
+
+    setError("");
+    setUploadProgress(0);
+    setUploadStage("compressing");
+    setUploading(true);
     const reader = new FileReader();
     reader.onload = () => setImagePreview(String(reader.result));
     reader.readAsDataURL(file);
-    setUploading(true);
-    void uploadHorseImage(file, setUploadProgress, new AbortController().signal).then(setImagePath).catch((reason) => setError(errorMessage(reason))).finally(() => setUploading(false));
+
+    try {
+      const optimized = await compressHorseImage(file);
+      if (controller.signal.aborted) return;
+      setUploadStage("uploading");
+      const uploadedPath = await uploadHorseImage(
+        optimized,
+        (pct) => {
+          setUploadProgress(pct);
+          if (pct >= 100) setUploadStage("saving");
+        },
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      setImagePath(uploadedPath);
+      setUploadProgress(100);
+      setUploadStage("done");
+    } catch (reason) {
+      if (reason instanceof DOMException && reason.name === "AbortError") return;
+      setUploadStage("idle");
+      setError(errorMessage(reason));
+    } finally {
+      if (uploadAbortRef.current === controller) {
+        uploadAbortRef.current = null;
+        setUploading(false);
+      }
+    }
   }
 
   return (
@@ -273,9 +351,19 @@ export default function EditHorsePage() {
             )}
             <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50">
               {imagePreview ? <ImagePlus size={15} /> : <Upload size={15} />} Chọn ảnh mới
-              <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={onFileChange} />
+              <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => void onFileChange(event)} />
             </label>
-            {imagePreview && <progress className="mt-2.5 h-1.5 w-full accent-teal-700" max="100" value={uploadProgress} />}
+            {uploadStage !== "idle" && (
+              <div className="mt-2.5 space-y-1">
+                <progress className="h-1.5 w-full accent-teal-700" max="100" value={uploadStage === "compressing" ? 15 : uploadProgress} />
+                <p className={`text-xs ${uploadStage === "done" ? "font-medium text-teal-700" : "text-slate-600"}`}>
+                  {uploadStage === "compressing" && "Đang tối ưu kích thước ảnh..."}
+                  {uploadStage === "uploading" && `Đang tải ảnh lên (${uploadProgress}%)...`}
+                  {uploadStage === "saving" && "Đang lưu ảnh lên máy chủ lưu trữ..."}
+                  {uploadStage === "done" && "Đã tải ảnh mới thành công — bấm Lưu thay đổi để hoàn tất."}
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end gap-2.5 border-t border-slate-100 pt-4">
