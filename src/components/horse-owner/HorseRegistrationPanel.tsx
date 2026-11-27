@@ -49,6 +49,8 @@ type SelectedDocument = { id: string; file: File; type: DocumentCategory };
 type RegistrationFieldKey =
   | "horseName"
   | "birthYear"
+  | "microchipNumber"
+  | "passportNumber"
   | "heightCm"
   | "currentWeightKg"
   | "horseImage"
@@ -616,7 +618,62 @@ export default function HorseRegistrationPanel() {
     } catch (reason) {
       clearProcessingTimer();
       setUploadProgress(null);
-      showFormError(errorMessage(reason));
+      const validKeys = new Set<RegistrationFieldKey>([
+        "horseName",
+        "birthYear",
+        "microchipNumber",
+        "passportNumber",
+        "heightCm",
+        "currentWeightKg",
+        "horseImage",
+        "OWNERSHIP_PROOF",
+        "HEALTH_DOCUMENT",
+        "documents",
+      ]);
+      const mapped: RegistrationFieldErrors = {};
+      if (reason instanceof ApiRequestError && reason.fieldErrors) {
+        for (const [key, msg] of Object.entries(reason.fieldErrors)) {
+          if (validKeys.has(key as RegistrationFieldKey)) {
+            mapped[key as RegistrationFieldKey] = msg;
+          }
+        }
+      }
+      if (Object.keys(mapped).length === 0) {
+        const msg = errorMessage(reason);
+        const lower = msg.toLowerCase();
+        if (lower.includes("microchip")) mapped.microchipNumber = msg;
+        if (lower.includes("hộ chiếu")) mapped.passportNumber = msg;
+      }
+      const fieldKeys = Object.keys(mapped) as RegistrationFieldKey[];
+      if (fieldKeys.length > 0) {
+        setFieldErrors(mapped);
+        setError("");
+        setNotice("");
+        const focusOrder: RegistrationFieldKey[] = [
+          "horseName",
+          "birthYear",
+          "microchipNumber",
+          "passportNumber",
+          "heightCm",
+          "currentWeightKg",
+          "horseImage",
+          "OWNERSHIP_PROOF",
+          "HEALTH_DOCUMENT",
+          "documents",
+        ];
+        const firstKey = focusOrder.find((key) => Boolean(mapped[key])) ?? fieldKeys[0];
+        window.requestAnimationFrame(() => {
+          const named = formRef.current?.elements.namedItem(firstKey);
+          const target =
+            named instanceof HTMLElement
+              ? named
+              : formRef.current?.querySelector<HTMLElement>(`[data-field-key="${firstKey}"]`);
+          target?.scrollIntoView({ behavior: "smooth", block: "center" });
+          target?.focus({ preventScroll: true });
+        });
+      } else {
+        showFormError(errorMessage(reason));
+      }
     } finally {
       clearProcessingTimer();
       setSaving(false);
@@ -1078,8 +1135,40 @@ export default function HorseRegistrationPanel() {
                   </>
                 )}
 
-                <label className="block"><span className="field-label">Số microchip</span><input className="field-control px-3" name="microchipNumber" maxLength={100} placeholder="Nếu có" defaultValue={editingRequest?.microchip_number ?? ""} /></label>
-                <label className="block"><span className="field-label">Số hộ chiếu ngựa</span><input className="field-control px-3" name="passportNumber" maxLength={100} placeholder="Nếu có" defaultValue={editingRequest?.passport_number ?? ""} /></label>
+                <label className="block">
+                  <span className="field-label">Số microchip</span>
+                  <input
+                    className={`field-control px-3 ${fieldErrors.microchipNumber ? "!border-rose-400 bg-rose-50/40 focus:!border-rose-500" : ""}`}
+                    name="microchipNumber"
+                    maxLength={100}
+                    placeholder="Nếu có"
+                    defaultValue={editingRequest?.microchip_number ?? ""}
+                    aria-invalid={Boolean(fieldErrors.microchipNumber)}
+                    onChange={() => clearFieldError("microchipNumber")}
+                  />
+                  {fieldErrors.microchipNumber && (
+                    <span className="mt-1 block text-xs font-medium text-rose-600" role="alert">
+                      {fieldErrors.microchipNumber}
+                    </span>
+                  )}
+                </label>
+                <label className="block">
+                  <span className="field-label">Số hộ chiếu ngựa</span>
+                  <input
+                    className={`field-control px-3 ${fieldErrors.passportNumber ? "!border-rose-400 bg-rose-50/40 focus:!border-rose-500" : ""}`}
+                    name="passportNumber"
+                    maxLength={100}
+                    placeholder="Nếu có"
+                    defaultValue={editingRequest?.passport_number ?? ""}
+                    aria-invalid={Boolean(fieldErrors.passportNumber)}
+                    onChange={() => clearFieldError("passportNumber")}
+                  />
+                  {fieldErrors.passportNumber && (
+                    <span className="mt-1 block text-xs font-medium text-rose-600" role="alert">
+                      {fieldErrors.passportNumber}
+                    </span>
+                  )}
+                </label>
               </div>
 
               {requestType === "REGISTER" && (

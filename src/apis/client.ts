@@ -11,6 +11,7 @@ export class ApiRequestError extends Error {
   constructor(
     message: string,
     public status: number,
+    public fieldErrors?: Record<string, string>,
   ) {
     super(message);
   }
@@ -124,13 +125,31 @@ function expiredSession(): ApiRequestError {
 const API_BASE_URL =
   (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080").replace(/\/+$/, "");
 
+type ApiErrorItem = { field?: string; message?: string };
+
 type ApiError = {
   message?: string;
+  errors?: ApiErrorItem[];
   error?: {
     message?: string;
     details?: unknown;
   };
 };
+
+function extractApiFieldErrors(error: ApiError): Record<string, string> | undefined {
+  const items = Array.isArray(error.errors)
+    ? error.errors
+    : Array.isArray(error.error?.details)
+      ? (error.error.details as ApiErrorItem[])
+      : [];
+  const mapped: Record<string, string> = {};
+  for (const item of items) {
+    if (item && typeof item.field === "string" && item.field && typeof item.message === "string" && item.message) {
+      mapped[item.field] = item.message;
+    }
+  }
+  return Object.keys(mapped).length > 0 ? mapped : undefined;
+}
 
 function extractApiErrorMessage(error: ApiError, statusText: string): string {
   const rawError = error.error;
@@ -167,7 +186,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       error = { message: response.statusText };
     }
-    throw new ApiRequestError(extractApiErrorMessage(error, response.statusText), response.status);
+    throw new ApiRequestError(extractApiErrorMessage(error, response.statusText), response.status, extractApiFieldErrors(error));
   }
 
   if (response.status === 204) return undefined as T;
@@ -231,7 +250,7 @@ function sendFormDataWithProgress<T>(
       } catch {
         parsed = { message: xhr.statusText };
       }
-      reject(new ApiRequestError(extractApiErrorMessage(parsed, xhr.statusText), xhr.status));
+      reject(new ApiRequestError(extractApiErrorMessage(parsed, xhr.statusText), xhr.status, extractApiFieldErrors(parsed)));
     };
     xhr.send(formData);
   });
