@@ -249,6 +249,17 @@ const queryString = (params: Record<string, string | number | boolean | undefine
 };
 
 export function veterinarianError(error: unknown) {
+  if (error instanceof ApiRequestError) {
+    const details = error.details as { injury_markers?: { id: string; body_part: string; recovery_status: string; marked_at: string }[]; required_box_type?: string } | undefined;
+    if (error.code === "ACTIVE_INJURY_MARKER") {
+      const positions = Array.isArray(details?.injury_markers) ? details.injury_markers.map((marker) =>
+        `${marker.body_part} (${marker.recovery_status}; ${marker.marked_at}; ID: ${marker.id})`).join("; ") : "";
+      return `${error.message}${positions ? ` Vị trí chưa hồi phục: ${positions}.` : ""} Kiểm tra từng vị trí chưa hồi phục trong mục Chấn thương; chỉ cập nhật Đã hồi phục sau khi đánh giá.`;
+    }
+    if (error.code === "NO_MEDICAL_STABLE_AVAILABLE") {
+      return `${error.message}${details?.required_box_type ? ` Loại chuồng thiếu: ${details.required_box_type}.` : ""} Nhờ quản lý câu lạc bộ bố trí chuồng phù hợp rồi lưu lại. Trạng thái sức khỏe chưa được thay đổi.`;
+    }
+  }
   return error instanceof Error
     ? error.message
     : "Không thể kết nối máy chủ. Vui lòng thử lại.";
@@ -259,6 +270,12 @@ function call<T>(path: string, method = "GET", body?: unknown): Promise<T> {
     method,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+}
+
+function notifyHorseHealthChanged(horseId?: string) {
+  if (typeof broadcastWorkspaceSync === "function") {
+    broadcastWorkspaceSync("horse-health", horseId);
+  }
 }
 
 let workloadEndpointUnavailable = false;
@@ -325,12 +342,27 @@ export const veterinarianApi = {
   updateDiet(id: string, input: Record<string, unknown>) {
     return call<DietRecord>(`/api/diet-records/${id}`, "PATCH", input);
   },
-  injuries(horse: string, latest = false) {
-    return call<ApiPage<InjuryMarker>>(`/api/horses/${horse}/injury-markers?latest_only=${latest}&page=1&limit=100`);
+  async injuries(horse: string, latest = false) {
+    const fetchPage = (page: number) => authenticatedRequest<ApiPage<InjuryMarker>>(
+      `/api/horses/${horse}/injury-markers?latest_only=${latest}&page=${page}&limit=100`, { cache: "no-store" });
+    const first = await fetchPage(1);
+    const data = [...first.data];
+    for (let page = 2; page <= Math.ceil(first.total / (first.limit || 100)); page++) {
+      data.push(...(await fetchPage(page)).data);
+    }
+    return { ...first, data };
   },
   createInjury(horse: string, input: Record<string, unknown>) {
-    return call<InjuryMarker>(`/api/horses/${horse}/injury-markers`, "POST", input)
-      .then((res) => { broadcastWorkspaceSync("horse-health", horse); return res; });
+    const { marked_at, marked_by, ...body } = input;
+    void marked_at; void marked_by;
+    return call<InjuryMarker>(`/api/horses/${horse}/injury-markers`, "POST", body)
+      .then((res) => { notifyHorseHealthChanged(horse); return res; });
+  },
+  updateInjury(id: string, input: Record<string, unknown>) {
+    const { marked_at, marked_by, ...body } = input;
+    void marked_at; void marked_by;
+    return call<InjuryMarker>(`/api/injury-markers/${id}`, "PATCH", body)
+      .then((res) => { notifyHorseHealthChanged(); return res; });
   },
   updateHealthStatus(horse: string, current_status: string, readiness_status: string, note?: string) {
     return call<{
@@ -341,15 +373,15 @@ export const veterinarianApi = {
       upcoming_sessions: { training_schedule_id: string; event_date: string; start_time?: string; session_type: string }[];
       stable_relocation?: { from_box_code?: string; to_box_code?: string; box_type: string; message: string } | null;
     }>(`/api/horses/${horse}/health-status`, "PATCH", { current_status, readiness_status, note })
-      .then((res) => { broadcastWorkspaceSync("horse-health", horse); return res; });
+      .then((res) => { notifyHorseHealthChanged(horse); return res; });
   },
   lockTraining(horse: string, input: { lock_level: string; lock_reason: string }) {
     return call<{ id: string; is_training_locked: boolean; was_locked: boolean; upcoming_sessions: unknown[] }>(`/api/horses/${horse}/training-lock`, "PUT", input)
-      .then((res) => { broadcastWorkspaceSync("horse-health", horse); return res; });
+      .then((res) => { notifyHorseHealthChanged(horse); return res; });
   },
   unlockTraining(horse: string, reason: string) {
     return call<{ id: string; is_training_locked: boolean; suggest_status_update: boolean }>(`/api/horses/${horse}/training-unlock`, "POST", { reason })
-      .then((res) => { broadcastWorkspaceSync("horse-health", horse); return res; });
+      .then((res) => { notifyHorseHealthChanged(horse); return res; });
   },
   schedules(horse?: string) {
     const query = queryString({ horse_id: horse, page: 1, limit: 100 });

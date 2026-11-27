@@ -11,6 +11,8 @@ export class ApiRequestError extends Error {
   constructor(
     message: string,
     public status: number,
+    public code?: string,
+    public details?: unknown,
     public fieldErrors?: Record<string, string>,
   ) {
     super(message);
@@ -128,9 +130,11 @@ const API_BASE_URL =
 type ApiErrorItem = { field?: string; message?: string };
 
 type ApiError = {
+  code?: string;
   message?: string;
   errors?: ApiErrorItem[];
   error?: {
+    code?: string;
     message?: string;
     details?: unknown;
   };
@@ -186,7 +190,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       error = { message: response.statusText };
     }
-    throw new ApiRequestError(extractApiErrorMessage(error, response.statusText), response.status, extractApiFieldErrors(error));
+    throw new ApiRequestError(
+      extractApiErrorMessage(error, response.statusText),
+      response.status,
+      error.error?.code ?? error.code,
+      error.error?.details,
+      extractApiFieldErrors(error),
+    );
   }
 
   if (response.status === 204) return undefined as T;
@@ -250,7 +260,15 @@ function sendFormDataWithProgress<T>(
       } catch {
         parsed = { message: xhr.statusText };
       }
-      reject(new ApiRequestError(extractApiErrorMessage(parsed, xhr.statusText), xhr.status, extractApiFieldErrors(parsed)));
+      reject(
+        new ApiRequestError(
+          extractApiErrorMessage(parsed, xhr.statusText),
+          xhr.status,
+          parsed.error?.code ?? parsed.code,
+          parsed.error?.details,
+          extractApiFieldErrors(parsed),
+        ),
+      );
     };
     xhr.send(formData);
   });
