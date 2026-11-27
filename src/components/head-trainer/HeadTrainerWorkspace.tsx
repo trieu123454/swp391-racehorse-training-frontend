@@ -829,7 +829,7 @@ export default function HeadTrainerWorkspace() {
     invalidateCalendarCache();
     const tasks: Promise<unknown>[] = [loadOverview(true)];
     if (tab === "overview" || tab === "plans" || tab === "races") tasks.push(loadHorseData());
-    if (tab === "calendar" || tab === "overview") tasks.push(loadCalendar());
+    if (tab === "calendar" || tab === "overview" || tab === "simulation") tasks.push(loadCalendar());
     await Promise.allSettled(tasks);
   }, { enabled: !busy, intervalMs: 8_000, minGapMs: 2_000 });
 
@@ -897,17 +897,28 @@ export default function HeadTrainerWorkspace() {
     }
   }, [loadOverview, loadHorseData, loadCalendar, invalidateCalendarCache]);
 
+  const loadCalendarRef = useRef(loadCalendar);
+  loadCalendarRef.current = loadCalendar;
+
   useEffect(() => {
     let active = true;
     let fetching = false;
+    let prevActiveIds: string[] = [];
     const reload = async () => {
       if (fetching) return;
       fetching = true;
       try {
         const result = await headTrainerApi.activeSimulations();
         if (active) {
+          const nextIds = result.data.map((item) => item.simulation_id);
+          const finishedAny = prevActiveIds.some((id) => !nextIds.includes(id));
+          prevActiveIds = nextIds;
           setActiveSimulations(result.data);
           setSimulation(current => current ?? result.data[0] ?? null);
+          if (finishedAny) {
+            invalidateCalendarCache();
+            void loadCalendarRef.current().catch(() => {});
+          }
         }
       } catch (reason) { if (active) setError(headTrainerError(reason)); }
       finally { fetching = false; }
@@ -915,7 +926,7 @@ export default function HeadTrainerWorkspace() {
     void reload();
     const interval = window.setInterval(() => void reload(), 15000);
     return () => { active = false; window.clearInterval(interval); };
-  }, []);
+  }, [invalidateCalendarCache]);
 
   useEffect(() => {
     if (!simulation || simulation.status !== "Running") return;
@@ -935,6 +946,8 @@ export default function HeadTrainerWorkspace() {
         }])));
         if (snapshot.status !== "Running") {
           setSimulation(snapshot);
+          setActiveSimulations((items) => items.filter((item) => item.simulation_id !== snapshot.simulation_id));
+          invalidateCalendarCache();
           setAnalysisRevision(value=>value+1);
           void Promise.all([loadOverview(),loadHorseData(),loadCalendar()]).catch(reason=>setError(headTrainerError(reason)));
           setNotice(snapshot.status === "Completed" ? "Buổi tập đã hoàn thành và lưu dữ liệu." : "Buổi giả lập đã dừng. Dữ liệu đã thu vẫn được giữ lại.");
@@ -1177,7 +1190,9 @@ export default function HeadTrainerWorkspace() {
       horse_ids: [session.horse_id], training_schedule_id: session.training_schedule_id, scenario,
     }))));
     if (result?.data.length) {
+      const startedScheduleIds = new Set(selected.map((s) => s.training_schedule_id));
       setActiveSimulations(current => [...current.filter(item => !result.data.some(next => next.simulation_id === item.simulation_id)), ...result.data]);
+      setSessions(current => current.map(s => startedScheduleIds.has(s.training_schedule_id) ? { ...s, status: "InProgress" } : s));
       selectSimulation(result.data[0]);
       invalidateCalendarCache();
       void loadCalendar().catch(() => {});
