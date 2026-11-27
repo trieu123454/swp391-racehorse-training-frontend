@@ -15,10 +15,10 @@ export function invalidateHorseCaches() {
   horseDetailCache.clear();
   horseStablesCache.clear();
   horseStablesInFlight = null;
+  horseImageUrlCache.clear();
 }
 
-export function broadcastWorkspaceSync(kind: "horse-health" | "schedule", horseId?: string) {
-  invalidateHorseCaches();
+function emitWorkspaceSync(kind: "horse-health" | "schedule" | "horse-profile", horseId?: string) {
   if (typeof window === "undefined") return;
   const payload = { kind, horseId, ts: Date.now() };
   try {
@@ -35,6 +35,11 @@ export function broadcastWorkspaceSync(kind: "horse-health" | "schedule", horseI
   } catch {
     // Ignore storage quota errors
   }
+}
+
+export function broadcastWorkspaceSync(kind: "horse-health" | "schedule" | "horse-profile", horseId?: string) {
+  invalidateHorseCaches();
+  emitWorkspaceSync(kind, horseId);
 }
 
 export function subscribeWorkspaceSync(handler: (detail: { kind: string; horseId?: string }) => void): () => void {
@@ -202,7 +207,7 @@ export async function listHorses(params: HorseListParams = {}, options?: { force
   if (existing) {
     return existing;
   }
-  const pending = horseRequest<HorsePage>(`?${key}`)
+  const pending = horseRequest<HorsePage>(`?${key}`, options?.force ? { cache: "reload" } : {})
     .then((res) => {
       const doneAt = Date.now();
       horseListCache.set(key, { data: res, expiresAt: doneAt + HORSE_CACHE_TTL_MS });
@@ -248,13 +253,13 @@ export function peekCachedStables(): Stable[] | null {
   return horseStablesCache.get("all")?.data ?? null;
 }
 
-export async function getHorse(id: string) {
+export async function getHorse(id: string, options?: { force?: boolean }) {
   const now = Date.now();
-  const cached = horseDetailCache.get(id);
+  const cached = !options?.force ? horseDetailCache.get(id) : undefined;
   if (cached && now < cached.expiresAt) {
     return cached.data;
   }
-  const res = await horseRequest<Horse>(`/${id}`);
+  const res = await horseRequest<Horse>(`/${id}`, options?.force ? { cache: "reload" } : {});
   horseDetailCache.set(id, { data: res, expiresAt: now + HORSE_CACHE_TTL_MS });
   if (res.image_signed_url) {
     horseImageUrlCache.set(id, { url: res.image_signed_url, expiresAt: now + 240_000 });
@@ -388,6 +393,7 @@ export async function saveHorse(input: HorseInput, id?: string) {
       }
     }
   }
+  emitWorkspaceSync("horse-profile", merged?.id ?? id);
   return merged;
 }
 
@@ -397,7 +403,7 @@ export function getHorseDeletionWarnings(id: string) {
 
 export async function deleteHorse(id: string) {
   const res = await horseRequest<void>(`/${id}?confirmed=true`, { method: "DELETE" });
-  invalidateHorseCaches();
+  broadcastWorkspaceSync("horse-profile", id);
   return res;
 }
 

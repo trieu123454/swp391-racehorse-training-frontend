@@ -11,7 +11,20 @@ function setup(fetch, sharedLocalStorage) {
     return { get length() { return data.size; }, key: index => [...data.keys()][index] ?? null, getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) };
   };
   const localStorage = sharedLocalStorage ?? storage(), sessionStorage = storage(), cache = {};
-  const context = vm.createContext({ window: { localStorage, sessionStorage, dispatchEvent: () => {} }, Event: class Event {}, CustomEvent: class CustomEvent {}, fetch, process: { env: {} } });
+  const listeners = new Map();
+  const win = {
+    localStorage,
+    sessionStorage,
+    addEventListener: (type, fn) => {
+      const list = listeners.get(type) ?? [];
+      list.push(fn);
+      listeners.set(type, list);
+    },
+    dispatchEvent: (event) => {
+      for (const fn of listeners.get(event.type) ?? []) fn(event);
+    },
+  };
+  const context = vm.createContext({ window: win, Event: class Event { constructor(type) { this.type = type; } }, CustomEvent: class CustomEvent { constructor(type, init) { this.type = type; this.detail = init?.detail; } }, fetch, process: { env: {} } });
   function load(name) {
     if (cache[name]) return cache[name];
     const file = name === "api" ? "../src/apis/client.ts" : name === "session" ? "../src/stores/session.ts" : `../src/lib/${name}.ts`;
@@ -21,7 +34,7 @@ function setup(fetch, sharedLocalStorage) {
     vm.runInContext(`(function(require,module,exports){${compiled}\n})`, context)(ref => load(ref.split("/").at(-1)), module, module.exports);
     return cache[name] = module.exports;
   }
-  return { session: load("session"), api: load("api"), localStorage, sessionStorage };
+  return { session: load("session"), api: load("api"), localStorage, sessionStorage, win };
 }
 const user = { id: 1, fullName: "Owner", email: "owner@example.com", roleName: "HORSE_OWNER", status: "APPROVED" };
 const auth = { accessToken: "access", refreshToken: "refresh", user };
@@ -229,4 +242,26 @@ test("reading notifications preserves cached horse images and refreshes notifica
   await app.api.authenticatedRequest("/api/notifications?page=1");
   assert.equal(imageCalls, 1);
   assert.equal(notificationCalls, 2);
+});
+
+test("cross-tab storage mutation clears cached GET entries and notifies current tab", async () => {
+  let horseCalls = 0;
+  const app = setup(async () => reply(200, { id: "h1", horse_name: ++horseCalls === 1 ? "Old Name" : "New Name" }));
+  app.session.saveSession(auth);
+  const events = [];
+  app.win.addEventListener(app.api.APP_MUTATION_COMPLETED_EVENT, (event) => events.push(event.detail));
+
+  assert.equal((await app.api.authenticatedRequest("/api/horses/h1")).horse_name, "Old Name");
+  assert.equal((await app.api.authenticatedRequest("/api/horses/h1")).horse_name, "Old Name");
+  assert.equal(horseCalls, 1);
+
+  app.win.dispatchEvent({
+    type: "storage",
+    key: "racehorse:mutation-sync",
+    newValue: JSON.stringify({ tabId: "other-tab", path: "/api/horses/h1", method: "PUT", ts: Date.now() }),
+  });
+
+  assert.equal(JSON.stringify(events), JSON.stringify([{ path: "/api/horses/h1", method: "PUT", crossTab: true }]));
+  assert.equal((await app.api.authenticatedRequest("/api/horses/h1")).horse_name, "New Name");
+  assert.equal(horseCalls, 2);
 });

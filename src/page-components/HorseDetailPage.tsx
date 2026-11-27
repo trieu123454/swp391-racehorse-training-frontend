@@ -6,7 +6,8 @@ import { Routes } from "@/routes/Routes";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, CalendarDays, Download, ExternalLink, FileText, MapPin, Pencil, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useAutoRefresh } from "@/shared/hooks/use-auto-refresh";
 import { useHorseUser } from "@/components/horses/HorseShell";
 import { HorseImage, Modal, Notice, StatusBadge } from "@/components/horses/HorseUI";
 import {
@@ -43,28 +44,35 @@ export default function HorseDetailPage() {
   const [deleteError, setDeleteError] = useState("");
   const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => {
-    let active = true;
+  const loadHorse = useCallback(async (force = false) => {
     const id = horseId;
-    const cached = peekCachedHorse(id);
-    setRequest({ id, loading: !cached, horse: cached, error: "" });
-    getHorse(id)
-      .then((horse) => {
-        if (!active) return;
-        setRequest({ id, loading: false, horse, error: "" });
-      })
-      .catch((reason) => {
-        if (active && !cached) setRequest({ id, loading: false, horse: null, error: errorMessage(reason) });
-      });
+    if (!id) return;
+    const cached = !force ? peekCachedHorse(id) : null;
+    try {
+      const nextHorse = await getHorse(id, { force });
+      setRequest({ id, loading: false, horse: nextHorse, error: "" });
+    } catch (reason) {
+      if (!cached && !force) {
+        setRequest({ id, loading: false, horse: null, error: errorMessage(reason) });
+      }
+    }
     if (user.roleName === "CLUB_MANAGER") {
       getHorseOwnershipHistory(id)
-        .then((history) => { if (active) setOwnershipHistory(history); })
+        .then((history) => setOwnershipHistory(history))
         .catch(() => {});
     } else {
       setOwnershipHistory([]);
     }
-    return () => { active = false; };
   }, [horseId, user.roleName]);
+
+  useEffect(() => {
+    const id = horseId;
+    const cached = peekCachedHorse(id);
+    setRequest({ id, loading: !cached, horse: cached, error: "" });
+    void loadHorse(false);
+  }, [horseId, loadHorse]);
+
+  useAutoRefresh(() => loadHorse(true), { enabled: Boolean(horseId), intervalMs: 20_000, minGapMs: 2_000 });
 
   const isCurrentRequest = request.id === horseId;
   const loading = !isCurrentRequest || request.loading;

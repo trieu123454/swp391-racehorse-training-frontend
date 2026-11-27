@@ -23,6 +23,8 @@ export const SESSION_EXPIRED_EVENT = "racehorse:session-expired";
 export const APP_MUTATION_COMPLETED_EVENT = "racehorse:mutation-completed";
 export const NOTIFICATION_COUNT_CHANGED_EVENT = "racehorse:notification-count-changed";
 export const SWR_CACHE_UPDATED_EVENT = "racehorse:swr-updated";
+const CROSS_TAB_MUTATION_CHANNEL = "racehorse:mutation-sync";
+const TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 const GET_FRESH_TTL_MS = 15_000;
 const GET_STALE_TTL_MS = 300_000;
@@ -101,6 +103,41 @@ function writeGetCache(cacheKey: string, value: unknown, now: number, path: stri
   } catch { /* ignore quota errors */ }
 }
 
+function handleCrossTabMutation(raw: unknown) {
+  if (!raw || typeof raw !== "object") return;
+  const payload = raw as { tabId?: unknown; path?: unknown; method?: unknown };
+  if (payload.tabId === TAB_ID || typeof payload.path !== "string" || typeof payload.method !== "string") return;
+  clearApiGetCache(payload.path.startsWith("/api/notifications/") ? "/api/notifications" : undefined);
+  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof CustomEvent === "function") {
+    window.dispatchEvent(new CustomEvent(APP_MUTATION_COMPLETED_EVENT, {
+      detail: { path: payload.path, method: payload.method, crossTab: true },
+    }));
+  }
+}
+
+if (typeof window !== "undefined") {
+  try {
+    const navEntry = window.performance?.getEntriesByType?.("navigation")?.[0] as { type?: string } | undefined;
+    if (navEntry?.type === "reload") {
+      clearApiGetCache();
+    }
+  } catch { /* ignore navigation timing errors */ }
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      const channel = new BroadcastChannel(CROSS_TAB_MUTATION_CHANNEL);
+      channel.onmessage = (event) => handleCrossTabMutation(event.data);
+    }
+  } catch { /* ignore BroadcastChannel errors */ }
+  try {
+    window.addEventListener?.("storage", (event) => {
+      if (event.key !== CROSS_TAB_MUTATION_CHANNEL || !event.newValue) return;
+      try {
+        handleCrossTabMutation(JSON.parse(event.newValue));
+      } catch { /* ignore malformed cross-tab payload */ }
+    });
+  } catch { /* ignore storage listener errors */ }
+}
+
 function announceMutationCompleted(path: string, method: string) {
   const normalizedMethod = method.toUpperCase();
   if (!["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) {
@@ -109,9 +146,19 @@ function announceMutationCompleted(path: string, method: string) {
   if (typeof window === "undefined") return;
   if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) return;
   if (path.startsWith("/api/notifications/")) return;
-  window.dispatchEvent(new CustomEvent(APP_MUTATION_COMPLETED_EVENT, {
-    detail: { path, method: normalizedMethod },
-  }));
+  const detail = { path, method: normalizedMethod };
+  window.dispatchEvent?.(new CustomEvent(APP_MUTATION_COMPLETED_EVENT, { detail }));
+  const payload = { tabId: TAB_ID, path, method: normalizedMethod, ts: Date.now() };
+  try {
+    if (typeof BroadcastChannel !== "undefined") {
+      const channel = new BroadcastChannel(CROSS_TAB_MUTATION_CHANNEL);
+      channel.postMessage(payload);
+      channel.close();
+    }
+  } catch { /* ignore BroadcastChannel errors */ }
+  try {
+    window.localStorage?.setItem(CROSS_TAB_MUTATION_CHANNEL, JSON.stringify(payload));
+  } catch { /* ignore storage quota errors */ }
 }
 
 function expiredSession(): ApiRequestError {

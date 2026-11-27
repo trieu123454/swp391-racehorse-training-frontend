@@ -842,7 +842,7 @@ export default function HeadTrainerWorkspace() {
       void loadCalendar();
     };
     const unsubscribe = subscribeWorkspaceSync((detail) => {
-      if (detail.kind === "horse-health" || detail.kind === "schedule") {
+      if (detail.kind === "horse-health" || detail.kind === "schedule" || detail.kind === "horse-profile") {
         syncWorkspace();
       }
     });

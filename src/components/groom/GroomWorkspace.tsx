@@ -199,7 +199,7 @@ export default function GroomWorkspace() {
   useEffect(() => {
     const refreshSilently = () => { void load(); };
     const unsubscribe = subscribeWorkspaceSync((detail) => {
-      if (detail.kind === "schedule" || detail.kind === "horse-health") refreshSilently();
+      if (detail.kind === "schedule" || detail.kind === "horse-health" || detail.kind === "horse-profile") refreshSilently();
     });
     window.addEventListener("racehorse:notification-arrived", refreshSilently);
     return () => {

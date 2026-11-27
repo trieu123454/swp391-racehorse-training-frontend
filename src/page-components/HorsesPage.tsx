@@ -50,6 +50,10 @@ function clearLocalHorsePageCache() {
 }
 
 if (typeof window !== "undefined") {
+  try {
+    const navEntry = window.performance?.getEntriesByType?.("navigation")?.[0] as { type?: string } | undefined;
+    if (navEntry?.type === "reload") clearLocalHorsePageCache();
+  } catch { /* ignore navigation timing errors */ }
   window.addEventListener(APP_MUTATION_COMPLETED_EVENT, clearLocalHorsePageCache);
 }
 
@@ -147,8 +151,8 @@ export default function HorsesPage() {
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  const fetchHorses = useCallback(async (silent = false) => {
-    const cached = horsesListCache.get(cacheKey);
+  const fetchHorses = useCallback(async (silent = false, force = false) => {
+    const cached = !force ? horsesListCache.get(cacheKey) : undefined;
     if (!silent && !cached) setLoading(true);
     if (!silent) setError("");
     let outOfRange = false;
@@ -159,7 +163,7 @@ export default function HorsesPage() {
         search: search || undefined,
         stableBoxId: isOwner || stableFilter === "ALL" ? undefined : stableFilter,
         currentStatus: statusFilter === "ALL" ? undefined : statusFilter,
-      });
+      }, { force });
       const lastPage = Math.max(1, Math.ceil(result.total / PAGE_SIZE));
       setTotal(result.total);
       if (pageNumber > lastPage) {
@@ -194,7 +198,7 @@ export default function HorsesPage() {
     void fetchHorses(Boolean(cached));
   }, [cacheKey, fetchHorses, isOwner, pageNumber, reloadKey, search, stableFilter, statusFilter]);
 
-  useAutoRefresh(() => fetchHorses(true), { intervalMs: 25_000 });
+  useAutoRefresh(() => fetchHorses(true, true), { intervalMs: 25_000 });
 
   useEffect(() => {
     if (isOwner) return;
